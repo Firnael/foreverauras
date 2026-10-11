@@ -38,6 +38,25 @@ local function SetShown(frame, shown)
   if shown then frame:Show() else frame:Hide() end
 end
 
+-- A chain frame (a display's start, or its shadow start) is anchored to
+-- Blizzard's aura frames, and the client can make such a frame forbidden to
+-- addon code once its position depends on their secret layout. After that
+-- it can be neither re-anchored nor hidden (ClearAllPoints raised "Attempt
+-- to access forbidden object"), so it is left where it is, drawing nothing,
+-- and a fresh frame takes its place in the chain. Its size is kept on the
+-- flow (sizeKey), since a forbidden frame cannot be measured either.
+local function FreshFrame(flow, key, sizeKey, region)
+  local frame = flow[key]
+  if not frame or not Locked(frame) then return frame end
+  frame = CreateFrame("Frame", nil, region, "DisableUntrustedLayoutScriptsTemplate")
+  frame:EnableMouse(false)
+  local size = flow[sizeKey]
+  frame:SetSize(size and size[1] or 1, size and size[2] or 1)
+  if flow.endFrame == flow[key] then flow.endFrame = frame end
+  flow[key] = frame
+  return frame
+end
+
 Display.flowGrowths = {RIGHT = "Right", LEFT = "Left", DOWN = "Down", UP = "Up",
   CENTER_HORIZONTAL = "Centered Horizontal", CENTER_VERTICAL = "Centered Vertical"}
 
@@ -235,6 +254,8 @@ function Display.EnsureFlowStart(region, data)
     flow.start:EnableMouse(false)
   end
   local width, height = Display.Dimensions(data)
+  flow.startSize = {width, height}
+  FreshFrame(flow, "start", "startSize", region)
   flow.start:SetSize(width, height)
   SetShown(flow.start, true)
   local growth = Display.FlowGrowth(data)
@@ -1604,7 +1625,7 @@ local function SizeFlowNormal(region, normal, g, group)
   flow.x, flow.y = g.sign[1] * size, g.sign[2] * size
   if (normal.homeWidth ~= width or normal.homeHeight ~= height) and not InCombatLockdown() then
     normal.home:SetSize(width, height)
-    if normal.stand then flow.start:SetSize(width, height) end
+    if normal.stand then flow.start:SetSize(width, height); flow.startSize = {width, height} end
     normal.homeWidth, normal.homeHeight = width, height
   end
   if g.shadow then
@@ -1669,7 +1690,7 @@ function Display.AnchorFlowNormal(data, region, anchorParent, anchorPoint)
     normal = {}
     normal.home = CreateFrame("Frame", nil, UIParent)
     normal.home:EnableMouse(false)
-    normal.flow = {start = CreateFrame("Frame", nil, region, "DisableUntrustedLayoutScriptsTemplate")}
+    normal.flow = {start = CreateFrame("Frame", nil, region, "DisableUntrustedLayoutScriptsTemplate"), startSize = {1, 1}}
     normal.flow.start:EnableMouse(false)
     normal.flow.start:SetSize(1, 1)
     region.flowNormal = normal
@@ -1789,6 +1810,7 @@ function Display.RechainFlow(group)
     local spacing = tonumber(group.blizzardFlowSpacing) or 2
     for _, flow in ipairs(flows) do
       if flow.shadowStart and flow.shadowKind then
+        if not combat then FreshFrame(flow, "shadowStart", "shadowSize", flow.region) end
         local start = flow.shadowStart
         if combat then
           if shadowEnd then Place(start, g.shadow.start, shadowEnd[1], shadowEnd[2], shadowEnd[3], shadowEnd[4])
@@ -1821,6 +1843,7 @@ function Display.RechainFlow(group)
   local origin, lead = nil, 0
   for _, flow in ipairs(flows) do
     local region = flow.region
+    if not combat then FreshFrame(flow, "start", "startSize", region) end
     if flow.home and not flow.stand then
       origin = origin or flow.home
       local x, y = g.sign[1] * lead, g.sign[2] * lead

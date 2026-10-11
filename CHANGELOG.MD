@@ -1,5 +1,10 @@
 # Changelog
 ## Versions
+## 0.74.6
+- SetPoint LUA error fix
+- Re-fix broken spell cooldown from 0.74.4
+Note: Heavy optimizations has caused a few previous updates to break Spell Cooldown; but now it's working, with the optimizations
+
 ## 0.74.4
 - Global Cooldown trigger: a display that went active on the GCD stayed active after it ended; the trigger now ends itself (one scheduled check with readable timing, a brief public-flag poll in combat).
 - Further performance improvements

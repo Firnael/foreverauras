@@ -2685,13 +2685,17 @@ do
         end
         detail.charges, detail.chargesMax, detail.count = charges, maxCharges, count
         detail.chargeGainTime, detail.chargeLostTime = nil, nil
-        -- Only a change is announced. A restricted spell's duration object is
-        -- a snapshot, but one taken while the spell is on cooldown stays right
-        -- until the cooldown ends or is reset, which flips ready and is
-        -- announced here; a new global cooldown reaches the displays that
-        -- show it through GCD_UPDATE (CheckCooldownReady). Announcing every
-        -- spell on every cast made every cooldown icon redraw twice per cast.
-        if stateChanged and not WeakAuras.IsPaused() then
+        -- A change is announced. A ready spell stays quiet otherwise: its
+        -- duration object draws an empty swipe either way, and announcing
+        -- every spell on every cast made every cooldown icon redraw twice per
+        -- cast. A spell that is, or may be, on cooldown (ready false or
+        -- unknown) is announced on every loud check as well: a restricted
+        -- spell's duration object is a snapshot, and the one taken when the
+        -- cast's global cooldown arrived can predate the spell's own cooldown,
+        -- which the client reports in a later event with no readable change
+        -- (an instant such as Thunder Clap stayed drawn as ready until combat
+        -- ended). Quiet checks (usability batches, the poller) stay quiet.
+        if (stateChanged or (ready ~= true and not self.quietSecretCheck)) and not WeakAuras.IsPaused() then
           self:SendEventsForSpell(effectiveSpellId, "SPELL_COOLDOWN_CHANGED", effectiveSpellId)
         end
         return
