@@ -1426,21 +1426,24 @@ local function modify(parent, region, data)
             parent = frame
           end
         end
+        -- Parent, scale and strata are set only when they differ: every
+        -- positioning pass runs this for every child, and re-parenting a
+        -- frame to the parent it already has still costs the client a layout.
         if parent and parent.IsObjectType and parent:IsObjectType("Frame") then
-          controlPoint:SetParent(parent)
-          controlPoint:SetScale(data.scale and data.scale > 0 and data.scale <= 10 and data.scale or 1)
+          if controlPoint:GetParent() ~= parent then controlPoint:SetParent(parent) end
+          local scale = data.scale and data.scale > 0 and data.scale <= 10 and data.scale or 1
+          if controlPoint:GetScale() ~= scale then controlPoint:SetScale(scale) end
         end
       else
-        controlPoint:SetParent(self)
-        controlPoint:SetScale(1)
+        if controlPoint:GetParent() ~= self then controlPoint:SetParent(self) end
+        if controlPoint:GetScale() ~= 1 then controlPoint:SetScale(1) end
       end
 
       local childData = controlPoint.regionData.data
       local childRegion = controlPoint.regionData.region
-      if(childData.frameStrata == 1) then
-        childRegion:SetFrameStrata(region:GetFrameStrata());
-      else
-        childRegion:SetFrameStrata(Private.frame_strata_types[childData.frameStrata]);
+      local strata = childData.frameStrata == 1 and region:GetFrameStrata() or Private.frame_strata_types[childData.frameStrata]
+      if strata and childRegion:GetFrameStrata() ~= strata then
+        childRegion:SetFrameStrata(strata);
       end
       Private.ApplyFrameLevel(childRegion)
 

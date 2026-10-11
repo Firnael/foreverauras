@@ -446,6 +446,8 @@ local fallbacksStates = {};
 
 -- List of all trigger systems, contains each system once
 local triggerSystems = {}
+-- The first trigger type of each system, for the profiler's load breakdown.
+local triggerSystemNames = {}
 
 local timers = {}; -- Timers for autohiding, keyed on id, triggernum, cloneid
 
@@ -1544,6 +1546,11 @@ function WeakAuras.IsPaused()
 end
 
 function Private.Pause()
+  -- The editor shows every display's samples: none stays faded for a missing
+  -- unit (Private.SetRegionUnitGone, Aura (Modern) displays).
+  for _, entry in pairs(Private.regions) do
+    if entry.region and Private.SetRegionUnitGone then Private.SetRegionUnitGone(entry.region, false) end
+  end
   for id, states in pairs(triggerState) do
     local changed
     for triggernum in ipairs(states) do
@@ -1837,6 +1844,8 @@ local function scanForLoadsImpl(toCheck, event, arg1, ...)
   wipe(toLoad);
   wipe(toUnload);
 
+  -- Profiling breakdown of a load scan (no cost unless profiling runs).
+  Private.StartProfileSystem("load: conditions")
   for id in pairs(toCheck) do
     local data = WeakAuras.GetData(id)
     if (data and not data.controlledChildren) then
@@ -1870,6 +1879,7 @@ local function scanForLoadsImpl(toCheck, event, arg1, ...)
       end
     end
   end
+  Private.StopProfileSystem("load: conditions")
 
   if(changed > 0 and not paused) then
     -- Dynamic groups holding the displays that load or unload sort and
@@ -1885,9 +1895,15 @@ local function scanForLoadsImpl(toCheck, event, arg1, ...)
     end
     -- Protected so a failing display cannot leave its group suspended.
     local ok, err = pcall(function(...)
+      Private.StartProfileSystem("load: load displays")
       Private.LoadDisplays(toLoad, event, arg1, ...);
+      Private.StopProfileSystem("load: load displays")
+      Private.StartProfileSystem("load: unload displays")
       Private.UnloadDisplays(toUnload, event, arg1, ...);
+      Private.StopProfileSystem("load: unload displays")
+      Private.StartProfileSystem("load: finish")
       Private.FinishLoadUnload();
+      Private.StopProfileSystem("load: finish")
     end, ...)
     for _, parentRegion in ipairs(suspendedGroups) do
       parentRegion:Resume()
@@ -1895,8 +1911,12 @@ local function scanForLoadsImpl(toCheck, event, arg1, ...)
     if not ok then error(err, 0) end
   end
 
+  Private.StartProfileSystem("load: groups")
   Private.ScanForLoadsGroup(parentsToCheck)
+  Private.StopProfileSystem("load: groups")
+  Private.StartProfileSystem("load: callbacks")
   Private.callbacks:Fire("ScanForLoads")
+  Private.StopProfileSystem("load: callbacks")
 
   wipe(toLoad);
   wipe(toUnload)
@@ -2233,13 +2253,19 @@ function Private.LoadDisplays(toLoad, ...)
       Private.DebugLog.Print(uid, L["Aura loaded"])
     end
   end
-  for _, triggerSystem in pairs(triggerSystems) do
+  for index, triggerSystem in pairs(triggerSystems) do
+    -- Profiling breakdown per trigger system (no cost unless profiling runs).
+    local label = "load: " .. tostring(triggerSystemNames[triggerSystem] or index)
+    Private.StartProfileSystem(label)
     triggerSystem.LoadDisplays(toLoad, ...);
+    Private.StopProfileSystem(label)
   end
+  Private.StartProfileSystem("load: environments")
   for id in pairs(toLoad) do
     loadingDisplays[id] = nil
     EnsureAuraEnvironmentLifecycle(id)
   end
+  Private.StopProfileSystem("load: environments")
 end
 
 function Private.UnloadDisplays(toUnload, ...)
@@ -4769,38 +4795,40 @@ end
 -- Frame levels are re-applied on every Expand of a frame-anchored display; the
 -- client re-sorts the subtree on each call, so a level that is already set is
 -- left alone. Shown here as "SetFrameLevel" in the hitch report.
-local function SetFrameLevelIfChanged(frame, level)
+local function SetFrameLevelIfChanged(frame, level, id)
   -- Some subregions (background) are tables with their own SetFrameLevel and
   -- no GetFrameLevel: those are set as before.
   if not frame.GetFrameLevel or frame:GetFrameLevel() ~= level then
     frame:SetFrameLevel(level)
-    if Private.HitchCount then Private.HitchCount("SetFrameLevel") end
+    -- Counted per display for /fa phitch, to see which displays re-level.
+    if Private.HitchCount then Private.HitchCount("SetFrameLevel " .. tostring(id)) end
   end
 end
 
 function Private.ApplyFrameLevel(region, frameLevel)
   frameLevel = frameLevel or GetFrameLevelFor(region.id)
+  local id = region.id
 
   local setBackgroundFrameLevel = false
   if region.subRegions then
     for index, subRegion in pairs(region.subRegions) do
       if subRegion.type == "subbackground" then
-        SetFrameLevelIfChanged(subRegion, frameLevel + index)
+        SetFrameLevelIfChanged(subRegion, frameLevel + index, id)
         setBackgroundFrameLevel = true
       end
     end
 
     if not setBackgroundFrameLevel then
-      SetFrameLevelIfChanged(region, frameLevel)
+      SetFrameLevelIfChanged(region, frameLevel, id)
     end
 
     for index, subRegion in pairs(region.subRegions) do
       if subRegion.type ~= "subbackground" then
-        SetFrameLevelIfChanged(subRegion, frameLevel + index)
+        SetFrameLevelIfChanged(subRegion, frameLevel + index, id)
       end
     end
   else
-    SetFrameLevelIfChanged(region, frameLevel)
+    SetFrameLevelIfChanged(region, frameLevel, id)
   end
   Private.BlizzardAuraDisplay.UpdateDetachedFrameLevels(region)
   Private.CDMAuraProgress.SyncFrameLevels(region, true)
@@ -4964,6 +4992,8 @@ function WeakAuras.RegisterTriggerSystem(types, triggerSystem)
     triggerTypes[v] = triggerSystem;
   end
   tinsert(triggerSystems, triggerSystem);
+  -- For the profiler's load breakdown.
+  triggerSystemNames[triggerSystem] = types[1]
 end
 
 function WeakAuras.RegisterTriggerSystemOptions(types, func)
@@ -5449,8 +5479,13 @@ function Private.RunCustomTextFunc(region, customFunc)
     if state.progressType == "durationObject" and WeakAuras.IsDurationObject(state.durationObject) then
       expirationTime = state.durationObject:GetEndTime()
       duration = state.durationObject:GetTotalDuration()
-    end
-    if state.progressType == "timed" then
+      -- A readable cooldown shown from its duration object keeps its timed
+      -- values; custom text functions get those, as they always did.
+      if type(state.expirationTime) == "number" and type(state.duration) == "number"
+      and not hasanysecretvalues(state.expirationTime, state.duration) then
+        expirationTime, duration = state.expirationTime, state.duration
+      end
+    elseif state.progressType == "timed" then
       expirationTime = state.expirationTime
       duration = state.duration
     else

@@ -19,8 +19,14 @@ do
     self.parent:SetFrameLevel(level)
   end
 
+  -- The level this element sets, so Private.ApplyFrameLevel can leave an
+  -- unchanged one alone (the client re-sorts the subtree on every set).
+  local function subGetFrameLevel(self)
+    return self.parent:GetFrameLevel()
+  end
+
   local function subCreate()
-    return { Update = noop, SetFrameLevel = subSetFrameLevel}
+    return { Update = noop, SetFrameLevel = subSetFrameLevel, GetFrameLevel = subGetFrameLevel}
   end
 
   local function subModify(parent, region)
@@ -50,8 +56,15 @@ do
     end
   end
 
+  -- See the Background element above. Both frames get the same level; the
+  -- bar's is reported, or nil when neither frame exists (always set then).
+  local function subGetFrameLevel(self)
+    local frame = self.parent.bar or self.parent.iconFrame
+    return frame and frame:GetFrameLevel()
+  end
+
   local function subCreate()
-    return { Update = noop, SetFrameLevel = subSetFrameLevel}
+    return { Update = noop, SetFrameLevel = subSetFrameLevel, GetFrameLevel = subGetFrameLevel}
   end
 
   local function subModify(parent, region)

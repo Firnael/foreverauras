@@ -85,6 +85,7 @@ function WeakAurasProfilingReportMixin:AddText(v)
   self.ScrollBox.messageFrame:SetText(self.ScrollBox.messageFrame.originalText)
 end
 
+local hitchActive = false
 local function StartProfiling(map, id)
   if not map[id] then
     map[id] = {}
@@ -92,12 +93,15 @@ local function StartProfiling(map, id)
     map[id].start = debugprofilestop()
     map[id].elapsed = 0
     map[id].spike = 0
+    -- Hitch capture also attributes Lua allocation (see HitchAccumulate).
+    if hitchActive then map[id].memStart = collectgarbage("count") end
     return
   end
 
   if map[id].count == 0 then
     map[id].count = 1
     map[id].start = debugprofilestop()
+    if hitchActive then map[id].memStart = collectgarbage("count") end
   else
     map[id].count = map[id].count + 1
   end
@@ -129,14 +133,21 @@ function Private.HitchCount(name, n)
   if hitch.active then hitch.counts[name] = (hitch.counts[name] or 0) + (n or 1) end
 end
 
--- Adds one finished measurement to the current frame's bucket for map[id].
+-- Adds one finished measurement to the current frame's bucket for map[id]:
+-- its time, and the Lua memory it allocated (garbage drives the collector's
+-- steps, which the time of no handler shows).
 local function HitchAccumulate(map, id, elapsed)
   local entry = map[id]
   if not entry.frame or entry.frame == 0 then
     entry.frame = 0
+    entry.frameMem = 0
     hitch.touched[#hitch.touched + 1] = {entry = entry, name = id, aura = map == profileData.auras}
   end
   entry.frame = entry.frame + elapsed
+  if entry.memStart then
+    local delta = collectgarbage("count") - entry.memStart
+    if delta > 0 then entry.frameMem = (entry.frameMem or 0) + delta end
+  end
 end
 
 -- Same as StopProfiling, plus the per-frame bucket used by hitch capture.
@@ -338,6 +349,15 @@ local function SummariseInterval(frameMs, memDelta)
   for i = 1, math.min(3, #auras) do
     parts[#parts + 1] = ("|cffffff99%s|r %.1f"):format(auras[i].name, auras[i].entry.frame)
   end
+  -- The systems that allocated the most Lua memory in the interval.
+  local allocators = {}
+  for _, t in ipairs(hitch.touched) do
+    if t.name ~= "wa" and not t.aura and (t.entry.frameMem or 0) >= 16 then allocators[#allocators + 1] = t end
+  end
+  sort(allocators, function(a, b) return a.entry.frameMem > b.entry.frameMem end)
+  for i = 1, math.min(4, #allocators) do
+    parts[#parts + 1] = ("|cffcc99ff%s|r +%.0fKB"):format(allocators[i].name, allocators[i].entry.frameMem)
+  end
   local events = {}
   for event, count in pairs(hitch.events) do
     events[#events + 1] = count > 1 and (event .. "x" .. count) or event
@@ -391,6 +411,7 @@ hitchFrame:SetScript("OnUpdate", function(_, elapsed)
   hitch.lastMem = mem
   for i, t in ipairs(hitch.touched) do
     t.entry.frame = 0
+    t.entry.frameMem = 0
     hitch.touched[i] = nil
   end
   wipe(hitch.events)
@@ -423,7 +444,7 @@ end)
 -- stays available afterwards through /fa pprint.
 function WeakAuras.ToggleHitchCapture(threshold)
   if hitch.active then
-    hitch.active = false
+    hitch.active = false; hitchActive = false
     hitchFrame:Hide()
     hitchFrame:UnregisterAllEvents()
     WeakAuras.StopProfile()
@@ -435,7 +456,7 @@ function WeakAuras.ToggleHitchCapture(threshold)
   hitch.threshold = tonumber(threshold) or 30
   WeakAuras.StartProfile()
   if currentProfileState ~= "profiling" then return end
-  hitch.active = true
+  hitch.active = true; hitchActive = true
   hitch.lastMem = nil
   hitch.previous = nil
   wipe(hitch.touched)
@@ -471,7 +492,7 @@ function WeakAuras.StopProfile()
 
   -- Stopping profiling by any route also ends hitch capture.
   if hitch.active then
-    hitch.active = false
+    hitch.active = false; hitchActive = false
     hitchFrame:Hide()
     hitchFrame:UnregisterAllEvents()
   end

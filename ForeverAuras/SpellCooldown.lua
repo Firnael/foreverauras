@@ -61,7 +61,15 @@ end
 -- The cooldown APIs are slow on this client (a few tenths of a millisecond
 -- each), and one cooldown icon reads them several times per update. Results
 -- are kept for the rest of the frame: game state only changes between frames.
+-- The tables are kept across frames too, and refilled: a cast makes every
+-- cooldown icon read its spell, and the tables and client results that used
+-- to be made for each read (over a hundred kilobytes per cast) kept the
+-- garbage collector busy for milliseconds in the frames that followed.
+-- The client is asked once per spell and frame (ReadSpellBase); each variant
+-- of the data (track, GCD, loss of control) is derived from that.
 local cooldownCache, cooldownCacheFrame = {}, nil
+local baseCache = {}
+local cacheGeneration = 0
 
 -- Called when a cooldown event arrives: a cast finishing and the cooldown it
 -- starts can be reported in the same frame, so values read before the event
@@ -72,23 +80,28 @@ end
 local cooldownCacheFields = {"cooldown", "conditionOnCooldown", "conditionDuration", "gcdOnly", "onCooldown",
   "paused", "count", "ready", "charges", "maxCharges", "recharging", "chargeDuration", "textDuration",
   "wandAppearanceDuration", "duration"}
-local ReadSpellCooldownData
+local ReadSpellBase, FillSpellCooldownData
 
+-- Returns the data table for the spell and variant; it belongs to this cache
+-- and is refilled on a later frame, so callers that keep it pass `into`.
 function Private.GetSpellCooldownData(spellID, track, showGCD, showLossOfControl, into)
   local now = GetTime()
   if cooldownCacheFrame ~= now then
     cooldownCacheFrame = now
-    wipe(cooldownCache)
+    cacheGeneration = cacheGeneration + 1
   end
   local variant = (track == "charges" and 1 or track == "cooldown" and 2 or 0) + (showGCD and 4 or 0) + (showLossOfControl and 8 or 0)
   local bySpell = cooldownCache[spellID]
   if not bySpell then bySpell = {}; cooldownCache[spellID] = bySpell end
-  local cached = bySpell[variant]
-  if cached == nil then
-    cached = ReadSpellCooldownData(spellID, track, showGCD, showLossOfControl) or false
-    bySpell[variant] = cached
+  local entry = bySpell[variant]
+  if not entry then entry = {generation = 0, data = {}, present = false}; bySpell[variant] = entry end
+  if entry.generation ~= cacheGeneration then
+    entry.generation = cacheGeneration
+    local base = ReadSpellBase(spellID)
+    entry.present = base ~= nil and FillSpellCooldownData(entry.data, base, spellID, track, showGCD, showLossOfControl)
   end
-  if not cached then return end
+  if not entry.present then return end
+  local cached = entry.data
   if into then
     wipe(into)
     for _, key in ipairs(cooldownCacheFields) do into[key] = cached[key] end
@@ -97,19 +110,39 @@ function Private.GetSpellCooldownData(spellID, track, showGCD, showLossOfControl
   return cached
 end
 
-function ReadSpellCooldownData(spellID, track, showGCD, showLossOfControl)
+-- The client's answers for a spell, read once per frame and shared by every
+-- variant: the cooldown info and charges tables, the filtered (GCD-free) and
+-- unfiltered duration objects, the charge duration and the cast count.
+function ReadSpellBase(spellID)
+  local base = baseCache[spellID]
+  if base and base.generation == cacheGeneration then return base.valid and base or nil end
+  if not base then base = {}; baseCache[spellID] = base end
+  base.generation = cacheGeneration
   local info = C_Spell.GetSpellCooldown(spellID)
   local charges = C_Spell.GetSpellCharges(spellID)
   if not info then knownOnCooldown[spellID] = nil end
-  if not info and not charges then return end
-
+  base.valid = (info or charges) ~= nil
+  if not base.valid then return end
+  base.info, base.charges = info, charges
   -- Keep the fresh filtered timer even if a cached GCD flag disagrees.
-  local cooldown = C_Spell.GetSpellCooldownDuration(spellID, true)
+  base.cooldown = C_Spell.GetSpellCooldownDuration(spellID, true)
+  base.unfiltered = nil
+  base.chargeDuration = charges and C_Spell.GetSpellChargeDuration(spellID) or nil
+  base.count = C_Spell.GetSpellCastCount(spellID)
   local zero
-  if cooldown then
-    local result = cooldown:IsZero()
+  if base.cooldown then
+    local result = base.cooldown:IsZero()
     if not issecretvalue(result) then zero = result end
   end
+  base.zero = zero
+  return base
+end
+
+-- Fills `result` for one variant from the spell's base reads. Returns true
+-- when the spell has cooldown data.
+function FillSpellCooldownData(result, base, spellID, track, showGCD, showLossOfControl)
+  wipe(result)
+  local info, charges, cooldown, zero = base.info, base.charges, base.cooldown, base.zero
   local onCooldown
   if info then
     if not info.isEnabled then
@@ -131,20 +164,19 @@ function ReadSpellCooldownData(spellID, track, showGCD, showLossOfControl)
   elseif onCooldown ~= nil and info and info.isEnabled then
     knownOnCooldown[spellID] = onCooldown or nil
   end
-  local result = {}
   result.cooldown = cooldown
   result.conditionOnCooldown = conditionOnCooldown
   result.conditionDuration = cooldown
   result.gcdOnly = info and info.isActive and info.isEnabled and zero == true or false
   result.onCooldown = onCooldown
   result.paused = info and not info.isEnabled or false
-  result.count = C_Spell.GetSpellCastCount(spellID)
+  result.count = base.count
   if onCooldown ~= nil then result.ready = not onCooldown end
   if charges then
     result.charges = charges.currentCharges
     result.maxCharges = charges.maxCharges
     result.recharging = charges.isActive
-    result.chargeDuration = C_Spell.GetSpellChargeDuration(spellID)
+    result.chargeDuration = base.chargeDuration
   end
 
   -- Share the copied timer with desaturation without changing logical cooldown state.
@@ -168,7 +200,13 @@ function ReadSpellCooldownData(spellID, track, showGCD, showLossOfControl)
     result.conditionOnCooldown = result.onCooldown
     result.paused = false
   else
-    result.duration = showGCD and C_Spell.GetSpellCooldownDuration(spellID) or cooldown
+    if showGCD then
+      -- The unfiltered timer (with the GCD) is read once per frame as well.
+      if base.unfiltered == nil then base.unfiltered = C_Spell.GetSpellCooldownDuration(spellID) or false end
+      result.duration = base.unfiltered or cooldown
+    else
+      result.duration = cooldown
+    end
   end
   if showLossOfControl then
     local lossOfControl = C_Spell.GetSpellLossOfControlCooldownInfo(spellID)
@@ -183,7 +221,7 @@ function ReadSpellCooldownData(spellID, track, showGCD, showLossOfControl)
       result.paused = false
     end
   end
-  return result
+  return true
 end
 
 Private.ExecEnv.GetSpellCooldownData = Private.GetSpellCooldownData

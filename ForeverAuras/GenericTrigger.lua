@@ -686,13 +686,21 @@ local function ignoreErrorHandler()
 
 end
 
+-- The error context of each trigger number, made once: formatting it on
+-- every trigger run made a string per run.
+local triggerContexts = setmetatable({}, {__index = function(t, triggernum)
+  local context = L["Trigger %s"]:format(triggernum)
+  t[triggernum] = context
+  return context
+end})
+
 local function RunTriggerFunc(allStates, data, id, triggernum, event, arg1, arg2, ...)
   local optionsEvent = event == "OPTIONS";
   -- Native CDM callbacks and filter timers dispatch internally even while the
   -- editor pauses normal game events. Only OPTIONS may replace its sample states.
   if not optionsEvent and data.prototype and data.prototype.cooldownViewerProgress
       and WeakAuras.IsOptionsOpen() then return false end
-  local errorHandler = (optionsEvent and data.ignoreOptionsEventErrors) and ignoreErrorHandler or Private.GetErrorHandlerId(id, L["Trigger %s"]:format(triggernum))
+  local errorHandler = (optionsEvent and data.ignoreOptionsEventErrors) and ignoreErrorHandler or Private.GetErrorHandlerId(id, triggerContexts[triggernum])
   local updateTriggerState = false;
 
   local unitForUnitTrigger
@@ -1184,6 +1192,13 @@ local function AddFakeInformation(data, triggernum, state, eventData)
   if eventData.prototype and eventData.prototype.cooldownViewerProgress then return end
   if ProgressType(data, triggernum) == "timed" and state.expirationTime == nil then
     state.progressType = "timed"
+  end
+  -- A readable cooldown shown from its duration object (spell cooldown
+  -- trigger) previews with the same looping sample timer as the timed form.
+  if state.progressType == "durationObject" and type(state.expirationTime) == "number"
+  and not issecretvalue(state.expirationTime) then
+    state.progressType = "timed"
+    state.durationObject = nil
   end
   if state.progressType == "timed" then
     local expirationTime = state.expirationTime
@@ -2670,7 +2685,13 @@ do
         end
         detail.charges, detail.chargesMax, detail.count = charges, maxCharges, count
         detail.chargeGainTime, detail.chargeLostTime = nil, nil
-        if (stateChanged or not self.quietSecretCheck) and not WeakAuras.IsPaused() then
+        -- Only a change is announced. A restricted spell's duration object is
+        -- a snapshot, but one taken while the spell is on cooldown stays right
+        -- until the cooldown ends or is reset, which flips ready and is
+        -- announced here; a new global cooldown reaches the displays that
+        -- show it through GCD_UPDATE (CheckCooldownReady). Announcing every
+        -- spell on every cast made every cooldown icon redraw twice per cast.
+        if stateChanged and not WeakAuras.IsPaused() then
           self:SendEventsForSpell(effectiveSpellId, "SPELL_COOLDOWN_CHANGED", effectiveSpellId)
         end
         return
@@ -3669,8 +3690,12 @@ do
         Private.CheckItemSlotCooldowns();
       end
     end
-    -- Refresh watched GCD timers even when the shared GCD clock emits no event.
-    if not WeakAuras.IsPaused() then Private.ScanEvents(gcdEvent or "GCD_UPDATE") end
+    -- Refresh watched GCD timers even when the shared GCD clock emits no event
+    -- (it reports nothing while restricted), but not after a quiet pass: a
+    -- batch of usability events (mana changes) starts no global cooldown, and
+    -- waking every icon that shows the GCD for it cost several milliseconds
+    -- many times per fight.
+    if not WeakAuras.IsPaused() and (gcdEvent or not skipItems) then Private.ScanEvents(gcdEvent or "GCD_UPDATE") end
     return true
   end
 
@@ -3678,6 +3703,34 @@ do
   function WeakAuras.WatchGCD()
     if not(cdReadyFrame) then
       Private.InitCooldownReady();
+    end
+  end
+
+  -- The Global Cooldown trigger ends itself. Its state is re-read only on the
+  -- shared GCD clock's events, and that clock (GCD_REFERENCE_SPELL above)
+  -- never runs on this client, while the GCD_UPDATE refresh it used to lean on
+  -- is now sent only when a cooldown check changed something. So a display
+  -- that went active on a GCD stayed active (greyed, say) after the GCD ran
+  -- out. With readable timing one scan is scheduled for the end; while the
+  -- timing is restricted the public active flag of the reference spell is
+  -- polled ten times a second until it clears. Only the Global Cooldown
+  -- trigger listens to the scan, so no "Show GCD" icon is refreshed by it.
+  local gcdEndPoll
+  function Private.ExecEnv.ScheduleGCDEnd(info)
+    if not info then return end
+    local startTime, duration = info.startTime, info.duration
+    if not hasanysecretvalues(startTime, duration) and type(duration) == "number" and duration > 0 then
+      Private.ExecEnv.ScheduleScan(startTime + duration, "FA_GCD_RECHECK")
+    elseif not gcdEndPoll then
+      gcdEndPoll = C_Timer.NewTicker(0.1, function()
+        local current = C_Spell.GetSpellCooldown(29515)
+        local active = current and current.isActive
+        if issecretvalue(active) or active ~= true then
+          gcdEndPoll:Cancel()
+          gcdEndPoll = nil
+          if not WeakAuras.IsPaused() then Private.ScanEvents("FA_GCD_RECHECK") end
+        end
+      end)
     end
   end
 

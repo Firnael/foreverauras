@@ -9,9 +9,24 @@ local Trigger = {}
 local displays = {}
 local loaded = {}
 
+-- Whether a display's settings can be drawn natively (Display.Enabled and
+-- Validate agree), kept per data table: Validate copies the settings to check
+-- them, and the unit-change handler asks this for every display on every
+-- target change. Cleared when the display's settings are saved (Trigger.Add).
+local drawable = setmetatable({}, {__mode = "k"})
+local function Drawable(data)
+  local result = drawable[data]
+  if result == nil then
+    result = Display.Enabled(data) and Display.Validate(data) == nil
+    drawable[data] = result
+  end
+  return result
+end
+
 function Trigger.Add(data)
   Display.MigrateNativeConditions(data)
   Display.MigrateFallback(data)
+  drawable[data] = nil
   displays[data.id] = nil
   for _, entry in ipairs(data.triggers) do
     if entry.trigger.type == "secretAura" then displays[data.id] = data; break end
@@ -30,12 +45,32 @@ local function UnitMissing(trigger)
   return not Display.SingleUnitExists(trigger)
 end
 
+-- A display drawn by native containers does not go inactive without its
+-- unit: it stays shown, its containers enabled, and is faded out instead
+-- (Private.SetRegionUnitGone). Hiding and showing a dozen such displays on
+-- every target change made the client enable and lay out every container
+-- again, a visible stutter; an enabled container without a unit draws
+-- nothing by itself. Displays without native containers (the framework's
+-- fallback drawing) go inactive as before.
+local function FadesWithoutUnit(data)
+  return Drawable(data)
+end
+
 -- Whether this Aura (Modern) trigger is active. The editor always shows its
 -- samples, so there the unit does not matter.
 local function IsActive(data, triggernum)
-  if not (not Display.Enabled(data) or Display.Validate(data) == nil) then return false end
+  if Display.Enabled(data) and not Drawable(data) then return false end
   local entry = data.triggers[triggernum]
-  return WeakAuras.IsOptionsOpen() or not UnitMissing(entry and entry.trigger)
+  return WeakAuras.IsOptionsOpen() or Drawable(data) or not UnitMissing(entry and entry.trigger)
+end
+
+-- Fades a native display out while the unit of the trigger that draws it does
+-- not exist (see FadesWithoutUnit); nothing else about it changes.
+local function ApplyUnitGone(id, data)
+  local region = Private.regions[id] and Private.regions[id].region
+  if not region or not Private.SetRegionUnitGone then return end
+  local gone = not WeakAuras.IsOptionsOpen() and FadesWithoutUnit(data) and UnitMissing(Display.GetSavedTrigger(data))
+  Private.SetRegionUnitGone(region, gone)
 end
 
 -- Also the framework's fallback state when this trigger supplies a shown
@@ -70,10 +105,12 @@ function Trigger.LoadDisplays(toLoad)
     local data = displays[id]
     if data then
       loaded[id] = true
+      drawable[data] = nil
       if Private.regions[id] then Display.Activate(Private.regions[id].region, data) end
       for index, entry in ipairs(data.triggers) do
         if entry.trigger.type == "secretAura" then Trigger.CreateFakeStates(id, index) end
       end
+      ApplyUnitGone(id, data)
       Private.UpdatedTriggerState(id)
     end
   end
@@ -108,9 +145,10 @@ unitFrame:SetScript("OnEvent", function(_, event, unit)
   local switched = {}
   for id in pairs(loaded) do
     local data = displays[id]
-    local changed = false
+    local changed, touched = false, false
     for index, entry in ipairs(data and data.triggers or {}) do
       if entry.trigger.type == "secretAura" and affected[entry.trigger.unit] then
+        touched = true
         local state = WeakAuras.GetTriggerStateForTrigger(id, index)[""]
         local show = IsActive(data, index)
         if not state then
@@ -128,6 +166,8 @@ unitFrame:SetScript("OnEvent", function(_, event, unit)
       end
     end
     if changed then switched[id] = true end
+    -- A native display only fades (its state does not change).
+    if touched then ApplyUnitGone(id, data) end
   end
   if not next(switched) then return end
   local suspended = Private.SuspendGroupsOf(switched)

@@ -1195,7 +1195,9 @@ Private.format_types = {
       end
 
       return function(value, state)
-        if state.progressType ~= "timed" or type(value) ~= "number" then
+        -- A readable cooldown shown from its duration object formats too.
+        if (state.progressType ~= "timed" and state.progressType ~= "durationObject")
+        or type(value) ~= "number" or issecretvalue(value) then
           return value
         end
 

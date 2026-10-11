@@ -1,5 +1,12 @@
 # Changelog
 ## Versions
+## 0.74.4
+- Global Cooldown trigger: a display that went active on the GCD stayed active after it ended; the trigger now ends itself (one scheduled check with readable timing, a brief public-flag poll in combat).
+- Further performance improvements
+- Modern Auras draw by slot instead of by group
+- The Missing look of a Show On Always/Missing display is refreshed on unit changes again (regression from 0.74.0: icon vanishing after de-target, flicker on re-target).
+- Re-fix certain Modern Aura trigger combinations after the large optimizations.
+
 ## 0.74.0
 Performance
 - Entering and leaving combat: the spell cooldown re-check that a restriction change triggers is now spread over several frames and starts the frame after the change, instead of refreshing every cooldown icon in the frame the client is already busy with. Spells with their own event (a cast) are still checked immediately.
