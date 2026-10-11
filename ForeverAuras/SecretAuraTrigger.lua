@@ -2,6 +2,8 @@
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAuraTrigger")
 local Display = Private.BlizzardAuraDisplay
 local Trigger = {}
 local displays = {}
@@ -100,6 +102,10 @@ unitFrame:SetScript("OnEvent", function(_, event, unit)
     affected = unit == "player" and affected.player or (unit and {member = true})
   end
   if not affected then return end
+  -- Collect the displays this unit change switches, then apply them with
+  -- their dynamic groups suspended: a target change can show or hide a dozen
+  -- icons of one group, which otherwise re-sorts and re-positions after each.
+  local switched = {}
   for id in pairs(loaded) do
     local data = displays[id]
     local changed = false
@@ -121,8 +127,14 @@ unitFrame:SetScript("OnEvent", function(_, event, unit)
         end
       end
     end
-    if changed then Private.UpdatedTriggerState(id) end
+    if changed then switched[id] = true end
   end
+  if not next(switched) then return end
+  local suspended = Private.SuspendGroupsOf(switched)
+  for id in pairs(switched) do
+    xpcall(Private.UpdatedTriggerState, geterrorhandler(), id)
+  end
+  Private.ResumeGroups(suspended)
 end)
 
 function Trigger.UnloadDisplays(toUnload)

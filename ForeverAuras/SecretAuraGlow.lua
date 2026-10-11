@@ -9,6 +9,8 @@
 -- Editor samples and the Missing icon use the same code.
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAuraGlow")
 local Display = Private.BlizzardAuraDisplay
 
 local WHITE = "Interface\\Buttons\\WHITE8X8"

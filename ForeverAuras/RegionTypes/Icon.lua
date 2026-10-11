@@ -6,6 +6,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("RegionIcon")
 local L = WeakAuras.L
 local MSQ = LibStub("Masque", true);
 if MSQ then
@@ -501,7 +503,15 @@ local function modify(parent, region, data)
     local countdown = cooldown:GetCountdownFontString()
     local textDuration = state and state.cdmHideGCDText and state.cdmTextDurationObject
     if textDuration then
-      countdown:SetAlpha(textDuration:EvaluateRemainingDuration(cooldownAlphaCurve))
+      -- GCD-length and wand Shoot lockouts are classified by their total
+      -- duration (Private.GCDTextAlpha); older clients fall back to hiding
+      -- only an expired filtered timer.
+      local alpha = Private.GCDTextAlpha(textDuration)
+      if alpha ~= nil then
+        countdown:SetAlpha(alpha)
+      else
+        countdown:SetAlpha(textDuration:EvaluateRemainingDuration(cooldownAlphaCurve))
+      end
     else
       countdown:SetAlpha(1)
     end

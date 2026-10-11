@@ -2,6 +2,8 @@
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("BlizzardAuraDisplay")
 local SharedMedia = LibStub("LibSharedMedia-3.0")
 local Display = {}
 Private.BlizzardAuraDisplay = Display
@@ -11,6 +13,20 @@ local lockedHide = setmetatable({}, {__mode = "k"})
 local lockedUnits = setmetatable({}, {__mode = "k"})
 local pendingSounds = {}
 local activeRegions = {}
+-- For the hitch report: how many Modern displays are active and how many
+-- native aura containers they hold (shown ones counted separately).
+function Display.CountContainers()
+  local displays, containers, shown = 0, 0, 0
+  for region in pairs(activeRegions) do
+    displays = displays + 1
+    local native = region.blizzardAuraDisplay
+    for _, instance in ipairs(native and native.instances or {}) do
+      containers = containers + 1
+      if instance.visible then shown = shown + 1 end
+    end
+  end
+  return displays, containers, shown
+end
 local unitGlowFrameLevel = 8
 
 Display.units = {
@@ -1160,6 +1176,16 @@ local function Changed(current, wanted)
   return issecretvalue(current) or current ~= wanted
 end
 
+-- Like Changed, for a native container whose strata or level this file sets.
+-- A secret current value is compared with the value last set here (stored on
+-- the instance under key), so a Modern Aura Group container is not re-layered,
+-- walking all of its buttons, on every refresh. The stored values are cleared
+-- whenever the container changes parent, which resets its layering.
+local function LayerChanged(instance, key, current, wanted)
+  if issecretvalue(current) then return instance[key] ~= wanted end
+  return current ~= wanted
+end
+
 local unitFrameGlowSizes = setmetatable({}, {__mode = "k"})
 
 local function AnchorUnitGlow(container, frame)
@@ -1167,7 +1193,7 @@ local function AnchorUnitGlow(container, frame)
   if not size then
     size = {x = 0, y = 0}
     unitFrameGlowSizes[frame] = size
-    frame:HookScript("OnSizeChanged", function() Display.UnitFramesChanged() end)
+    TimedHookScript(frame, "OnSizeChanged", function() Display.UnitFramesChanged() end)
   end
   local width, height = frame:GetSize()
   if not issecretvalue(width) and not issecretvalue(height) then
@@ -1262,31 +1288,54 @@ local function RefreshUnits(region, removedUnit, changedUnit)
       local shown = not IsPreview() and unit ~= nil and region:IsShown() and (not (unitFrames or nameplates) or anchorFrame ~= nil)
         and not native.gridMember
       local parent = unitFrames and data.anchorFrameParent ~= false and anchorFrame or region
+      -- Nothing about the container's content changes when it keeps its unit,
+      -- parent, enabled state and visibility, and no nameplate was reassigned
+      -- (removedUnit/changedUnit): Blizzard keeps a live container current from
+      -- UNIT_AURA itself, so the enable and full refresh below are skipped then.
+      -- The same holds for its anchors: they are set again only when the frame
+      -- they hang from changed (unit frames and nameplates come and go).
+      local unchanged = instance.boundUnit == unit and container:GetParent() == parent
+        and container.faEnabled == true and instance.visible == true and not removedUnit and not changedUnit
+      local reanchor = not unchanged or instance.anchoredTo ~= (anchorFrame or region) or not instance.anchored
+      instance.anchoredTo, instance.anchored = anchorFrame or region, true
       -- Disabling clears native aura assignments and restarts their animations.
       if instance.boundUnit ~= unit or container:GetParent() ~= parent then
         container:SetEnabled(false)
-        if unit then container:SetUnit(unit) end
+        if unit then container:SetUnit(unit); Private.HitchCount("container SetUnit") end
         instance.boundUnit = unit
-        if container:GetParent() ~= parent then container:SetParent(parent) end
+        if container:GetParent() ~= parent then
+          container:SetParent(parent)
+          Private.HitchCount("container SetParent")
+          instance.appliedStrata, instance.appliedLevel = nil, nil
+        end
       end
       instance.baseAlpha = parent == region and 1 or data.alpha or 1
       -- Strata and level are set only when they change: each change walks
       -- every button of the container.
       local strata = (data.frameStrata == nil or data.frameStrata == 1) and parent:GetFrameStrata() or region:GetFrameStrata()
-      if Changed(container:GetFrameStrata(), strata) then container:SetFrameStrata(strata) end
+      if LayerChanged(instance, "appliedStrata", container:GetFrameStrata(), strata) then
+        container:SetFrameStrata(strata)
+        Private.HitchCount("container SetFrameStrata")
+        instance.appliedStrata = strata
+      end
       -- Kept for the Missing look: containers in a Modern Aura Group report secret levels.
       instance.drawStrata, instance.drawLevel = strata, nil
       if unitFrames then
         -- Keep native aura content above the unit glow and its two child layers.
         local level = anchorFrame and settings.unitGlow and anchorFrame:GetFrameLevel() + unitGlowFrameLevel + 3 or parent:GetFrameLevel() + 1
-        if Changed(container:GetFrameLevel(), level) then container:SetFrameLevel(level) end
+        if LayerChanged(instance, "appliedLevel", container:GetFrameLevel(), level) then
+          container:SetFrameLevel(level)
+          instance.appliedLevel = level
+        end
         instance.drawLevel = level
-        if not frameMode then
+        if not frameMode and reanchor then
           container:ClearAllPoints()
           container:SetPoint(data.selfPoint or "CENTER", anchorFrame or region, data.anchorPoint or "CENTER", data.xOffset or 0, data.yOffset or 0)
         end
       elseif frameMode then
         -- Placed by RelinkFlowUnits.
+      elseif not reanchor then
+        -- Same anchor frame as before: the points stand.
       elseif nameplates then
         container:ClearAllPoints()
         if data.anchorFrameType == "NAMEPLATE" then
@@ -1317,7 +1366,7 @@ local function RefreshUnits(region, removedUnit, changedUnit)
           Display.AnchorToContent(container, anchor, region, anchor)
         end
       end
-      if instance.missingSlot then
+      if instance.missingSlot and reanchor then
         local slotPoint
         if frameMode then slotPoint = Display.FlowUnitStart(Display.FlowGroup(data))
         elseif unitFrames then slotPoint = data.selfPoint or "CENTER"
@@ -1329,9 +1378,14 @@ local function RefreshUnits(region, removedUnit, changedUnit)
       end
       instance.visible = shown
       ApplyUnitStatus(instance, trigger)
-      container:SetShown(shown)
-      container:SetEnabled(shown)
-      if shown then container:UpdateAllAuras() end
+      if container:IsShown() ~= shown then container:SetShown(shown) end
+      -- Enabled only when the state changes: a hidden display's container is
+      -- already disabled when its unit events are handled, and a shown one
+      -- that kept unit, parent and anchors needs no full refresh.
+      if container.faEnabled ~= shown or (shown and not unchanged) then
+        container:SetEnabled(shown)
+        if shown then container:UpdateAllAuras(); Private.HitchCount("UpdateAllAuras") end
+      end
       -- The Missing container follows the same unit and visibility as the aura slot.
       Display.RefreshSingle(instance, unit, shown)
       -- So does a centred Modern Aura Group's half-size shadow.
@@ -1399,6 +1453,8 @@ end
 
 local function ApplyInstance(region, data, index, instance)
   instance.data = data
+  -- New settings may place the container elsewhere: RefreshUnits anchors again.
+  instance.anchored = nil
   instance.container:SetEnabled(false)
   for _, button in ipairs(instance.buttons) do Style(button, data, region) end
   Layout(instance, region, data)
@@ -1563,7 +1619,7 @@ function ApplyDisplay(region, data)
   if not native then
     native = {instances = {}, data = data}
     region.blizzardAuraDisplay = native
-    region:HookScript("OnHide", function()
+    TimedHookScript(region, "OnHide", function()
       Display.HideUnitGlows(region)
       for _, instance in ipairs(native.instances) do
         if Locked(instance.container) then
@@ -1577,7 +1633,7 @@ function ApplyDisplay(region, data)
       SyncSounds(region)
       Display.RefreshGridFor(region)
     end)
-    region:HookScript("OnShow", function()
+    TimedHookScript(region, "OnShow", function()
       native.unitGlowsHidden = false
       if native.active then RefreshUnits(region); SyncSounds(region) end
     end)
@@ -1821,12 +1877,17 @@ end)
 
 -- Displays waiting for restrictions to end are rebuilt a few per frame, so
 -- the end of combat does not rebuild every display in one frame.
-local PENDING_BUDGET = 8
+-- The budget covers only the Lua side; each rebuild also costs the client
+-- drawing time afterwards, so it is kept small.
+local PENDING_BUDGET = 4
 local draining = false
 local function DrainPending()
   -- Before login completes, the login callback starts the drain.
   if Restricted() or not WeakAuras.IsLoginFinished() then draining = false; return end
   local started = debugprofilestop()
+  -- Modern Aura Groups re-anchor once per group after this batch, not once
+  -- per rebuilt display (the same batching a load scan uses).
+  if Display.BeginFlowLoad then Display.BeginFlowLoad() end
   for region, data in pairs(pending) do
     pending[region] = nil
     if WeakAuras.GetData(data.id) == data and Private.regions[data.id] and Private.regions[data.id].region == region then
@@ -1834,6 +1895,7 @@ local function DrainPending()
       if debugprofilestop() - started > PENDING_BUDGET then break end
     end
   end
+  if Display.EndFlowLoad then Display.EndFlowLoad() end
   local profile = Private.loadProfile
   if profile and profile.done and not profile.deferredDone then
     profile.deferred = (profile.deferred or 0) + debugprofilestop() - started

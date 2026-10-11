@@ -7,6 +7,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("LibSpecializationWrapper")
 --- @class LibSpecialization
 --- @field Register fun(self: LibSpecialization, name: string, callback: function)
 --- @field MySpecialization fun(): number, string, string

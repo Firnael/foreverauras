@@ -6,6 +6,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("RegionRegionPrototype")
 ---@class WeakAuras
 local WeakAuras = WeakAuras;
 local L = WeakAuras.L;
@@ -1323,8 +1325,30 @@ function Private.regionPrototype.AddExpandFunction(data, region, cloneId, parent
   end
 end
 
+-- Icons are set again on every state update (region:Update -> UpdateIcon), and
+-- setting a texture the client already shows still costs an atlas lookup and a
+-- texture resolve for each of them. The last public path set here is kept on
+-- the texture and skipped while the texture still shows what that set produced
+-- (checked through GetTexture/GetAtlas, so a change made elsewhere is noticed).
+-- Secret paths and wrap modes are never cached.
+local function ShowsTexture(texture, path)
+  if texture.faSetPath ~= path then return false end
+  local current = texture.faSetAtlas and texture:GetAtlas() or texture:GetTexture()
+  return not issecretvalue(current) and current ~= nil and current == texture.faSetResult
+end
+
+local function RememberTexture(texture, path, atlas)
+  local current = atlas and texture:GetAtlas() or texture:GetTexture()
+  if issecretvalue(current) or current == nil then
+    texture.faSetPath, texture.faSetResult, texture.faSetAtlas = nil, nil, nil
+  else
+    texture.faSetPath, texture.faSetResult, texture.faSetAtlas = path, current, atlas or nil
+  end
+end
+
 function Private.SetTextureOrAtlas(texture, path, wrapModeH, wrapModeV)
   if issecretvalue(path) then
+    texture.faSetPath = nil
     if type(path) == "number" then
       return texture:SetTexture(path, wrapModeH, wrapModeV);
     else
@@ -1332,12 +1356,19 @@ function Private.SetTextureOrAtlas(texture, path, wrapModeH, wrapModeV)
       return false
     end
   end
+  local cacheable = wrapModeH == nil and wrapModeV == nil
+  if cacheable and ShowsTexture(texture, path) then return true end
+  texture.faSetPath = nil
   texture.IsAtlas = type(path) == "string" and GetAtlasInfo(path) ~= nil
+  local result
   if texture.IsAtlas then
-    return texture:SetAtlas(path);
+    result = texture:SetAtlas(path);
   else
-    return texture:SetTexture(path, wrapModeH, wrapModeV);
+    result = texture:SetTexture(path, wrapModeH, wrapModeV);
   end
+  Private.HitchCount("SetTexture")
+  if cacheable then RememberTexture(texture, path, texture.IsAtlas) end
+  return result
 end
 
 do

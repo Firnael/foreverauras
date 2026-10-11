@@ -2,6 +2,8 @@
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAuraLinkedText")
 local Display = Private.BlizzardAuraDisplay
 
 local active = setmetatable({}, {__mode = "k"})
@@ -61,8 +63,8 @@ local function Create(sub, kind, config, index)
       end
     end,
   })
-  sub:HookScript("OnHide", function() container:SetEnabled(false) end)
-  sub:HookScript("OnShow", function() container:SetEnabled(native.wanted == true) end)
+  TimedHookScript(sub, "OnHide", function() container:SetEnabled(false) end)
+  TimedHookScript(sub, "OnShow", function() container:SetEnabled(native.wanted == true) end)
   return native
 end
 

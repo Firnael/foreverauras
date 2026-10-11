@@ -51,14 +51,22 @@ local function Wrap(id, cloneId, system, funcs)
       local oldArg = select(data.arg, ...)
       if type(oldArg) == "function" then
         packed[data.arg] = function(...)
+          -- Timed as "aura <id> timer" while profiling runs. Both paths are
+          -- protected so the profiling system is always stopped.
+          local timing = Private.handlerTiming
+          local label = timing and ("aura " .. tostring(id) .. " timer")
+          if timing then Private.StartProfileSystem(label) end
           local region = WeakAuras.GetRegion(id, cloneId)
           if region then
             Private.ActivateAuraEnvironmentForRegion(region)
             xpcall(oldArg, Private.GetErrorHandlerId(id, L["Callback function"]), ...)
             Private.ActivateAuraEnvironment()
+          elseif timing then
+            xpcall(oldArg, geterrorhandler(), ...)
           else
             oldArg(...)
           end
+          if timing then Private.StopProfileSystem(label) end
         end
       end
       return system[data.name](SafeUnpack(packed))

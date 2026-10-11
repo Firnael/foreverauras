@@ -1,6 +1,8 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SubCDMDispelBorder")
 local function defaults(parentType)
   -- Borders fit the parent rectangle by default; icons retain their square corner size.
   return {dispelVisible = true, anchor_mode = "area", anchor_area = parentType == "aurabar" and "bar" or "ALL",

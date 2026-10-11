@@ -2,6 +2,8 @@
 -- Native widgets consume restricted progress without exposing it to Lua geometry.
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("ProgressTextureNative")
 local Native = {}
 Private.ProgressTextureNative = Native
 local white = "Interface\\AddOns\\ForeverAuras\\Media\\Textures\\Square_FullWhite"

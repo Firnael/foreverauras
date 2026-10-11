@@ -6,6 +6,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("RegionAuraBar")
 local SharedMedia = LibStub("LibSharedMedia-3.0");
 local L = WeakAuras.L;
 
@@ -455,8 +457,8 @@ local barPrototype = {
             -- Keep overlays in the foreground's draw order, not on a child frame above it.
             abar.texture = self:CreateTexture(nil, "ARTWORK");
             abar.texture:SetDrawLayer("ARTWORK", min(index, 7));
-            abar:HookScript("OnShow", function() abar.texture:Show() end);
-            abar:HookScript("OnHide", function() abar.texture:Hide() end);
+            TimedHookScript(abar, "OnShow", function() abar.texture:Show() end);
+            TimedHookScript(abar, "OnHide", function() abar.texture:Hide() end);
             abar.texture:SetTexelSnappingBias(0)
             abar.texture:SetSnapToPixelGrid(false)
             abar.texture:SetAllPoints(self)
@@ -1679,7 +1681,7 @@ local function create(parent)
   end)
 
   bar:SetRotatesTexture(true);
-  bar:HookScript("OnSizeChanged", bar.OnSizeChanged);
+  TimedHookScript(bar, "OnSizeChanged", bar.OnSizeChanged);
   region.bar = bar;
   region.secretBar = secretBar;
 

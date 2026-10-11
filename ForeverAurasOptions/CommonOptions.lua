@@ -59,6 +59,67 @@ end
 
 commonOptionsCache.Clear = function(self)
   self.data = {}
+  self.results = setmetatable({}, {__mode = "k"})
+end
+
+-- Results of the combined ("All") option functions used when a group or a
+-- multi-selection is edited. Each of them walks every child aura, and the
+-- options dialog asks for name, desc, values, hidden, disabled and get of
+-- every widget on each refresh, so a group with many children repeated the
+-- same walk thousands of times. The results are kept until the next Clear,
+-- which runs whenever the options are rebuilt: after every change made
+-- through a group, after expand/collapse and when the selection or tab changes.
+commonOptionsCache.results = setmetatable({}, {__mode = "k"})
+
+-- Builds the lookup key for one option path plus any extra arguments
+-- (a multiselect's get is asked once per value key).
+local function ResultKey(info, ...)
+  local key = table.concat(info, "\001")
+  for i = 1, select("#", ...) do
+    key = key .. "\002" .. tostring((select(i, ...)))
+  end
+  return key
+end
+
+-- Returns the stored results for (data, subOption, kind, key), packed with
+-- their count, or nil.
+commonOptionsCache.GetResult = function(self, data, subOption, kind, key)
+  local byData = self.results[data]
+  local bySub = byData and byData[subOption]
+  local byKind = bySub and bySub[kind]
+  return byKind and byKind[key]
+end
+
+-- Stores the results of one combined option function call and returns them.
+commonOptionsCache.SetResult = function(self, data, subOption, kind, key, ...)
+  local byData = self.results[data]
+  if not byData then
+    byData = {}
+    self.results[data] = byData
+  end
+  byData[subOption] = byData[subOption] or {}
+  byData[subOption][kind] = byData[subOption][kind] or {}
+  byData[subOption][kind][key] = {n = select("#", ...), ...}
+  return ...
+end
+
+-- Option tabs whose combined results are cached. Only the Load tab for now:
+-- its values change only through the options themselves, while Display
+-- values can also change by dragging an aura on screen.
+local cachedSubOptions = {load = true}
+
+-- Wraps a combined option function f(data, info, ...) so that repeated calls
+-- with the same aura, option path and arguments reuse the first result.
+local function CachedAll(subOption, kind, f)
+  if not cachedSubOptions[subOption] then return f end
+  return function(data, info, ...)
+    local key = ResultKey(info, ...)
+    local cached = commonOptionsCache:GetResult(data, subOption, kind, key)
+    if cached then
+      return unpack(cached, 1, cached.n)
+    end
+    return commonOptionsCache:SetResult(data, subOption, kind, key, f(data, info, ...))
+  end
 end
 
 
@@ -397,7 +458,8 @@ local function hiddenChild(childOptionTable, info)
 end
 
 local function CreateHiddenAll(subOption)
-  return function(data, info)
+  -- Cached per refresh; see commonOptionsCache.results.
+  return CachedAll(subOption, "hidden", function(data, info)
     local mainOptions = OptionsPrivate.EnsureOptions(data, subOption)
     for i=1,#info do
       mainOptions = mainOptions.args[info[i]];
@@ -438,7 +500,7 @@ local function CreateHiddenAll(subOption)
     else
       return true
     end
-  end
+  end)
 end
 
 local function disabledChild(childOptionTable, info)
@@ -455,7 +517,8 @@ local function disabledChild(childOptionTable, info)
 end
 
 local function CreateDisabledAll(subOption)
-  return function(data, info)
+  -- Cached per refresh; see commonOptionsCache.results.
+  return CachedAll(subOption, "disabled", function(data, info)
     for child in OptionsPrivate.Private.TraverseLeafs(data) do
       local childOptions = OptionsPrivate.EnsureOptions(child, subOption);
       local childOption = childOptions;
@@ -472,7 +535,7 @@ local function CreateDisabledAll(subOption)
     end
 
     return true;
-  end
+  end)
 end
 
 local function disabledOrHiddenChild(childOptionTable, info)
@@ -697,7 +760,19 @@ local function replaceNameDescFuncs(intable, data, subOption)
             end
           end
         end
+        -- The combined description is cached per refresh like the other
+        -- combined functions; see commonOptionsCache.results.
+        local descUncached
         intable.desc = function(info)
+          if not cachedSubOptions[subOption] then return descUncached(info) end
+          local key = ResultKey(info)
+          local cached = commonOptionsCache:GetResult(data, subOption, "desc", key)
+          if cached then
+            return cached[1]
+          end
+          return (commonOptionsCache:SetResult(data, subOption, "desc", key, descUncached(info)))
+        end
+        descUncached = function(info)
           if(sameAll(info)) then
             return descAll(info);
           else
@@ -884,10 +959,21 @@ local function replaceValuesFuncs(intable, data, subOption)
     return combinedValues;
   end
 
+  -- Cached per refresh; see commonOptionsCache.results.
+  local function cachedValuesAll(info)
+    if not cachedSubOptions[subOption] then return valuesAll(info) end
+    local key = ResultKey(info)
+    local cached = commonOptionsCache:GetResult(data, subOption, "values", key)
+    if cached then
+      return cached[1]
+    end
+    return (commonOptionsCache:SetResult(data, subOption, "values", key, valuesAll(info)))
+  end
+
   local function recurse(intable)
     for i,v in pairs(intable) do
       if(i == "values" and type(v) == "function") then
-        intable[i] = valuesAll;
+        intable[i] = cachedValuesAll;
       elseif(type(v) == "table" and i ~= "values") then
         recurse(v);
       end
@@ -942,7 +1028,8 @@ local getHelper = {
 
 
 local function CreateGetAll(subOption)
-  return function(data, info, ...)
+  -- Cached per refresh; see commonOptionsCache.results.
+  return CachedAll(subOption, "get", function(data, info, ...)
     local isToggle = nil
     local isColor = nil
 
@@ -994,7 +1081,7 @@ local function CreateGetAll(subOption)
       -- This can happen if all children are disabled
       return unpack(allChildren:Get())
     end
-  end
+  end)
 end
 
 local function CreateSetAll(subOption, getAll)

@@ -2,6 +2,8 @@
 -- Editor-only sample frames reuse native appearance styling without binding live auras.
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAuraPreview")
 local Display = Private.BlizzardAuraDisplay
 
 -- Builds a plain frame with the native button's binding methods. Previews add a

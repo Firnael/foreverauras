@@ -2,6 +2,8 @@
 -- Public trigger conditions can style native widgets without observing secret aura state.
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAuraConditions")
 local Display = Private.BlizzardAuraDisplay
 local conditionActions = {chat = "chat", sound = "sound", customcode = "customcode", glowexternal = "glowexternal"}
 local rootProperties = {
@@ -647,6 +649,9 @@ function Display.SetConditionProperty(region, property, ...)
   local value = kind == 'color' and {...} or ...
   region.secretAuraConditionValues = region.secretAuraConditionValues or {}
   region.secretAuraConditionValues[property] = value
+  -- While access to the native buttons is denied the values below are not
+  -- applied; RefreshConditionAppearance applies them once access returns.
+  if InCombatLockdown() or C_Secrets.ShouldAurasBeSecret() then region.secretAuraConditionDirty = true end
   for _, instance in ipairs(native.instances) do
     for _, button in ipairs(instance.buttons) do ApplyProperty(button, native.data, property, value, region.secretAuraConditionValues) end
     -- The Missing look follows the same non-aura conditions.
@@ -659,9 +664,14 @@ function Display.SetConditionProperty(region, property, ...)
 end
 
 -- Condition evaluation continues while access is denied; restore only its latest result.
+-- Only displays whose values changed while access was denied are touched: this
+-- runs for every active display at each combat or restriction change, and each
+-- property applied re-lays out text or textures on all of the display's buttons.
 function Display.RefreshConditionAppearance(region)
   local native = region.blizzardAuraDisplay
   if not native or not native.active or not region.secretAuraConditionValues then return end
+  if not region.secretAuraConditionDirty then return end
+  region.secretAuraConditionDirty = nil
   for _, instance in ipairs(native.instances) do
     for _, button in ipairs(instance.buttons) do
       Display.ApplyConditionAppearance(button, region, native.data)

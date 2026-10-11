@@ -5,6 +5,8 @@ if not WeakAuras.IsLibsOK() then return end
 local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("Animations")
 local L = WeakAuras.L
 
 -- Animations

@@ -6,6 +6,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("AuraEnvironment")
 ---@class WeakAuras
 local WeakAuras = WeakAuras
 local L = WeakAuras.L
@@ -286,6 +288,27 @@ local aura_environments = {}
 local environment_initialized = {}
 local getDataCallCounts = {}
 
+-- Copies handed out by the aura environment's GetData, one per aura data table.
+-- Copying a whole aura on every call was the cost behind the "GetData a lot"
+-- warning: custom code that walks a group on each event copied every member's
+-- triggers, conditions and code strings again (several ms and hundreds of KB
+-- of garbage per event). A copy is kept until any aura changes
+-- (Private.dataGeneration, ForeverAuras.lua) and is not used while the options
+-- window is open, where auras are edited in place. Custom code that edits its
+-- copy sees its own edits on later calls until then; the saved data itself
+-- stays protected as before.
+local dataCopies = setmetatable({}, {__mode = "k"})
+local function GetDataCopy(id)
+  local data = WeakAuras.GetData(id)
+  if not data then return nil end
+  if WeakAuras.IsOptionsOpen() then return CopyTable(data), true end
+  local entry = dataCopies[data]
+  if entry and entry.generation == Private.dataGeneration then return entry.copy, false end
+  entry = {generation = Private.dataGeneration, copy = CopyTable(data)}
+  dataCopies[data] = entry
+  return entry.copy, true
+end
+
 function Private.IsEnvironmentInitialized(id)
   return environment_initialized[id] == 2
 end
@@ -294,12 +317,14 @@ function Private.DeleteAuraEnvironment(id)
   aura_environments[id] = nil
   environment_initialized[id] = nil
   getDataCallCounts[id] = nil
+  Private.InvalidateDataCopies()
 end
 
 function Private.RenameAuraEnvironment(oldid, newid)
   aura_environments[oldid], aura_environments[newid] = nil, aura_environments[oldid]
   environment_initialized[oldid], environment_initialized[newid] = nil, environment_initialized[oldid]
   getDataCallCounts[oldid], getDataCallCounts[newid] = nil, getDataCallCounts[oldid]
+  Private.InvalidateDataCopies()
 end
 
 local current_uid = nil
@@ -610,14 +635,18 @@ local FakeWeakAurasMixin = {
     me = GetUnitName("player", true),
     myGUID = UnitGUID("player"),
     GetData = function(id)
-      local currentId = Private.UIDtoID(current_uid)
-      getDataCallCounts[currentId] = getDataCallCounts[currentId] + 1
-      if getDataCallCounts[currentId] > 99 then
-        Private.AuraWarnings.UpdateWarning(current_uid, "FakeWeakAurasGetData", "warning",
-                  L["This aura calls GetData a lot, which is a slow function."])
+      -- Only calls that had to copy an aura count towards the warning; a copy
+      -- served from the cache costs no more than a table lookup.
+      local copy, copied = GetDataCopy(id)
+      if copied then
+        local currentId = Private.UIDtoID(current_uid)
+        getDataCallCounts[currentId] = (getDataCallCounts[currentId] or 0) + 1
+        if getDataCallCounts[currentId] > 99 then
+          Private.AuraWarnings.UpdateWarning(current_uid, "FakeWeakAurasGetData", "warning",
+                    L["This aura calls GetData a lot, which is a slow function."])
+        end
       end
-      local data = WeakAuras.GetData(id)
-      return data and CopyTable(data) or nil
+      return copy
     end,
     clones = MakeDeprecated(Private.clones, "clones",
                 L["Using WeakAuras.clones is deprecated. Use WeakAuras.GetRegion(id, cloneId) instead."]),
@@ -683,6 +712,10 @@ local exec_env_custom = setmetatable(CopyTable(mixins),
       return current_aura_env and Private.AuraEnvironmentWrappedSystem.Get("C_Timer",
                                       current_aura_env.id, current_aura_env.cloneId)
                               or C_Timer
+    elseif (k == "CreateFrame" or k == "hooksecurefunc") and current_aura_env then
+      -- Frames and hooks made by custom code are timed under the aura's name
+      -- while profiling runs (see Private.TimedAPI); otherwise unchanged.
+      return Private.AuraTimedAPI(current_aura_env.id)[k]
     elseif k == "print" then
      return current_aura_env and not Private.db.disableTrackPrints and printID or print
     elseif blockedFunctions[k] then

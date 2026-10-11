@@ -4,6 +4,8 @@ local GlobalAddonName = ...
 
 ---@class AddonDB
 local AddonDB = select(2, ...)
+-- Frames and hooks from this file are timed by the profiler (see AddonDB.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = AddonDB.TimedAPI("Async")
 
 local CopyTable = CopyTable
 local InCombatLockdown = InCombatLockdown

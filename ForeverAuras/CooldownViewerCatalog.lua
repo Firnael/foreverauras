@@ -1,6 +1,8 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("CooldownViewerCatalog")
 local identities = {}
 local requestedItems = {}
 
@@ -139,11 +141,11 @@ local function Observe(frame)
   for _, method in ipairs({"RefreshData", "RefreshCooldownOnly"}) do
     if type(frame[method]) == "function" then hooksecurefunc(frame, method, RefreshNativeState) end
   end
-  if frame.HookScript then frame:HookScript("OnShow", NativeRefresh); frame:HookScript("OnHide", NativeRefresh) end
+  if frame.HookScript then TimedHookScript(frame, "OnShow", NativeRefresh); TimedHookScript(frame, "OnHide", NativeRefresh) end
   local cooldown = frame.Cooldown or frame.cooldown
   if cooldown then
     -- Timer completion need not emit a spell event or clear the viewer's cached flags.
-    if cooldown.HookScript then cooldown:HookScript("OnCooldownDone", CooldownDone) end
+    if cooldown.HookScript then TimedHookScript(cooldown, "OnCooldownDone", CooldownDone) end
     if cooldown.SetCooldownFromDurationObject then
       hooksecurefunc(cooldown, "SetCooldownFromDurationObject", function(_, duration)
         record.revision = (record.revision or 0) + 1
