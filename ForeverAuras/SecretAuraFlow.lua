@@ -676,7 +676,8 @@ function Display.EnsureFlowRemaining(region, data)
 end
 
 -- Keeps a display's list shadow on the same unit as its aura area.
-function Display.RefreshFlowShadow(instance, unit, shown)
+-- force: see Display.RefreshSingle.
+function Display.RefreshFlowShadow(instance, unit, shown, force)
   local container = instance.flowShadowActive and instance.flowShadow
   if not container or Busy(container) then return end
   if unit and instance.flowShadowUnit ~= unit then
@@ -686,7 +687,7 @@ function Display.RefreshFlowShadow(instance, unit, shown)
   end
   -- Enabled and refreshed only when its state changes (faEnabled, TrackEnabled).
   if container:IsShown() ~= shown then container:SetShown(shown) end
-  if container.faEnabled ~= shown then
+  if container.faEnabled ~= shown or (shown and force) then
     container:SetEnabled(shown)
     if shown then container:UpdateAllAuras() end
   end

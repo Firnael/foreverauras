@@ -367,8 +367,17 @@ local function modify(parent, region, parentData, data, first)
         local textStr = region.text_text or ""
         textStr = Private.ReplacePlaceHolders(textStr, parent, nil, false, self.subTextFormatters)
 
+        -- Set only when the string differs from what is shown: a cooldown
+        -- icon's texts are updated on every global cooldown, and a timer text
+        -- every tick, and the client lays the text out again on each set.
+        -- Compared with the string itself (other code writes these texts
+        -- too); a secret string cannot be compared and is set.
         if text:GetFont() then
-          text:SetText(WeakAuras.ReplaceRaidMarkerSymbols(textStr))
+          local rendered = WeakAuras.ReplaceRaidMarkerSymbols(textStr)
+          local current = text:GetText()
+          if issecretvalue(rendered) or issecretvalue(current) or current ~= rendered then
+            text:SetText(rendered)
+          end
         end
         if timerOnly then
           local state = parent.state

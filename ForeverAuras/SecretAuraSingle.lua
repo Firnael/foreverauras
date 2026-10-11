@@ -703,6 +703,49 @@ local function EnsurePresence(missing, region, data, filter, candidates, perUnit
   missing.presenceActive = true
 end
 
+-- Erased Missing look. Where the client can render a frame's subtree into a
+-- frame buffer (SetIsFrameBuffer, SetFlattensRenderLayers), a Show On Always
+-- icon draws its aura slot and its Missing look in one such "stage": the
+-- Missing look lies beneath, and each aura button carries a texture drawn
+-- with blending disabled (Display.StyleEraser) that overwrites the buffer
+-- with nothing wherever the button is. The Missing look therefore disappears
+-- in the very frame the aura's button appears, with no second container
+-- asking the client whether the aura is present, nothing to refresh on a
+-- unit change, and no frame in which both or neither are drawn. Other
+-- display types, Show On Missing, unit frames, nameplates and Modern Aura
+-- Groups keep the presence container.
+local FRAME_BUFFER = UIParent ~= nil and UIParent.SetIsFrameBuffer ~= nil and UIParent.SetFlattensRenderLayers ~= nil
+function Display.ErasedMissing(data, trigger, perUnit)
+  return FRAME_BUFFER and data.regionType == "icon" and not perUnit and not Display.FlowGroup(data)
+    and Display.ShowOn(trigger) == "showAlways"
+end
+
+-- The stage of a display whose Missing look is erased, for RefreshUnits:
+-- the aura slot container is parented to it.
+function Display.MissingStage(instance)
+  local single = instance.single
+  local missing = single and single.missing
+  return missing and missing.active and missing.erased and single.stage or nil
+end
+
+-- Called by Style for every aura button of a display: the eraser covers the
+-- Missing look's whole reach (its margin) while the look is erased.
+function Display.StyleEraser(native, data)
+  local eraser = native.eraser
+  if not eraser then return end
+  local trigger = Display.GetTrigger(data)
+  if not (trigger and Display.ErasedMissing(data, trigger, Display.UnitPlacedMissing(data, trigger))) then
+    eraser:Hide()
+    return
+  end
+  local width, height = Display.Dimensions(data)
+  local margin = MissingMargin(data, width, height)
+  eraser:ClearAllPoints()
+  eraser:SetPoint("TOPLEFT", native.button, "TOPLEFT", -margin, margin)
+  eraser:SetPoint("BOTTOMRIGHT", native.button, "BOTTOMRIGHT", margin, -margin)
+  eraser:Show()
+end
+
 -- The Missing part: its own container, so its width depends only on presence.
 local function EnsureMissing(single, region, data, trigger, instance)
   local width, height = Display.Dimensions(data)
@@ -760,6 +803,9 @@ local function EnsureMissing(single, region, data, trigger, instance)
   end
   -- Absent: the container is 1 px wide and the clip spans the icon plus margin.
   -- Present: its right edge moves onto the clip's right edge, closing it.
+  -- Erased (Display.ErasedMissing): the clip always spans the icon inside the
+  -- stage, and the presence container is not used.
+  missing.erased = Display.ErasedMissing(data, trigger, perUnit)
   local anchor
   missing.container:ClearAllPoints()
   if perUnit then
@@ -779,10 +825,32 @@ local function EnsureMissing(single, region, data, trigger, instance)
   end
   local clip = missing.clip
   clip:ClearAllPoints()
-  clip:SetPoint("TOPLEFT", missing.container, "TOPRIGHT", -1 - margin, margin)
-  clip:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", margin, -margin)
+  if missing.erased then
+    local stage = single.stage
+    if not stage then
+      stage = CreateFrame("Frame", nil, region)
+      stage:EnableMouse(false)
+      stage:SetFlattensRenderLayers(true)
+      stage:SetIsFrameBuffer(true)
+      single.stage = stage
+    end
+    stage:ClearAllPoints()
+    stage:SetPoint("TOPLEFT", region, "TOPLEFT", -margin, margin)
+    stage:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", margin, -margin)
+    stage:SetFrameLevel(region:GetFrameLevel())
+    stage:Show()
+    if clip:GetParent() ~= stage then clip:SetParent(stage) end
+    clip:SetAllPoints(stage)
+    -- Beneath the aura slot's buttons, which sit two levels above the stage.
+    clip:SetFrameLevel(stage:GetFrameLevel())
+  else
+    if single.stage then single.stage:Hide() end
+    if clip:GetParent() ~= region then clip:SetParent(region) end
+    clip:SetPoint("TOPLEFT", missing.container, "TOPRIGHT", -1 - margin, margin)
+    clip:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", margin, -margin)
+    clip:SetFrameLevel(region:GetFrameLevel() + 1)
+  end
   EnsurePresence(missing, region, data, filter, candidates, perUnit)
-  clip:SetFrameLevel(region:GetFrameLevel() + 1)
   missing.container:SetFrameLevel(region:GetFrameLevel() + 1)
   StyleMissing(missing, region, data)
   missing.active = true
@@ -1126,9 +1194,10 @@ local function SpellText(id)
   local parts = {}
   local ok, text = pcall(C_Spell.GetSpellDescription, id)
   -- The description is what says the duration; a tooltip with only its title
-  -- means the spell's text has not loaded yet.
+  -- means the spell's text has not loaded yet. It is returned apart from the
+  -- other tooltip lines (DescribedDuration reads it first).
   local loaded = ok and type(text) == "string" and not issecretvalue(text) and text ~= ""
-  if loaded then parts[#parts + 1] = text end
+  local description = loaded and text:lower() or nil
   if C_TooltipInfo and C_TooltipInfo.GetSpellByID then
     local okTip, info = pcall(C_TooltipInfo.GetSpellByID, id)
     for _, line in ipairs(okTip and type(info) == "table" and info.lines or {}) do
@@ -1140,13 +1209,13 @@ local function SpellText(id)
       end
     end
   end
-  return table.concat(parts, "\n"):lower(), loaded
+  return table.concat(parts, "\n"):lower(), loaded, description
 end
 local function DescribedDuration(id)
   if describedDurations[id] ~= nil then return describedDurations[id] or nil end
   -- Requested and still loading: nothing new to read yet.
   if pendingSpellData[id] then return end
-  local text, loaded = SpellText(id)
+  local text, loaded, description = SpellText(id)
   if not loaded and not loadAttempted[id] and C_Spell.RequestLoadSpellData then
     -- Not loaded yet: ask once; the load event clears the cache entry.
     pendingSpellData[id], loadAttempted[id] = true, true
@@ -1157,14 +1226,23 @@ local function DescribedDuration(id)
     -- Asked and answered: whatever is there is final.
     loaded = loadAttempted[id] == true
   end
-  local best
-  for _, entry in ipairs(DurationPatterns()) do
-    for value in text:gmatch(entry[1]) do
-      local seconds = tonumber((value:gsub(",", ".")))
-      seconds = seconds and seconds * entry[2]
-      if seconds and seconds > (best or 0) then best = seconds end
+  -- The description is read first; the rest of the tooltip only when the
+  -- description names no duration. A tooltip also states the cooldown
+  -- ("25 sec cooldown" on an 8 sec root), and the longest time in the whole
+  -- text was that cooldown, which put a Remaining Time glow far too late.
+  local function Longest(part)
+    local best
+    for _, entry in ipairs(DurationPatterns()) do
+      for value in part:gmatch(entry[1]) do
+        local seconds = tonumber((value:gsub(",", ".")))
+        seconds = seconds and seconds * entry[2]
+        if seconds and seconds > (best or 0) then best = seconds end
+      end
     end
+    return best
   end
+  local best = description and Longest(description)
+  if not best then best = Longest(text) end
   -- "No duration" is remembered only once loading has been tried, so a
   -- half-loaded tooltip is read again after the load event.
   if best or loaded then describedDurations[id] = best or false end
@@ -2026,7 +2104,11 @@ function Display.ConfigureSingle(instance, region, data, index)
   -- buttons made invisible. Otherwise the list draws (Remaining Time styles it).
   local listDraws = not isSingle or Display.ShowOn(trigger) ~= "showOnMissing"
   single.listDisabled = not listDraws
-  instance.container:SetAuraGroupEnabled("Auras", listDraws)
+  if instance.slotMain then
+    instance.container:SetAuraSlotEnabled("Auras", listDraws)
+  else
+    instance.container:SetAuraGroupEnabled("Auras", listDraws)
+  end
   for _, button in ipairs(instance.buttons or {}) do button.button:SetAlpha(listDraws and 1 or 0) end
 end
 
@@ -2071,11 +2153,17 @@ function Display.RefreshSingleStatus(instance)
   end
 end
 
-function Display.RefreshSingle(instance, unit, shown)
+-- force: the unit behind the token can have changed (RefreshUnits): a shown
+-- container is enabled and refreshed again even when it stayed enabled.
+function Display.RefreshSingle(instance, unit, shown, force)
   local single = instance.single
   -- Enabling the container must not bring back a list the settings turned off.
   if shown and single and single.listDisabled then
-    pcall(instance.container.SetAuraGroupEnabled, instance.container, "Auras", false)
+    if instance.slotMain then
+      pcall(instance.container.SetAuraSlotEnabled, instance.container, "Auras", false)
+    else
+      pcall(instance.container.SetAuraGroupEnabled, instance.container, "Auras", false)
+    end
   end
   local missing = instance.single and instance.single.missing
   if not missing or not missing.active then return end
@@ -2093,7 +2181,12 @@ function Display.RefreshSingle(instance, unit, shown)
   -- One that already is enabled for this unit is kept: Blizzard refreshes it
   -- from UNIT_AURA, so enabling and refreshing it again on every unit event
   -- only cost client time. The full refresh below runs when it is enabled here.
-  local enable = container.faEnabled ~= shown
+  -- A unit change (force) on a container that stays enabled refreshes it in
+  -- place: enabling it again makes the client clear and lay it out again.
+  -- Erased: the presence container is never enabled; only the clip follows.
+  local enable = not missing.erased and container.faEnabled ~= shown
+  local refresh = enable or (shown and force and not missing.erased)
+  if missing.erased and container.faEnabled then container:SetEnabled(false) end
   if container:IsShown() ~= shown then container:SetShown(shown) end
   if enable then container:SetEnabled(shown) end
   -- The Modern Aura Group spacing and centring shadow follow the same unit.
@@ -2106,10 +2199,9 @@ function Display.RefreshSingle(instance, unit, shown)
         missing[key .. "BoundUnit"] = unit
       end
       if follower:IsShown() ~= shown then follower:SetShown(shown) end
-      if follower.faEnabled ~= shown then
-        follower:SetEnabled(shown)
-        if shown then follower:UpdateAllAuras() end
-      end
+      local followerEnable = follower.faEnabled ~= shown
+      if followerEnable then follower:SetEnabled(shown) end
+      if shown and (followerEnable or force) then follower:UpdateAllAuras() end
     end
   end
   -- A disabled container keeps its last width; the clip must not show then.
@@ -2128,7 +2220,7 @@ function Display.RefreshSingle(instance, unit, shown)
   local keepWithoutUnit = trigger and trigger.unitExists
   missing.unitExists = keepWithoutUnit or Display.SingleUnitExists({unit = unit})
   missing.clip:SetAlpha(missing.unitExists and not instance.statusHidden and 1 or 0)
-  if shown and enable then container:UpdateAllAuras(); Private.HitchCount("UpdateAllAuras") end
+  if shown and refresh then container:UpdateAllAuras(); Private.HitchCount("UpdateAllAuras") end
 end
 
 learnEvents:SetScript("OnEvent", Private.Profiled("aura (modern) - learning", learnEvents:GetScript("OnEvent")))

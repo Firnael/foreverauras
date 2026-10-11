@@ -889,6 +889,7 @@ end
 local function Style(native, data, region)
   Display.StyleAppearance(native, Display.PrepareConditionAppearance(data), ElementFrame, StyleText, StyleGlow)
   Display.ApplyConditionAppearance(native, region, data)
+  if Display.StyleEraser then Display.StyleEraser(native, data) end
 end
 
 local function SpellIDMap(values)
@@ -1071,6 +1072,23 @@ local function Layout(native, region, data)
   -- In a Modern Aura Group the content starts where the previous display ends.
   if centered then container:SetPoint("CENTER", region, "CENTER")
   else Display.AnchorToContent(container, anchor, region, anchor) end
+  -- An aura slot's button is placed here, where the group's one button would
+  -- be laid out; a slot has no group layout or count to set.
+  if native.slotMain then
+    for _, entry in ipairs(native.buttons) do
+      local button = entry.button
+      if not pcall(function()
+        button:SetSize(width, height)
+        button:ClearAllPoints()
+        if centered then button:SetPoint("CENTER", region, "CENTER")
+        else button:SetPoint(anchor, Display.ContentAnchor(region), anchor) end
+      end) then
+        -- Access denied (restricted): placed again by the next Apply.
+        native.slotLayoutPending = true
+      end
+    end
+    return
+  end
   container:SetFlowLayoutAxis(vertical and AnchorUtil.FlowLayoutAxis.Vertical or AnchorUtil.FlowLayoutAxis.Horizontal)
   container:SetFlowLayoutAnchorPoint(anchor)
   container:SetFlowLayoutGrowthDirection(direction == "LEFT" and AnchorUtil.FlowDirection.Left or AnchorUtil.FlowDirection.Right,
@@ -1116,6 +1134,14 @@ local function BuildButton(container, button)
   end
   native.border = (native.gateClip or button):CreateTexture(nil, "BACKGROUND")
   native.border:SetAllPoints(button)
+  -- Eraser for the Missing look (SecretAuraSingle.lua, Display.StyleEraser):
+  -- drawn with blending disabled inside a frame buffer, it overwrites what is
+  -- beneath the button with nothing while the button is shown. On the button
+  -- itself, outside the gate clip, so it can reach past the icon.
+  native.eraser = button:CreateTexture(nil, "BACKGROUND", nil, -8)
+  native.eraser:SetColorTexture(0, 0, 0, 0)
+  native.eraser:SetBlendMode("DISABLE")
+  native.eraser:Hide()
   local base = ElementFrame(native, "sharedBase")
   native.icon = base:CreateTexture(nil, "ARTWORK")
   -- Placed like the icons of other displays (not rounded to whole pixels), so rows line up.
@@ -1135,6 +1161,17 @@ local function BuildButton(container, button)
 end
 Display.BuildNativeButton = BuildButton
 
+-- A display that draws one aura (DrawsOne: Always, Missing, Remaining Time
+-- on an icon, or a list limited to one) gets an aura slot instead of an aura
+-- group: a group is built as a batch of buttons the client sizes and lays
+-- out, a slot is one button placed by this file (Layout), so the container
+-- is cheaper to build and to re-read. Lists, gated displays (which stack
+-- candidates) and Modern Aura Group containers keep the group.
+local function WantsSlot(data, inFlow, container)
+  return not inFlow and container.AddAuraSlot ~= nil and Display.MaxAuras(data) == 1
+end
+Display.WantsSlot = WantsSlot
+
 local function Create(region, data)
   local display = {buttons = {}, data = data}
   local container, inFlow = Display.CreateAuraContainer(region, data)
@@ -1142,16 +1179,32 @@ local function Create(region, data)
   -- Made for a Modern Aura Group (SecretAuraFlow.lua); Apply replaces it on a change.
   display.flowContainer = inFlow
   container:SetEnabled(false)
-  ConfigureProcessing(container, Display.GetTrigger(data))
+  local trigger = Display.GetTrigger(data)
+  ConfigureProcessing(container, trigger)
   container:SetPoint("TOPLEFT", region, "TOPLEFT")
-  container:AddAuraGroup("Auras", FilterString(Display.GetTrigger(data)), {
+  local function initializeFrame(button)
+    local native = BuildButton(container, button)
+    Style(native, display.data, region)
+    display.buttons[#display.buttons + 1] = native
+  end
+  if WantsSlot(data, inFlow, container) then
+    local ok = pcall(container.AddAuraSlot, container, "Auras", FilterString(trigger), {
+      candidateFilters = CandidateFilters(data),
+      sortMethod = Display.SortOrder(data, trigger),
+      initializeFrame = initializeFrame,
+    })
+    if ok and display.buttons[1] then
+      display.slotMain = true
+      return display
+    end
+    -- The client refused the slot: the group below draws instead.
+    wipe(display.buttons)
+  end
+  display.slotMain = false
+  container:AddAuraGroup("Auras", FilterString(trigger), {
     maxFrameCount = Display.MaxAuras(data),
     candidateFilters = CandidateFilters(data),
-    initializeFrame = function(button)
-      local native = BuildButton(container, button)
-      Style(native, display.data, region)
-      display.buttons[#display.buttons + 1] = native
-    end,
+    initializeFrame = initializeFrame,
   })
   return display
 end
@@ -1245,7 +1298,11 @@ local function ApplyUnitStatus(instance, trigger)
   if not Locked(instance.container) then instance.container:SetAlpha(hidden and 0 or instance.baseAlpha or 1) end
 end
 
-local function RefreshUnits(region, removedUnit, changedUnit)
+-- unitChanged: the event that asked for this refresh can have changed which
+-- unit a token stands for (a new target, focus, mouseover, pet or group
+-- member). The Missing look and the group shadow are refreshed on it; the
+-- aura slot is not (see below).
+local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
   local native = region.blizzardAuraDisplay
   if not native or not native.active then return end
   if native.instanceQueue and not IsPreview() and Display.FlushInstanceQueue then Display.FlushInstanceQueue(region) end
@@ -1287,13 +1344,19 @@ local function RefreshUnits(region, removedUnit, changedUnit)
       -- Live aura visibility must not affect the editor samples.
       local shown = not IsPreview() and unit ~= nil and region:IsShown() and (not (unitFrames or nameplates) or anchorFrame ~= nil)
         and not native.gridMember
-      local parent = unitFrames and data.anchorFrameParent ~= false and anchorFrame or region
+      -- An erased Missing look (SecretAuraSingle.lua) draws the aura slot and
+      -- the Missing look in one frame buffer: the slot's parent is that stage.
+      local parent = unitFrames and data.anchorFrameParent ~= false and anchorFrame
+        or (Display.MissingStage and Display.MissingStage(instance)) or region
       -- Nothing about the container's content changes when it keeps its unit,
       -- parent, enabled state and visibility, and no nameplate was reassigned
       -- (removedUnit/changedUnit): Blizzard keeps a live container current from
       -- UNIT_AURA itself, so the enable and full refresh below are skipped then.
       -- The same holds for its anchors: they are set again only when the frame
       -- they hang from changed (unit frames and nameplates come and go).
+      -- unitChanged alone does not force this refresh: enabling and refreshing
+      -- every aura slot on each target change was a visible stutter; a kept
+      -- token's slot is re-read in place instead (below).
       local unchanged = instance.boundUnit == unit and container:GetParent() == parent
         and container.faEnabled == true and instance.visible == true and not removedUnit and not changedUnit
       local reanchor = not unchanged or instance.anchoredTo ~= (anchorFrame or region) or not instance.anchored
@@ -1385,11 +1448,20 @@ local function RefreshUnits(region, removedUnit, changedUnit)
       if container.faEnabled ~= shown or (shown and not unchanged) then
         container:SetEnabled(shown)
         if shown then container:UpdateAllAuras(); Private.HitchCount("UpdateAllAuras") end
+      elseif shown and unitChanged then
+        -- A new unit behind a kept token: the client only re-reads a container
+        -- on UNIT_AURA for its unit or when it is shown or enabled again, so
+        -- it would keep showing the previous unit's auras. Re-read in place,
+        -- without the enable cycle (which clears and lays out again).
+        container:UpdateAllAuras(); Private.HitchCount("UpdateAllAuras")
       end
-      -- The Missing container follows the same unit and visibility as the aura slot.
-      Display.RefreshSingle(instance, unit, shown)
+      -- The Missing container follows the same unit and visibility as the aura
+      -- slot, and is refreshed with it when the unit behind the token can have
+      -- changed: left alone, it kept the previous target's state (the Missing
+      -- look stayed closed after de-targeting, and flickered on re-targeting).
+      Display.RefreshSingle(instance, unit, shown, unitChanged or not unchanged)
       -- So does a centred Modern Aura Group's half-size shadow.
-      Display.RefreshFlowShadow(instance, unit, shown)
+      Display.RefreshFlowShadow(instance, unit, shown, unitChanged or not unchanged)
       if instance.unitGlow then
         local glowContainer = instance.unitGlow.container
         local frame = unitFrames and unit and settings.unitGlow and anchorFrame
@@ -1460,9 +1532,15 @@ local function ApplyInstance(region, data, index, instance)
   Layout(instance, region, data)
   local trigger = Display.GetTrigger(data)
   ConfigureProcessing(instance.container, trigger)
-  instance.container:SetAuraGroupSortMethod("Auras", Display.SortOrder(data, trigger))
-  instance.container:SetAuraGroupFilterString("Auras", FilterString(trigger))
-  instance.container:SetAuraGroupCandidateFilters("Auras", CandidateFilters(data))
+  if instance.slotMain then
+    instance.container:SetAuraSlotSortMethod("Auras", Display.SortOrder(data, trigger))
+    instance.container:SetAuraSlotFilterString("Auras", FilterString(trigger))
+    instance.container:SetAuraSlotCandidateFilters("Auras", CandidateFilters(data))
+  else
+    instance.container:SetAuraGroupSortMethod("Auras", Display.SortOrder(data, trigger))
+    instance.container:SetAuraGroupFilterString("Auras", FilterString(trigger))
+    instance.container:SetAuraGroupCandidateFilters("Auras", CandidateFilters(data))
+  end
   ConfigureUnitGlow(instance, region, data)
   Display.ConfigureSingle(instance, region, data, index)
 end
@@ -1647,8 +1725,12 @@ function ApplyDisplay(region, data)
   native.unitGlowsHidden = false
   -- Joining or leaving a Modern Aura Group needs containers made for it: the old
   -- ones are retired (frames cannot be destroyed, so they stay hidden).
+  -- The same when the display changes between one aura (a slot) and a list
+  -- or a gated display (a group): the slot or group is fixed at creation.
   local wantsFlow = Display.FlowGroup(data) ~= nil
-  if native.instances[1] and native.instances[1].flowContainer ~= wantsFlow then
+  local first = native.instances[1]
+  if first and (first.flowContainer ~= wantsFlow
+    or (first.slotMain ~= nil and first.slotMain ~= WantsSlot(data, wantsFlow, first.container))) then
     for _, instance in ipairs(native.instances) do
       instance.container:SetEnabled(false)
       instance.container:Hide()
@@ -1931,15 +2013,15 @@ events:SetScript("OnEvent", function(_, event, unit)
     if event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED" then
       if Display.UsesNameplates(region.blizzardAuraDisplay.data) then
         if mode == "nameplate" then
-          RefreshUnits(region, event == "NAME_PLATE_UNIT_REMOVED" and unit or nil, unit)
+          RefreshUnits(region, event == "NAME_PLATE_UNIT_REMOVED" and unit or nil, unit, true)
         else
-          RefreshUnits(region)
+          RefreshUnits(region, nil, nil, true)
         end
       end
     elseif pending[region] and not Restricted() then
       -- Rebuilt below; refreshing it first would be wasted.
     elseif NeedsUnitRefresh(mode, event, unit, trigger) then
-      RefreshUnits(region)
+      RefreshUnits(region, nil, nil, true)
     end
     if trigger and (event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ROLES_ASSIGNED"
       or (event == "UNIT_NAME_UPDATE" and trigger.useUnitNames)) and unitEvents.GROUP_ROSTER_UPDATE[mode] then
@@ -1966,7 +2048,7 @@ events:SetScript("OnEvent", function(_, event, unit)
   end
   for region in pairs(lockedUnits) do
     lockedUnits[region] = nil
-    if region.blizzardAuraDisplay and region.blizzardAuraDisplay.active then RefreshUnits(region) end
+    if region.blizzardAuraDisplay and region.blizzardAuraDisplay.active then RefreshUnits(region, nil, nil, true) end
   end
   if next(pending) and not draining then
     draining = true

@@ -400,6 +400,13 @@ local function SetOffsetAnim(self, xOffset, yOffset)
   UpdatePosition(self);
 end
 
+function Private.SetRegionUnitGone(region, gone)
+  gone = gone or nil
+  if region.unitGone == gone then return end
+  region.unitGone = gone
+  if region.RealSetAlpha then region:SetAlpha(region.requestedAlpha or region.animAlpha or region.alpha or 1) end
+end
+
 local function SetRegionAlpha(self, alpha)
   if not hasanysecretvalues(self.alpha, alpha) and (self.alpha == alpha) then
     return;
@@ -490,6 +497,46 @@ local function UpdateProgressFromState(self, minMaxConfig, state, progressSource
     local inverse = inverseProperty and state[inverseProperty]
     self.durationObject = state.durationObject
     self.inverse = inverse
+    -- A readable cooldown shown from its duration object (see the spell
+    -- cooldown trigger) also carries timed values: animations and sub elements
+    -- that only know timed progress keep working from them, with the adjusted
+    -- minimum and maximum applied as the timed form applies them. A restricted
+    -- timer leaves them as they were, as before.
+    local mirrored = false
+    -- The automatic source names no timed fields; the trigger's own are used.
+    local timedPaused = state[pausedProperty or "paused"]
+    local timedRemaining = timedPaused and state[remainingProperty or "remaining"]
+    local timedExpiration = timedPaused and (type(timedRemaining) == "number" and GetTime() + timedRemaining or nil)
+      or state[property or "expirationTime"]
+    local timedDuration = state[totalProperty or "duration"]
+    if type(timedExpiration) == "number" and type(timedDuration) == "number"
+    and not hasanysecretvalues(timedExpiration, timedDuration) then
+      local timedMin
+      if minMaxConfig.adjustedMin then
+        timedMin = minMaxConfig.adjustedMin
+      elseif minMaxConfig.adjustedMinRelPercent then
+        timedMin = minMaxConfig.adjustedMinRelPercent * timedDuration
+      else
+        timedMin = 0
+      end
+      local timedMax
+      if timedDuration == 0 then
+        timedMax = 0
+      elseif minMaxConfig.adjustedMax then
+        timedMax = minMaxConfig.adjustedMax
+      elseif minMaxConfig.adjustedMaxRelPercent then
+        timedMax = minMaxConfig.adjustedMaxRelPercent * timedDuration
+      else
+        timedMax = timedDuration
+      end
+      self.progressType = "timed"
+      self.duration = timedMax - timedMin
+      self.expirationTime = timedExpiration - timedMin
+      self.modRate = state[modRateProperty or "modRate"]
+      self.paused = timedPaused
+      self.remaining = timedRemaining
+      mirrored = true
+    end
     -- dont use secret values to allow using ticks
     local adjustMin, max
     if minMaxConfig.adjustedMin then
@@ -507,7 +554,12 @@ local function UpdateProgressFromState(self, minMaxConfig, state, progressSource
       max = 1
     end
     self.minProgress, self.maxProgress = adjustMin, max
-    if self.UpdateDuration then
+    -- Only icons draw a readable cooldown from its duration object (their
+    -- swipe then keeps one form in and out of combat); bars, progress
+    -- textures and stop motions draw the mirrored timed values as before.
+    if mirrored and self.regionType ~= "icon" and self.UpdateTime then
+      self:UpdateTime()
+    elseif self.UpdateDuration then
       self:UpdateDuration()
     end
     if self.SetAdditionalProgress then
@@ -851,6 +903,24 @@ function Private.regionPrototype.create(region)
   if (defaultsForRegion and defaultsForRegion.alpha) then
     region.SetRegionAlpha = SetRegionAlpha;
     region.GetRegionAlpha = GetRegionAlpha;
+  end
+  -- An Aura (Modern) display whose unit (target, focus, pet...) does not exist
+  -- stays shown and keeps its native containers enabled, and is faded out
+  -- instead (Private.SetRegionUnitGone): hiding and showing a dozen such
+  -- displays on every target change made the client enable and lay out all
+  -- of their containers again. The fade multiplies whatever alpha the
+  -- display's settings, conditions and animations ask for.
+  if not region.RealSetAlpha then
+    region.RealSetAlpha, region.RealGetAlpha = region.SetAlpha, region.GetAlpha
+    region.SetAlpha = function(self, alpha)
+      self.requestedAlpha = alpha
+      return self:RealSetAlpha(self.unitGone and 0 or alpha)
+    end
+    -- Animations read the alpha they start from: the asked-for one, not the fade.
+    region.GetAlpha = function(self)
+      if self.unitGone and self.requestedAlpha then return self.requestedAlpha end
+      return self:RealGetAlpha()
+    end
   end
   if defaultsForRegion and defaultsForRegion.progressSource then
     region.SetProgressSource = SetProgressSource

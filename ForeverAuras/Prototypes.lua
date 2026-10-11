@@ -4486,12 +4486,23 @@ Private.event_prototypes = {
       ))
 
       table.insert(ret, [=[
+        -- Whether the previous update was restricted, and what it showed. A restriction change
+        -- with nothing to show on either side (the spell ready, not paused and
+        -- not on a global cooldown) is not a change to the display: both
+        -- forms draw the same empty swipe, and entering or leaving combat with
+        -- a row of ready cooldown icons otherwise refreshed every one of them
+        -- at once. The timed values are still filled in quietly.
+        local wasSecret, wasOnCooldown = state.secretCooldown, state.onCooldown
+        state.secretCooldown = isSecret or nil
         state.onCooldown = nil
         -- Retain a GCD-free appearance source without exposing its restricted status
         -- to the ordinary condition engine. Clear it when readable tracking resumes.
         state.spellCooldownConditionDuration, state.spellCooldownConditionOnCooldown = nil, nil
         if isSecret then
-          state.changed = true
+          local quietEntry = not wasSecret and state.progressType == "durationObject" and wasOnCooldown == false
+            and not state.paused and cooldownData and cooldownData.onCooldown == false
+            and not cooldownData.gcdOnly and not cooldownData.paused
+          if not quietEntry then state.changed = true end
           state.progressType = "durationObject"
           state.durationObject = durationObject
           state.onCooldown = cooldownData and cooldownData.onCooldown
@@ -4505,6 +4516,10 @@ Private.event_prototypes = {
       ]=])
       if (not trackSpecificCharge) then
         table.insert(ret, [=[
+          if wasSecret and wasOnCooldown == false and not paused and not state.paused
+          and (expirationTime or 0) == 0 and (duration or 0) == 0 then
+            state.expirationTime, state.duration, state.modRate = expirationTime, duration, modRate
+          end
           if paused then
             if not state.paused then
               state.paused = true
@@ -4536,7 +4551,25 @@ Private.event_prototypes = {
             state.changed = true;
           end
           state.durationObject = showgcd and durationObject or WeakAuras.GetSpellCooldownDurationNoGCD(effectiveSpellId, track);
-          state.progressType = 'timed';
+          -- The display keeps the same form on both sides of a restriction
+          -- change: a readable cooldown is also shown from its duration object
+          -- (as the restricted one must be), so entering or leaving combat
+          -- does not switch every cooldown display between a timed swipe and
+          -- a duration-object swipe. The timed values stay in the state for
+          -- conditions, custom code and tooltips. Without a duration object
+          -- (never on this client) the timed form is used as before.
+          if WeakAuras.IsDurationObject(state.durationObject) then
+            if state.progressType ~= "durationObject" then state.changed = true end
+            state.progressType = "durationObject"
+            state.onCooldown = cooldownData and cooldownData.onCooldown
+            if state.onCooldown == nil then
+              -- The same answer the timed form's On Cooldown check gives.
+              state.onCooldown = (paused or (not gcdCooldown and expirationTime ~= nil and expirationTime > GetTime())) and true or false
+            end
+            state.value, state.total = nil, nil
+          else
+            state.progressType = 'timed';
+          end
         ]=])
       else -- Tracking charges
         local trackedCharge = tonumber(trigger.trackcharge) or 1;
@@ -5720,6 +5753,7 @@ Private.event_prototypes = {
       "GCD_CHANGE",
       "GCD_END",
       "GCD_UPDATE",
+      "FA_GCD_RECHECK", -- The trigger's own end check (Private.ExecEnv.ScheduleGCDEnd).
       "WA_DELAYED_PLAYER_ENTERING_WORLD"
     },
     force_events = "GCD_UPDATE",
@@ -5747,6 +5781,8 @@ Private.event_prototypes = {
             progressType = "durationObject"
             duration, expirationTime = nil, nil
           end
+          -- Nothing else re-reads this trigger when the GCD runs out.
+          Private.ExecEnv.ScheduleGCDEnd(info)
         end
       ]];
       return ret:format(trigger.use_inverse and "true" or "false");

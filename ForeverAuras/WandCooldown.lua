@@ -57,8 +57,13 @@ local function OnEvent(_, event, unit, baseSpellID, spellID)
   -- A shot or cast changes what the cooldown reads below return.
   if Private.InvalidateSpellCooldownCache then Private.InvalidateSpellCooldownCache() end
   if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
-    -- Copies taken across a combat change may be stale restricted timers.
-    wipe(snapshots)
+    -- The copies are kept across a combat change. Discarding them here left
+    -- the hold with nothing to show when a shot opened combat (the usual
+    -- case with a wand): it fell back to the live timers, the lockout itself,
+    -- so every icon greyed and showed a countdown, and continuous shooting
+    -- never let the hold lapse to rebuild them. A copy is refreshed on every
+    -- read outside a hold, so one taken on the other side of the change is
+    -- replaced at the next read and only used when a shot comes first.
   elseif event == "PLAYER_ENTERING_WORLD" then
     Clear()
     Refresh()
@@ -104,19 +109,39 @@ local function WandEquipped()
 end
 
 -- Select before recharge/loss-of-control timers; Blizzard expires the copied duration.
+-- Keys are kept: building one per read made a string per cooldown read.
+local keys = {}
+local function Key(source, spellID)
+  source = source or "spell"
+  local bySource = keys[source]
+  if not bySource then bySource = {}; keys[source] = bySource end
+  local key = bySource[spellID]
+  if not key then key = source .. ":" .. spellID; bySource[spellID] = key end
+  return key
+end
+-- One copy per timer and frame: the same timer is read several times per
+-- frame (every variant of the cooldown data), and each copy is a client
+-- object that became garbage at once.
+local snapshotFrame = {}
+
 function Private.GetWandCooldownDuration(spellID, duration, source)
   if not PublicSpell(spellID) or spellID == 5019 then return duration end
   -- Keep CDM and Spell trigger samples separate.
-  local key = (source or "spell") .. ":" .. spellID
-  local holding = GetTime() - shotAt < window and not castAfterShot[spellID]
+  local key = Key(source, spellID)
+  local now = GetTime()
+  local holding = now - shotAt < window and not castAfterShot[spellID]
   if holding then
     -- The second return identifies a copied timer without reading its contents.
     return snapshots[key] or duration, snapshots[key] ~= nil
   end
   if duration and duration.Copy and WandEquipped() then
-    snapshots[key] = duration:Copy()
+    if snapshotFrame[key] ~= now then
+      snapshots[key] = duration:Copy()
+      snapshotFrame[key] = now
+    end
   else
     snapshots[key] = nil
+    snapshotFrame[key] = nil
   end
   return duration
 end

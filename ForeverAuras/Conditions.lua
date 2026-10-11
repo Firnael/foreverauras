@@ -312,6 +312,10 @@ end
 function Private.ExecEnv.GetConditionValue(state, variable)
   if not state then return nil end
   if state.progressType == "durationObject" and WeakAuras.IsDurationObject(state.durationObject) then
+    -- A readable cooldown shown from its duration object keeps its timed
+    -- values; conditions read those, as they did for the timed form.
+    local timed = state[variable]
+    if type(timed) == "number" and not issecretvalue(timed) then return timed end
     if variable == "expirationTime" then
       return state.durationObject:GetEndTime()
     elseif variable == "duration" then

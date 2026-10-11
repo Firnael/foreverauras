@@ -15,7 +15,28 @@ function Private.ApplyTextFont(text, fontObject, fontPath, size, flags, shadowCo
       fontObject = CreateFont("ForeverAuras-NativeText-Font" .. fontObjectCounter)
       fontObjects[text] = fontObject
     end
+  else
+    -- Remembered so an unchanged style can be skipped below.
+    fontObjects[text] = fontObject
   end
+
+  -- Nothing to do when the string already has this face, size, flags and
+  -- shadow through this font object: a font set re-lays the text out on the
+  -- client, and dozens of texts are styled again when auras load at a combat
+  -- change. Secret values (restricted native text) fall through to a set.
+  local shadow = fontObject.faShadow
+  if shadow and fontObjects[text] == fontObject and shadow.path == fontPath and shadow.size == size
+  and shadow.flags == flags and shadow.x == shadowX and shadow.y == shadowY
+  and shadow.r == shadowColor[1] and shadow.g == shadowColor[2] and shadow.b == shadowColor[3] and shadow.a == shadowColor[4] then
+    local ok, currentPath, currentSize, currentFlags = pcall(text.GetFont, text)
+    if ok and not hasanysecretvalues(currentPath, currentSize, currentFlags)
+    and currentPath == fontPath and currentSize == size and (currentFlags or "") == (flags or "")
+    and text:GetFontObject() == fontObject then
+      return
+    end
+  end
+  fontObject.faShadow = {path = fontPath, size = size, flags = flags, x = shadowX, y = shadowY,
+    r = shadowColor[1], g = shadowColor[2], b = shadowColor[3], a = shadowColor[4]}
 
   -- Forever renders inherited shadows. Configure a complete font object BEFORE
   -- attaching it, then apply the chosen face to the string. Direct FontString

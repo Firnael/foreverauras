@@ -477,14 +477,20 @@ local function modify(parent, region, data)
       -- the generic progress inversion would turn a brief GCD into a filling wedge.
       effectiveReverse = region.inverseDirection == true
     end
-    cooldown:SetReverse(effectiveReverse)
-    Private.CDMAuraProgress.Style(region)
-    if (cooldown.expirationTime and cooldown.duration and cooldown:IsShown()) then
-      -- WORKAROUND SetReverse not applying until next frame
-      cooldown:SetCooldown(0, 0)
-      cooldown:SetCooldown(cooldown.expirationTime - cooldown.duration,
-                           cooldown.duration,
-                           cooldown.useCooldownModRate and cooldown.modRate or nil)
+    -- Set only when it differs: every update of a cooldown icon came here, and
+    -- a row of icons updates on every global cooldown; the client re-lays a
+    -- swipe out on each set. The timed re-set below only matters on a change.
+    if cooldown.faReverse ~= effectiveReverse then
+      cooldown.faReverse = effectiveReverse
+      cooldown:SetReverse(effectiveReverse)
+      Private.CDMAuraProgress.Style(region)
+      if (cooldown.expirationTime and cooldown.duration and cooldown:IsShown()) then
+        -- WORKAROUND SetReverse not applying until next frame
+        cooldown:SetCooldown(0, 0)
+        cooldown:SetCooldown(cooldown.expirationTime - cooldown.duration,
+                             cooldown.duration,
+                             cooldown.useCooldownModRate and cooldown.modRate or nil)
+      end
     end
   end
 
@@ -502,18 +508,26 @@ local function modify(parent, region, data)
     -- Reset alpha for pooled regions and when switching to another progress source.
     local countdown = cooldown:GetCountdownFontString()
     local textDuration = state and state.cdmHideGCDText and state.cdmTextDurationObject
+    -- The alpha and the number policy are set only when they differ (see
+    -- UpdateEffectiveInverse). A secret alpha cannot be compared and is set;
+    -- it is also never remembered, since a later readable alpha could not be
+    -- compared against a remembered secret either.
+    local alpha
     if textDuration then
       -- GCD-length and wand Shoot lockouts are classified by their total
       -- duration (Private.GCDTextAlpha); older clients fall back to hiding
       -- only an expired filtered timer.
-      local alpha = Private.GCDTextAlpha(textDuration)
-      if alpha ~= nil then
-        countdown:SetAlpha(alpha)
-      else
-        countdown:SetAlpha(textDuration:EvaluateRemainingDuration(cooldownAlphaCurve))
-      end
+      alpha = Private.GCDTextAlpha(textDuration)
+      if alpha == nil then alpha = textDuration:EvaluateRemainingDuration(cooldownAlphaCurve) end
     else
-      countdown:SetAlpha(1)
+      alpha = 1
+    end
+    if issecretvalue(alpha) then
+      cooldown.faCountdownAlpha = nil
+      countdown:SetAlpha(alpha)
+    elseif cooldown.faCountdownAlpha ~= alpha then
+      cooldown.faCountdownAlpha = alpha
+      countdown:SetAlpha(alpha)
     end
     if OmniCC and OmniCC.Cooldown and OmniCC.Cooldown.SetNoCooldownCount then
       cooldown:SetHideCountdownNumbers(true)
@@ -523,7 +537,8 @@ local function modify(parent, region, data)
     then
       cooldown:SetHideCountdownNumbers(true)
       ElvUI[1]:ToggleCooldown(cooldown, not cooldownTextDisabled);
-    else
+    elseif cooldown.faHideNumbers ~= cooldownTextDisabled then
+      cooldown.faHideNumbers = cooldownTextDisabled
       cooldown:SetHideCountdownNumbers(cooldownTextDisabled);
     end
   end
@@ -691,7 +706,7 @@ local function modify(parent, region, data)
       cooldown.modRate = nil
       if (self.value >= 0 and self.value <= self.total) then
         cooldown:Show()
-        cooldown:SetAlpha(1)
+        cooldown:SetAlpha(1); cooldown.faAlpha = 1
         cooldown:SetCooldown(GetTime() - (self.total - self.value), self.total)
         cooldown:Pause()
       else
@@ -711,7 +726,7 @@ local function modify(parent, region, data)
       end
       if (self.duration > 0 and self.expirationTime > GetTime() and self.expirationTime ~= math.huge) then
         cooldown:Show();
-        cooldown:SetAlpha(1)
+        cooldown:SetAlpha(1); cooldown.faAlpha = 1
         cooldown.expirationTime = self.expirationTime
         cooldown.duration = self.duration
         cooldown.modRate = self.modRate
@@ -730,7 +745,7 @@ local function modify(parent, region, data)
     function region:UpdateDuration()
       if region.cdmNativeProgress then return end
       if self:UpdateCooldownDrawState() then cooldown:Hide(); return end
-      cooldown:Show()
+      if not cooldown:IsShown() then cooldown:Show() end
       cooldown:Resume()
       local durationObject = self.durationObject
       cooldown.inverse = self.inverse
@@ -744,8 +759,17 @@ local function modify(parent, region, data)
       self:SetHideCountdownNumbers(self.cdmConfiguredHideNumbers)
       cooldown:SetCooldownFromDurationObject(durationObject, true)
       if self.cdmProgressState and self.cdmProgressState.cdmNativePaused then cooldown:Pause() end
+      -- The swipe's alpha follows a curve the client evaluates; secret values
+      -- cannot be compared (nor remembered, as the next readable compare would
+      -- hit the remembered secret), a readable one is set only when it differs.
       local alpha = durationObject:EvaluateRemainingDuration(cooldownAlphaCurve)
-      cooldown:SetAlpha(alpha)
+      if issecretvalue(alpha) then
+        cooldown.faAlpha = nil
+        cooldown:SetAlpha(alpha)
+      elseif cooldown.faAlpha ~= alpha then
+        cooldown.faAlpha = alpha
+        cooldown:SetAlpha(alpha)
+      end
     end
 
     function region:PreShow()
