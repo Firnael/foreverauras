@@ -387,8 +387,8 @@ WeakAuras.normalWidth = 1.3
 WeakAuras.halfWidth = WeakAuras.normalWidth / 2
 WeakAuras.doubleWidth = WeakAuras.normalWidth * 2
 local versionStringFromToc = C_AddOns.GetAddOnMetadata("ForeverAuras", "Version")
-local versionString = "0.72.4-BETA.1"
-local buildTime = "2026-09-29"
+local versionString = "0.74.0-BETA"
+local buildTime = "2026-10-11"
 
 -- Prerelease labels are case-insensitive; packages use the requested BETA spelling.
 if not versionString:lower():find("beta", 1, true) then
@@ -585,4 +585,100 @@ function WeakAuras.IsDurationObject(duration)
     return true
   end
   return false
+end
+
+-- Handler timing for profiling. Each ForeverAuras file takes its CreateFrame
+-- and hooksecurefunc through Private.TimedAPI(label); scripts and hooks set
+-- through them are timed as profiling systems named "<label> <script>" while
+-- profiling runs, so /fa pprint and /fa phitch cover event handlers, OnUpdate
+-- scripts and Blizzard hooks that have no profiling of their own. When
+-- profiling is off a wrapped handler costs one extra function call.
+-- Secure and protected frames are never wrapped.
+Private.handlerTiming = false
+
+-- Ends the system and passes the handler's return values through.
+local function StopTimed(label, ...)
+  Private.StopProfileSystem(label)
+  return ...
+end
+
+-- Wraps fn so that it is timed under label while profiling runs. OnEvent
+-- handlers are timed per event; the label is only built while profiling.
+local function Timed(label, fn, perEvent)
+  if type(fn) ~= "function" then return fn end
+  return function(...)
+    if not Private.handlerTiming then return fn(...) end
+    local name = label
+    if perEvent then
+      local event = select(2, ...)
+      if type(event) == "string" then name = label .. " " .. event end
+    end
+    Private.StartProfileSystem(name)
+    return StopTimed(name, fn(...))
+  end
+end
+
+-- Script handlers that are timed; other scripts are passed through untouched.
+local timedScripts = {OnEvent = true, OnUpdate = true, OnShow = true, OnHide = true,
+  OnSizeChanged = true, OnCooldownDone = true, OnFinished = true}
+
+function Private.TimedAPI(label)
+  local frameAPI = CreateFrame
+  local hookAPI = hooksecurefunc
+  -- CreateFrame replacement: the frame's own SetScript and HookScript wrap
+  -- timed scripts. Only plain frames (no template, or BackdropTemplate) get the
+  -- wrapped methods, so frames that Blizzard code also drives (secure buttons,
+  -- tooltips, scroll and other templates) keep the client methods untouched.
+  -- Templates that add no Blizzard-driven scripts; frames made from them are
+  -- wrapped like plain frames.
+  local plainTemplates = {BackdropTemplate = true, BackdropTemplateWeakAuras = true,
+    DisableUntrustedLayoutScriptsTemplate = true, CooldownFrameTemplate = true}
+  local function TimedCreateFrame(frameType, name, parent, template, ...)
+    local frame = frameAPI(frameType, name, parent, template, ...)
+    if template ~= nil and not plainTemplates[template] then return frame end
+    if frame.IsProtected and frame:IsProtected() then return frame end
+    local setScript, hookScript = frame.SetScript, frame.HookScript
+    frame.SetScript = function(self, script, fn, ...)
+      if timedScripts[script] then fn = Timed(label .. " " .. script, fn, script == "OnEvent") end
+      return setScript(self, script, fn, ...)
+    end
+    frame.HookScript = function(self, script, fn, ...)
+      if timedScripts[script] then fn = Timed(label .. " " .. script, fn, script == "OnEvent") end
+      return hookScript(self, script, fn, ...)
+    end
+    return frame
+  end
+  -- hooksecurefunc replacement; the hook is named after the hooked method.
+  local function TimedHook(target, method, fn)
+    if type(target) == "string" then
+      return hookAPI(target, Timed(label .. " hook " .. target, method))
+    end
+    return hookAPI(target, method, Timed(label .. " hook " .. tostring(method), fn))
+  end
+  -- HookScript on frames created elsewhere (Blizzard frames).
+  local function TimedHookScript(frame, script, fn)
+    return frame:HookScript(script, Timed(label .. " " .. script, fn, script == "OnEvent"))
+  end
+  -- C_Timer replacement: callbacks of After, NewTimer and NewTicker are timed
+  -- as "<label> timer"; everything else is the client's C_Timer.
+  local timerLabel = label .. " timer"
+  local TimedTimer = setmetatable({
+    After = function(delay, fn) return C_Timer.After(delay, Timed(timerLabel, fn)) end,
+    NewTimer = function(delay, fn, ...) return C_Timer.NewTimer(delay, Timed(timerLabel, fn), ...) end,
+    NewTicker = function(delay, fn, ...) return C_Timer.NewTicker(delay, Timed(timerLabel, fn), ...) end,
+  }, {__index = C_Timer})
+  return TimedCreateFrame, TimedHook, TimedHookScript, TimedTimer
+end
+
+-- Frames and hooks created by an aura's custom code, timed under the aura's
+-- name ("aura <id> OnUpdate", ...). One set per aura, created on first use.
+local auraAPIs = {}
+function Private.AuraTimedAPI(id)
+  local api = auraAPIs[id]
+  if not api then
+    local createFrame, hook = Private.TimedAPI("aura " .. tostring(id))
+    api = {CreateFrame = createFrame, hooksecurefunc = hook}
+    auraAPIs[id] = api
+  end
+  return api
 end

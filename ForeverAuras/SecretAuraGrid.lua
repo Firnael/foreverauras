@@ -2,6 +2,8 @@
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAuraGrid")
 local Display = Private.BlizzardAuraDisplay
 
 local GROWTH_LETTER = {RIGHT = "R", LEFT = "L", UP = "U", DOWN = "D", CENTER_HORIZONTAL = "H", CENTER_VERTICAL = "V"}

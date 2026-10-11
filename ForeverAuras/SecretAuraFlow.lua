@@ -21,6 +21,8 @@
 -- end is where the visible row starts, so the row stays centred.
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("SecretAuraFlow")
 local Display = Private.BlizzardAuraDisplay
 local function Locked(frame) return Display.Locked ~= nil and Display.Locked(frame) end
 local function Busy(frame)
@@ -173,13 +175,30 @@ end
 -- Aura containers in a Modern Aura Group depend on other displays' secret sizes,
 -- so they also opt out of untrusted layout scripts, like every frame anchored
 -- to an aura container must. Returns the container and whether it opted out.
+-- Every native container made here remembers the last value passed to its
+-- SetEnabled (faEnabled; nil until the first call). Enabling a container makes
+-- Blizzard evaluate and lay out all of its auras again on the client side, so
+-- RefreshUnits (BlizzardAuraDisplay.lua) skips an enable, and the refresh that
+-- follows it, when nothing about the container changed. The counts feed the
+-- /fa phitch report.
+local function TrackEnabled(container)
+  local setEnabled = container.SetEnabled
+  container.SetEnabled = function(self, enabled)
+    enabled = enabled and true or false
+    self.faEnabled = enabled
+    if Private.HitchCount then Private.HitchCount(enabled and "container enable" or "container disable") end
+    return setEnabled(self, enabled)
+  end
+  return container
+end
+
 function Display.CreateAuraContainer(parent, data, optOut)
   if optOut or Display.FlowGroup(data) then
     local ok, container = pcall(CreateFrame, "AuraContainer", nil, parent,
       "CustomAuraContainerTemplate, DisableUntrustedLayoutScriptsTemplate")
-    if ok and container then return container, true end
+    if ok and container then return TrackEnabled(container), true end
   end
-  return CreateFrame("AuraContainer", nil, parent, "CustomAuraContainerTemplate"), false
+  return TrackEnabled(CreateFrame("AuraContainer", nil, parent, "CustomAuraContainerTemplate")), false
 end
 
 -- Anchors a container to a Modern Aura Group start frame; falls back to the
@@ -665,9 +684,12 @@ function Display.RefreshFlowShadow(instance, unit, shown)
     container:SetUnit(unit)
     instance.flowShadowUnit = unit
   end
-  container:SetShown(shown)
-  container:SetEnabled(shown)
-  if shown then container:UpdateAllAuras() end
+  -- Enabled and refreshed only when its state changes (faEnabled, TrackEnabled).
+  if container:IsShown() ~= shown then container:SetShown(shown) end
+  if container.faEnabled ~= shown then
+    container:SetEnabled(shown)
+    if shown then container:UpdateAllAuras() end
+  end
 end
 
 -- Chains one display's shadows from its shadow start; returns where the next
@@ -1269,6 +1291,8 @@ end
 -- Keeps the display's own strata and level.
 local function Reparent(region, parent)
   local strata = region:GetFrameStrata()
+  -- Counted for /fa phitch: reparenting a display walks all of its frames.
+  if Private.HitchCount then Private.HitchCount("display SetParent") end
   region:SetParent(parent)
   region:SetFrameStrata(strata)
   if Private.ApplyFrameLevel and region.id then Private.ApplyFrameLevel(region) end
@@ -1546,9 +1570,9 @@ end
 function Display.WatchFlowVisibility(region)
   if region.flowVisibilityHooked then return end
   region.flowVisibilityHooked = true
-  region:HookScript("OnShow", QueueRechain)
-  region:HookScript("OnHide", QueueRechain)
-  region:HookScript("OnSizeChanged", function(self)
+  TimedHookScript(region, "OnShow", QueueRechain)
+  TimedHookScript(region, "OnHide", QueueRechain)
+  TimedHookScript(region, "OnSizeChanged", function(self)
     -- Only a normal display's size moves the row (texts resize as they change).
     local normal = self.flowNormal
     if not (normal and normal.active and normal.flow and normal.flow.growth) then return end

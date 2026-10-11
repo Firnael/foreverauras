@@ -2,6 +2,8 @@
 -- Preserve countdown and desaturation timers during Shoot's shared cooldown.
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("WandCooldown")
 local expiryTimer, refreshQueued
 local snapshots, castAfterShot = {}, {}
 local lastCast = {}
@@ -52,6 +54,8 @@ local function NoteShot()
 end
 
 local function OnEvent(_, event, unit, baseSpellID, spellID)
+  -- A shot or cast changes what the cooldown reads below return.
+  if Private.InvalidateSpellCooldownCache then Private.InvalidateSpellCooldownCache() end
   if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
     -- Copies taken across a combat change may be stale restricted timers.
     wipe(snapshots)
@@ -91,7 +95,9 @@ end
 local wandEquipped
 local function WandEquipped()
   if wandEquipped == nil then
-    local ok, equipped = pcall(IsEquippedItemType, "Wands")
+    -- Forever has no global IsEquippedItemType; it lives under C_Item.
+    local isEquippedType = (C_Item and C_Item.IsEquippedItemType) or IsEquippedItemType
+    local ok, equipped = pcall(isEquippedType, "Wands")
     wandEquipped = not ok or issecretvalue(equipped) or equipped == true
   end
   return wandEquipped

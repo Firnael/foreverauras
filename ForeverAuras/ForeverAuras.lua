@@ -23,6 +23,9 @@ local SendChatMessage, UnitInBattleground, UnitInRaid, UnitInParty, GetTime
   = SendChatMessage, UnitInBattleground, UnitInRaid, UnitInParty, GetTime
 local CreateFrame, IsShiftKeyDown, GetScreenWidth, GetScreenHeight, GetCursorPosition, UpdateAddOnCPUUsage, GetFrameCPUUsage, debugprofilestop
   = CreateFrame, IsShiftKeyDown, GetScreenWidth, GetScreenHeight, GetCursorPosition, UpdateAddOnCPUUsage, GetFrameCPUUsage, debugprofilestop
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local hooksecurefunc, TimedHookScript, C_Timer
+CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("ForeverAuras")
 local debugstack = debugstack
 local GetNumTalentTabs, GetNumTalents = GetNumTalentTabs, GetNumTalents
 local MAX_NUM_TALENTS = MAX_NUM_TALENTS or 20
@@ -61,6 +64,41 @@ function Private.callbacks:Fire(event, ...)
     for index, f in ipairs(self.events[event]) do
       f(event, ...)
     end
+  end
+end
+
+-- Counts changes to any aura's saved data (pAdd, load edits, Delete, Rename).
+-- Caches derived from aura data, such as the GetData copies handed to custom
+-- code (AuraEnvironment.lua) and the condition templates built on load, are
+-- valid while the generation they were made under is still current.
+Private.dataGeneration = 0
+function Private.InvalidateDataCopies()
+  Private.dataGeneration = Private.dataGeneration + 1
+end
+
+-- Timer callbacks run from the client's C_Timer, outside every event handler and
+-- OnUpdate the profiler times. They are wrapped so /fa pprint and /fa phitch show
+-- them as "timer callback" (the aura or system they call keeps its own line).
+-- Method-name callbacks (strings) are left to AceTimer; the handle is unchanged.
+do
+  local scheduleTimer, scheduleRepeatingTimer = WeakAurasTimers.ScheduleTimer, WeakAurasTimers.ScheduleRepeatingTimer
+  local function StopTimedCallback(...)
+    Private.StopProfileSystem("timer callback")
+    return ...
+  end
+  local function TimedCallback(func)
+    if type(func) ~= "function" then return func end
+    return function(...)
+      if not Private.handlerTiming then return func(...) end
+      Private.StartProfileSystem("timer callback")
+      return StopTimedCallback(func(...))
+    end
+  end
+  function WeakAurasTimers:ScheduleTimer(func, delay, ...)
+    return scheduleTimer(self, TimedCallback(func), delay, ...)
+  end
+  function WeakAurasTimers:ScheduleRepeatingTimer(func, delay, ...)
+    return scheduleRepeatingTimer(self, TimedCallback(func), delay, ...)
   end
 end
 
@@ -187,6 +225,10 @@ function Private.PrintHelp()
   print(L["/wa pstart - Start profiling. Optionally include a duration in seconds after which profiling automatically stops. To profile the next combat/encounter, pass a \"combat\" or \"encounter\" argument."])
   print(L["/wa pstop - Finish profiling"])
   print(L["/wa pprint - Show the results from the most recent profiling"])
+  -- Listed with the other profiling commands; plain text, not localized yet.
+  print("/wa unloadall - Unload every aura until the next /reload (nothing is saved)")
+  print("/wa unloadgroup <text> - Unload every group or aura whose name contains text until the next /reload (nothing is saved)")
+  print("/wa phitch [ms] - Toggle hitch capture: report every frame slower than ms (default 30) with the systems and auras that ran in it")
   print(L["/wa repair - Repair tool"])
   print(L["/wa trackprint - Toggle the display of a hyperlink in the chat frame when an aura prints a message."])
 end
@@ -209,6 +251,15 @@ function SlashCmdList.WeakAuras(input)
     WeakAuras.StopProfile();
   elseif msg == "pprint" then
     WeakAuras.PrintProfile();
+  elseif msg == "phitch" then
+    -- Hitch capture: per-frame breakdown of slow frames, optional threshold in ms.
+    WeakAuras.ToggleHitchCapture(args[1])
+  elseif msg == "unloadgroup" then
+    -- Session-only: unload the top-level groups matching the rest of the line.
+    Private.UnloadGroupsForSession(input:match("^%s*%S+%s+(.-)%s*$"))
+  elseif msg == "unloadall" then
+    -- Session-only: unload every aura to measure the addon on its own.
+    Private.UnloadAllForSession()
   elseif msg == "pcancel" then
     WeakAuras.CancelScheduledProfile()
   elseif msg == "pshow" or msg == "profiling" then
@@ -1522,6 +1573,36 @@ function WeakAuras.InLoadingScreen()
   return in_loading_screen;
 end
 
+-- Suspends the dynamic groups that contain the given display ids, so a batch
+-- of state changes sorts and positions each group once instead of once per
+-- child. Returns the suspended group regions for Private.ResumeGroups.
+function Private.SuspendGroupsOf(ids)
+  local suspended = {}
+  local seen = {}
+  for id in pairs(ids) do
+    local data = WeakAuras.GetData(id)
+    if data then
+      for parent in Private.TraverseParents(data) do
+        if not seen[parent.id] then
+          seen[parent.id] = true
+          local parentRegion = Private.regions[parent.id] and Private.regions[parent.id].region
+          if parentRegion and parentRegion.Suspend then
+            parentRegion:Suspend()
+            suspended[#suspended + 1] = parentRegion
+          end
+        end
+      end
+    end
+  end
+  return suspended
+end
+
+function Private.ResumeGroups(suspended)
+  for _, parentRegion in ipairs(suspended) do
+    parentRegion:Resume()
+  end
+end
+
 function Private.PauseAllDynamicGroups()
   local suspended = {}
   for id, region in pairs(Private.regions) do
@@ -1651,8 +1732,13 @@ end
 
 local toLoad = {}
 local toUnload = {};
+-- Set by /fa unloadall: no display loads again until the next /reload.
+local sessionUnloaded = false
+-- Set by /fa unloadgroup: auras kept unloaded until the next /reload.
+local sessionExcluded = {}
+
 local function scanForLoadsImpl(toCheck, event, arg1, ...)
-  if Private.IsOptionsProcessingPaused() or unloadingAllDisplays then
+  if Private.IsOptionsProcessingPaused() or unloadingAllDisplays or sessionUnloaded then
     return;
   end
 
@@ -1756,7 +1842,7 @@ local function scanForLoadsImpl(toCheck, event, arg1, ...)
     if (data and not data.controlledChildren) then
       local loadFunc = loadFuncs[id];
       local loadOpt = loadFuncsForOptions[id];
-      shouldBeLoaded = loadFunc and loadFunc("ScanForLoads_Auras", inCombat, alive, inEncounter, warmodeActive, inPetBattle, vehicle, vehicleUi, dragonriding, mounted, addonRestrictionsActive, specId, player, realm, guild, race, faction, playerLevel, effectiveLevel, role, position, group, groupSize, raidMemberType, zone, zoneId, zonegroupId, instanceId, minimapText, encounter_id, size, difficulty, difficultyIndex, affixes)
+      shouldBeLoaded = not sessionExcluded[id] and loadFunc and loadFunc("ScanForLoads_Auras", inCombat, alive, inEncounter, warmodeActive, inPetBattle, vehicle, vehicleUi, dragonriding, mounted, addonRestrictionsActive, specId, player, realm, guild, race, faction, playerLevel, effectiveLevel, role, position, group, groupSize, raidMemberType, zone, zoneId, zonegroupId, instanceId, minimapText, encounter_id, size, difficulty, difficultyIndex, affixes)
       couldBeLoaded =  loadOpt and loadOpt("ScanForLoads_Auras",   inCombat, alive, inEncounter, warmodeActive, inPetBattle, vehicle, vehicleUi, dragonriding, mounted, addonRestrictionsActive, specId, player, realm, guild, race, faction, playerLevel, effectiveLevel, role, position, group, groupSize, raidMemberType, zone, zoneId, zonegroupId, instanceId, minimapText, encounter_id, size, difficulty, difficultyIndex, affixes)
 
       if(shouldBeLoaded and not loaded[id]) then
@@ -1786,9 +1872,27 @@ local function scanForLoadsImpl(toCheck, event, arg1, ...)
   end
 
   if(changed > 0 and not paused) then
-    Private.LoadDisplays(toLoad, event, arg1, ...);
-    Private.UnloadDisplays(toUnload, event, arg1, ...);
-    Private.FinishLoadUnload();
+    -- Dynamic groups holding the displays that load or unload sort and
+    -- position their children once, after the whole batch, instead of once
+    -- per child (entering or leaving combat can change dozens of children).
+    local suspendedGroups = {}
+    for parentId in pairs(parentsToCheck) do
+      local parentRegion = Private.regions[parentId] and Private.regions[parentId].region
+      if parentRegion and parentRegion.Suspend then
+        parentRegion:Suspend()
+        suspendedGroups[#suspendedGroups + 1] = parentRegion
+      end
+    end
+    -- Protected so a failing display cannot leave its group suspended.
+    local ok, err = pcall(function(...)
+      Private.LoadDisplays(toLoad, event, arg1, ...);
+      Private.UnloadDisplays(toUnload, event, arg1, ...);
+      Private.FinishLoadUnload();
+    end, ...)
+    for _, parentRegion in ipairs(suspendedGroups) do
+      parentRegion:Resume()
+    end
+    if not ok then error(err, 0) end
   end
 
   Private.ScanForLoadsGroup(parentsToCheck)
@@ -2040,17 +2144,90 @@ function Private.Resume()
   Private.ResumeAllDynamicGroups(suspended)
 end
 
+-- /fa unloadall: unloads and hides every display for this session only, so
+-- the addon can be measured with no auras running. Nothing is saved; /reload
+-- loads everything again.
+function Private.UnloadAllForSession()
+  if sessionUnloaded then
+    WeakAuras.prettyPrint("All auras are already unloaded. Type /reload to load them again.")
+    return
+  end
+  if WeakAuras.IsOptionsOpen() then
+    WeakAuras.prettyPrint("Close the options window first.")
+    return
+  end
+  unloadingAllDisplays = true
+  local suspended = Private.PauseAllDynamicGroups()
+  for _, region in pairs(Private.regions) do
+    if region.region then
+      region.region:Collapse()
+    end
+  end
+  for _, cloneList in pairs(clones) do
+    for _, clone in pairs(cloneList) do
+      clone:Collapse()
+    end
+  end
+  UnloadAll()
+  Private.ResumeAllDynamicGroups(suspended)
+  unloadingAllDisplays = false
+  sessionUnloaded = true
+  WeakAuras.prettyPrint("All auras unloaded for this session. Type /reload to load them again.")
+end
+
+-- /fa unloadgroup <text>: unloads, for this session only, every aura inside
+-- the top-level groups whose name contains text (case-insensitive), to find
+-- which auras cause a problem. Nothing is saved; /reload loads them again.
+function Private.UnloadGroupsForSession(text)
+  if not text or text == "" then
+    WeakAuras.prettyPrint("Usage: /fa unloadgroup <part of a top-level group name>")
+    return
+  end
+  if WeakAuras.IsOptionsOpen() then
+    WeakAuras.prettyPrint("Close the options window first.")
+    return
+  end
+  local needle = text:lower()
+  local toCheck, groups, count = {}, {}, 0
+  for id, data in pairs(db.displays) do
+    -- Any group or aura whose name contains the text, so a large group can be
+    -- narrowed down sub-group by sub-group.
+    if id:lower():find(needle, 1, true) then
+      groups[#groups + 1] = id
+      for child in Private.TraverseLeafsOrAura(data) do
+        if not sessionExcluded[child.id] then
+          sessionExcluded[child.id] = true
+          toCheck[child.id] = true
+          count = count + 1
+        end
+      end
+    end
+  end
+  if #groups == 0 then
+    WeakAuras.prettyPrint(("No group or aura matches %q."):format(text))
+    return
+  end
+  Private.ScanForLoads(toCheck)
+  table.sort(groups)
+  local names = table.concat(groups, ", ")
+  if #names > 300 then names = names:sub(1, 300) .. " ..." end
+  WeakAuras.prettyPrint(("Unloaded %d auras (%d matching names) until /reload: %s"):format(count, #groups, names))
+end
+
 function Private.LoadDisplays(toLoad, ...)
   for id in pairs(toLoad) do
     loadingDisplays[id] = true
     runtimeActiveDisplays[id] = true
     local uid = WeakAuras.GetData(id).uid
     Private.RegisterForGlobalConditions(uid);
-    triggerState[id].triggers = {};
-    triggerState[id].activationTime = {}
-    triggerState[id].triggerCount = 0;
-    triggerState[id].show = false;
-    triggerState[id].activatedConditions = {};
+    -- The per-aura state tables are emptied and kept rather than replaced: a
+    -- combat change loads dozens of auras in one frame.
+    local state = triggerState[id]
+    state.triggers = state.triggers and wipe(state.triggers) or {}
+    state.activationTime = state.activationTime and wipe(state.activationTime) or {}
+    state.triggerCount = 0;
+    state.show = false;
+    state.activatedConditions = state.activatedConditions and wipe(state.activatedConditions) or {}
     if Private.DebugLog.IsEnabled(uid) then
       WeakAuras.prettyPrint(L["Debug Logging enabled for '%s'"]:format(id))
       Private.DebugLog.Print(uid, L["Aura loaded"])
@@ -3202,6 +3379,8 @@ local function cycleCheck(data)
 end
 
 function pAdd(data, simpleChange)
+  -- Custom code's GetData copies (AuraEnvironment.lua) are stale once an aura changes.
+  Private.InvalidateDataCopies()
   if data.cdmDispelIndicator then
     data.subRegions = data.subRegions or {}
     table.insert(data.subRegions, {
@@ -3422,6 +3601,8 @@ function WeakAuras.UpdateLoadConditions(data)
     return
   end
   Private.TimeMachine:DestroyTheUniverse(data.id)
+  -- The load table changed without pAdd: cached GetData copies are stale.
+  Private.InvalidateDataCopies()
   local id = data.id
   local loadFuncStr, events = ConstructFunction(load_prototype, data.load)
   local optionsStr = ConstructFunction(load_prototype, data.load, true)
@@ -4270,7 +4451,22 @@ function Private.GetOverlayInfo(data, triggernum)
   return overlayInfo;
 end
 
+-- Condition templates are rebuilt on every load (RegisterForGlobalConditions)
+-- and hold several tables and closures per trigger. Out of the options window
+-- they only change with the aura's data, so one build per data generation is
+-- kept; the options window edits auras in place and always gets a fresh build.
+local triggerConditionCache = setmetatable({}, {__mode = "k"})
+local BuildTriggerConditions
 function Private.GetTriggerConditions(data)
+  if WeakAuras.IsOptionsOpen() then return BuildTriggerConditions(data) end
+  local entry = triggerConditionCache[data]
+  if entry and entry.generation == Private.dataGeneration then return entry.conditions end
+  entry = {generation = Private.dataGeneration, conditions = BuildTriggerConditions(data)}
+  triggerConditionCache[data] = entry
+  return entry.conditions
+end
+
+function BuildTriggerConditions(data)
   local conditions = {};
   for i = 1, #data.triggers do
     local triggerSystem = GetTriggerSystem(data, i);
@@ -4570,6 +4766,18 @@ local function GetFrameLevelFor(id)
   return Private.frameLevels[id] or 5;
 end
 
+-- Frame levels are re-applied on every Expand of a frame-anchored display; the
+-- client re-sorts the subtree on each call, so a level that is already set is
+-- left alone. Shown here as "SetFrameLevel" in the hitch report.
+local function SetFrameLevelIfChanged(frame, level)
+  -- Some subregions (background) are tables with their own SetFrameLevel and
+  -- no GetFrameLevel: those are set as before.
+  if not frame.GetFrameLevel or frame:GetFrameLevel() ~= level then
+    frame:SetFrameLevel(level)
+    if Private.HitchCount then Private.HitchCount("SetFrameLevel") end
+  end
+end
+
 function Private.ApplyFrameLevel(region, frameLevel)
   frameLevel = frameLevel or GetFrameLevelFor(region.id)
 
@@ -4577,22 +4785,22 @@ function Private.ApplyFrameLevel(region, frameLevel)
   if region.subRegions then
     for index, subRegion in pairs(region.subRegions) do
       if subRegion.type == "subbackground" then
-        subRegion:SetFrameLevel(frameLevel + index)
+        SetFrameLevelIfChanged(subRegion, frameLevel + index)
         setBackgroundFrameLevel = true
       end
     end
 
     if not setBackgroundFrameLevel then
-      region:SetFrameLevel(frameLevel)
+      SetFrameLevelIfChanged(region, frameLevel)
     end
 
     for index, subRegion in pairs(region.subRegions) do
       if subRegion.type ~= "subbackground" then
-        subRegion:SetFrameLevel(frameLevel + index)
+        SetFrameLevelIfChanged(subRegion, frameLevel + index)
       end
     end
   else
-    region:SetFrameLevel(frameLevel)
+    SetFrameLevelIfChanged(region, frameLevel)
   end
   Private.BlizzardAuraDisplay.UpdateDetachedFrameLevels(region)
   Private.CDMAuraProgress.SyncFrameLevels(region, true)
@@ -4970,15 +5178,26 @@ end
 local function ApplyStateToRegion(id, cloneId, region, parent)
   -- Force custom text function to be run again
   region.values.customTextUpdated = false
+  -- Profiling breakdown of a display update (no cost unless profiling runs).
+  Private.StartProfileSystem("display: progress source")
   Private.BlizzardAuraDisplay.SyncProgressSource(region, WeakAuras.GetData(id))
+  Private.StopProfileSystem("display: progress source")
+  Private.StartProfileSystem("display: region update")
   region:Update();
+  Private.StopProfileSystem("display: region update")
 
+  Private.StartProfileSystem("display: subregions")
   region.subRegionEvents:Notify("Update", region.state, region.states)
+  Private.StopProfileSystem("display: subregions")
 
   UpdateMouseoverTooltip(region);
+  Private.StartProfileSystem("display: expand")
   region:Expand();
+  Private.StopProfileSystem("display: expand")
   if parent and parent.ActivateChild then
+    Private.StartProfileSystem("display: group")
     parent:ActivateChild(id, cloneId)
+    Private.StopProfileSystem("display: group")
   end
 end
 
@@ -6299,14 +6518,23 @@ function Private.AnchorFrame(data, region, parent, force)
     end
     local anchorParent = GetAnchorFrame(data, region, parent);
     if not anchorParent then return end
+    -- Displays anchored to a frame re-anchor on every state update (Expand).
+    -- Re-parenting a frame that already has that parent still costs the client
+    -- a layout pass, and a row of icons doing so each combat change was a
+    -- visible hitch: only parent/strata/level that actually differ are set.
+    local wantParent
     if Private.BlizzardAuraDisplay.Enabled(data) and (data.anchorFrameType == "UNITFRAME" or data.anchorFrameType == "NAMEPLATE") then
       -- One unit frame must not hide previews belonging to other units.
-      region:SetParent(parent or WeakAurasFrame);
+      wantParent = parent or WeakAurasFrame
     elseif (data.anchorFrameParent or data.anchorFrameParent == nil
         or data.anchorFrameType == "SCREEN" or data.anchorFrameType == "UIPARENT" or data.anchorFrameType == "MOUSE") then
-      xpcall(region.SetParent, Private.GetErrorHandlerId(data.id, L["Anchoring"]), region, anchorParent);
+      wantParent = anchorParent
     else
-      region:SetParent(parent or WeakAurasFrame);
+      wantParent = parent or WeakAurasFrame
+    end
+    if region:GetParent() ~= wantParent then
+      xpcall(region.SetParent, Private.GetErrorHandlerId(data.id, L["Anchoring"]), region, wantParent);
+      if Private.HitchCount then Private.HitchCount("region SetParent") end
     end
     local flowClip = Private.BlizzardAuraDisplay.FlowClipParent and Private.BlizzardAuraDisplay.FlowClipParent(data)
     if flowClip and region:GetParent() ~= flowClip then region:SetParent(flowClip) end
@@ -6326,10 +6554,11 @@ function Private.AnchorFrame(data, region, parent, force)
       region:SetAnchor(data.selfPoint, anchorParent, anchorPoint);
     end
 
-    if(data.frameStrata == 1) then
-      region:SetFrameStrata(region:GetParent():GetFrameStrata());
-    else
-      region:SetFrameStrata(Private.frame_strata_types[data.frameStrata]);
+    -- Same reason as the parent above: the strata is only set when it differs.
+    local wantStrata = data.frameStrata == 1 and region:GetParent():GetFrameStrata() or Private.frame_strata_types[data.frameStrata]
+    if wantStrata and region:GetFrameStrata() ~= wantStrata then
+      region:SetFrameStrata(wantStrata);
+      if Private.HitchCount then Private.HitchCount("region SetFrameStrata") end
     end
     Private.ApplyFrameLevel(region)
     anchorFrameDeferred[data.id] = nil

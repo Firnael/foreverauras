@@ -2,6 +2,8 @@
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
 
+-- Timers from this file are timed by the profiler (see Private.TimedAPI).
+local _, _, _, C_Timer = Private.TimedAPI("CooldownViewerTrigger")
 -- Reuse the Essential event identifier for both cooldown viewers.
 function Private.MigrateCDMCooldownTrigger(trigger)
   if trigger and trigger.type == "cdm" and trigger.event == "Blizzard CDM Utility" then

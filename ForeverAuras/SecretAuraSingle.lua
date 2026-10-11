@@ -15,6 +15,8 @@
 --     clip that holds the whole aura button (StyleDurationGate).
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAuraSingle")
 local Display = Private.BlizzardAuraDisplay
 local function Locked(frame) return Display.Busy ~= nil and Display.Busy(frame) end
 
@@ -2087,8 +2089,13 @@ function Display.RefreshSingle(instance, unit, shown)
     missing.boundUnit = unit
   end
   shown = shown and unit ~= nil
-  container:SetShown(shown)
-  container:SetEnabled(shown)
+  -- Containers remember their enabled state (faEnabled, SecretAuraFlow.lua).
+  -- One that already is enabled for this unit is kept: Blizzard refreshes it
+  -- from UNIT_AURA, so enabling and refreshing it again on every unit event
+  -- only cost client time. The full refresh below runs when it is enabled here.
+  local enable = container.faEnabled ~= shown
+  if container:IsShown() ~= shown then container:SetShown(shown) end
+  if enable then container:SetEnabled(shown) end
   -- The Modern Aura Group spacing and centring shadow follow the same unit.
   for _, key in ipairs({"presence", "flowShadow"}) do
     local follower = missing[key]
@@ -2098,9 +2105,11 @@ function Display.RefreshSingle(instance, unit, shown)
         follower:SetUnit(unit)
         missing[key .. "BoundUnit"] = unit
       end
-      follower:SetShown(shown)
-      follower:SetEnabled(shown)
-      if shown then follower:UpdateAllAuras() end
+      if follower:IsShown() ~= shown then follower:SetShown(shown) end
+      if follower.faEnabled ~= shown then
+        follower:SetEnabled(shown)
+        if shown then follower:UpdateAllAuras() end
+      end
     end
   end
   -- A disabled container keeps its last width; the clip must not show then.
@@ -2119,7 +2128,7 @@ function Display.RefreshSingle(instance, unit, shown)
   local keepWithoutUnit = trigger and trigger.unitExists
   missing.unitExists = keepWithoutUnit or Display.SingleUnitExists({unit = unit})
   missing.clip:SetAlpha(missing.unitExists and not instance.statusHidden and 1 or 0)
-  if shown then container:UpdateAllAuras() end
+  if shown and enable then container:UpdateAllAuras(); Private.HitchCount("UpdateAllAuras") end
 end
 
 learnEvents:SetScript("OnEvent", Private.Profiled("aura (modern) - learning", learnEvents:GetScript("OnEvent")))

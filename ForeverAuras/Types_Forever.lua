@@ -146,13 +146,28 @@ local function ViewTalentData(specId)
   return talents, hero, byNode
 end
 
+-- The player's own talent config, read once per config until a talent event
+-- (Private.CheckTalentsForLoad) invalidates it. ReadTalentConfig walks every
+-- node, entry and definition of the trait tree through C_Traits, and the load
+-- options ask for it per aura, per talent key and per widget: opening the Load
+-- tab of a large group read the whole tree thousands of times.
+local ownTalents = {}
+function Private.InvalidateTalentData()
+  wipe(ownTalents)
+end
+
 function Private.GetTalentData(specId)
   local spec = Private.ExecEnv.GetSpecialization()
   local playerSpecId = spec and Private.ExecEnv.GetSpecializationInfo(spec)
   if specId ~= playerSpecId then
     return ViewTalentData(specId)
   end
-  return ReadTalentConfig(Private.GetTalentConfigID())
+  local configId = Private.GetTalentConfigID()
+  local cached = configId and ownTalents[configId]
+  if cached then return unpack(cached) end
+  local talents, hero, byNode = ReadTalentConfig(configId)
+  if configId and #talents > 0 then ownTalents[configId] = {talents, hero, byNode} end
+  return talents, hero, byNode
 end
 
 function Private.GetTalentInfo(specId)

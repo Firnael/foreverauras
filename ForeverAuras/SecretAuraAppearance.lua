@@ -2,6 +2,8 @@
 -- Shared Display settings rendered by Blizzard's native aura widgets.
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("SecretAuraAppearance")
 local Display = Private.BlizzardAuraDisplay
 local Media = LibStub("LibSharedMedia-3.0")
 

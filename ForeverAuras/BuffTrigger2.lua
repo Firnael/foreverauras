@@ -51,6 +51,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("BuffTrigger2")
 local FixDebuffClass
 do
   FixDebuffClass = function(debuffClass, spellId)
@@ -2556,12 +2558,15 @@ Buff2Frame:SetScript("OnUpdate", function()
   Private.StopProfileSystem("bufftrigger2 - OnUpdate")
 end)
 
+-- id is one aura id, a set {[id] = true} of ids (one walk for a whole
+-- unload batch), or nil for every aura.
 local function UnloadAura(scanFuncName, id)
+  local ids = type(id) == "table" and id or nil
   for unit, unitData in pairs(scanFuncName) do
     for debuffType, debuffData in pairs(unitData) do
       for name, nameData in pairs(debuffData) do
         for triggerInfo in pairs(nameData) do
-          if triggerInfo.id == id or not id then
+          if not id or (ids and ids[triggerInfo.id]) or triggerInfo.id == id then
             if triggerInfo.nextScheduledCheckHandle then
               timer:CancelTimer(triggerInfo.nextScheduledCheckHandle)
               triggerInfo.nextScheduledCheck = nil
@@ -2585,11 +2590,13 @@ local function UnloadAura(scanFuncName, id)
   end
 end
 
+-- id as for UnloadAura.
 local function UnloadGeneral(scanFuncGeneral, id)
+  local ids = type(id) == "table" and id or nil
   for unit, unitData in pairs(scanFuncGeneral) do
     for debuffType, debuffData in pairs(unitData) do
       for triggerInfo in pairs(debuffData) do
-        if triggerInfo.id == id or not id then
+        if not id or (ids and ids[triggerInfo.id]) or triggerInfo.id == id then
           if triggerInfo.nextScheduledCheckHandle then
             timer:CancelTimer(triggerInfo.nextScheduledCheckHandle)
             triggerInfo.nextScheduledCheck = nil
@@ -2724,41 +2731,49 @@ end
 
 function BuffTrigger.UnloadDisplays(toUnload)
   local updateGroupScanFuncs = false
-  for id in pairs(toUnload) do
-    UnloadAura(scanFuncName, id)
-    UnloadAura(scanFuncSpellId, id)
-    UnloadGeneral(scanFuncGeneral, id)
+  -- Each table is walked once for the whole batch, not once per aura:
+  -- entering or leaving combat can unload dozens of auras at once.
+  UnloadAura(scanFuncName, toUnload)
+  UnloadAura(scanFuncSpellId, toUnload)
+  UnloadGeneral(scanFuncGeneral, toUnload)
 
-    UnloadAura(scanFuncNameGroup, id)
-    UnloadAura(scanFuncSpellIdGroup, id)
-    UnloadGeneral(scanFuncGeneralGroup, id)
+  UnloadAura(scanFuncNameGroup, toUnload)
+  UnloadAura(scanFuncSpellIdGroup, toUnload)
+  UnloadGeneral(scanFuncGeneralGroup, toUnload)
 
-    UnloadGeneral(scanFuncNameMulti, id)
-    UnloadGeneral(scanFuncSpellIdMulti, id)
+  UnloadGeneral(scanFuncNameMulti, toUnload)
+  UnloadGeneral(scanFuncSpellIdMulti, toUnload)
 
-    for unit, unitData in pairs(unitExistScanFunc) do
+  for unit, unitData in pairs(unitExistScanFunc) do
+    for id in pairs(toUnload) do
       unitData[id] = nil
     end
+  end
 
-    groupRoleScanFunc[id] = nil
-    raidMarkScanFuncs[id] = nil
-
-    for unit, unitData in pairs(matchData) do
-      for filter, filterData in pairs(unitData) do
-        for index, indexData in pairs(filterData) do
+  for unit, unitData in pairs(matchData) do
+    for filter, filterData in pairs(unitData) do
+      for index, indexData in pairs(filterData) do
+        for id in pairs(toUnload) do
           indexData.auras[id] = nil
         end
       end
     end
-    matchDataByTrigger[id] = nil
+  end
 
-    for guid, guidData in pairs(matchDataMulti) do
-      for key, data in pairs(matchDataMulti[guid]) do
-        for source, sourceData in pairs(data) do
+  for guid, guidData in pairs(matchDataMulti) do
+    for key, data in pairs(guidData) do
+      for source, sourceData in pairs(data) do
+        for id in pairs(toUnload) do
           sourceData.auras[id] = nil
         end
       end
     end
+  end
+
+  for id in pairs(toUnload) do
+    groupRoleScanFunc[id] = nil
+    raidMarkScanFuncs[id] = nil
+    matchDataByTrigger[id] = nil
     matchDataChanged[id] = nil
   end
 

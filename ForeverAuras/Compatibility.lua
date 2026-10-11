@@ -24,6 +24,46 @@ else
   Private.ExecEnv.GetSpellName = C_Spell.GetSpellName
 end
 
+-- Spell name and info lookups are slow on this client and are repeated by
+-- every cooldown trigger on each update. Results are cached until the
+-- player's spells change (a name can then resolve to another rank).
+do
+  local infoCache, nameCache = {}, {}
+  local GetSpellInfoRaw, GetSpellNameRaw = Private.ExecEnv.GetSpellInfo, Private.ExecEnv.GetSpellName
+  local function Cacheable(key)
+    return (type(key) == "number" or type(key) == "string") and not issecretvalue(key)
+  end
+  Private.ExecEnv.GetSpellInfo = function(spell)
+    if not Cacheable(spell) then return GetSpellInfoRaw(spell) end
+    local entry = infoCache[spell]
+    if entry == nil then
+      entry = {GetSpellInfoRaw(spell)}
+      entry.n = 8
+      infoCache[spell] = entry
+    end
+    return entry[1], entry[2], entry[3], entry[4], entry[5], entry[6], entry[7], entry[8]
+  end
+  Private.ExecEnv.GetSpellName = function(spell)
+    if not Cacheable(spell) then return GetSpellNameRaw(spell) end
+    local name = nameCache[spell]
+    if name == nil then
+      name = GetSpellNameRaw(spell) or false
+      nameCache[spell] = name
+    end
+    return name or nil
+  end
+  local invalidate = CreateFrame("Frame")
+  -- Registered one by one in protected calls: an event unknown to this client
+  -- must not abort the rest of this file.
+  for _, event in ipairs({"SPELLS_CHANGED", "PLAYER_ENTERING_WORLD", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED"}) do
+    pcall(invalidate.RegisterEvent, invalidate, event)
+  end
+  invalidate:SetScript("OnEvent", function()
+    wipe(infoCache)
+    wipe(nameCache)
+  end)
+end
+
 if GetSpellTexture then
   Private.ExecEnv.GetSpellIcon = GetSpellTexture
 else

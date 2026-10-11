@@ -1,6 +1,8 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SubCDMDispel")
 local function defaults()
   -- New indicators use a small Blizzard type symbol at the aura's top-left corner.
   return {dispelVisible = true, dispelStyle = "Icon", anchor_mode = "point", anchor_point = "TOPLEFT",

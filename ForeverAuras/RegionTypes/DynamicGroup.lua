@@ -6,6 +6,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("RegionDynamicGroup")
 ---@class WeakAuras
 local WeakAuras = WeakAuras
 local L = WeakAuras.L
@@ -1174,6 +1176,7 @@ local function modify(parent, region, data)
     end
 
     controlPoint.regionData = regionData
+    Private.HitchCount("child SetParent")
     childRegion:SetParent(controlPoint)
     region.controlledChildren[childID] = region.controlledChildren[childID] or {}
     region.controlledChildren[childID][cloneID] = controlPoint

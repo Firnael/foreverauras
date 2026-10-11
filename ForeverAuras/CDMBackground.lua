@@ -3,6 +3,8 @@
 -- code taints Blizzard's aura refresh path; visibility/tooltips must be set in its UI.
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("CDMBackground")
 local names = {"EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer"}
 local viewers = setmetatable({}, {__mode = "k"})
 local applying = false
@@ -34,7 +36,11 @@ function Private.ApplyCDMBackground()
       ApplyAlpha(viewer)
     end
   end
-  if Private.ScanEvents then Private.ScanEvents("FA_CDM_REFRESH") end
+  -- Queued with the viewer hooks' own refresh (CooldownViewerCatalog.lua), so
+  -- the end of combat runs the CDM triggers once, not once here and once for
+  -- Blizzard's viewer refresh in the next frame.
+  if Private.QueueCDMRefresh then Private.QueueCDMRefresh()
+  elseif Private.ScanEvents then Private.ScanEvents("FA_CDM_REFRESH") end
 end
 local events = CreateFrame("Frame")
 for _, event in ipairs({"PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "COOLDOWN_VIEWER_DATA_LOADED", "CVAR_UPDATE"}) do events:RegisterEvent(event) end

@@ -6,6 +6,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("Prototypes")
 -- Lua APIs
 local tinsert, tsort = table.insert, table.sort
 local tostring = tostring
@@ -725,6 +727,8 @@ do
 
   Private.CheckTalentsForLoad = function(event)
     Private.StartProfileSystem("talent")
+    -- The talents changed: the cached reading of the player's tree is stale.
+    if Private.InvalidateTalentData then Private.InvalidateTalentData() end
     selectedTalentsById = {}
     local configId = Private.GetTalentConfigID()
     if configId then

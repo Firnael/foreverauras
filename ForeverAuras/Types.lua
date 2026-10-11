@@ -7,6 +7,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("Types")
 ---@class WeakAuras
 local WeakAuras = WeakAuras;
 local L = WeakAuras.L;

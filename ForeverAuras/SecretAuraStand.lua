@@ -6,6 +6,8 @@
 -- and border is forwarded to its copy; the display itself is moved off screen.
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAuraStand")
 local Display = Private.BlizzardAuraDisplay
 
 local standTypes = {icon = true, text = true}

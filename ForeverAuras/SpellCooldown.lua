@@ -58,7 +58,46 @@ function Private.GetSpellCooldownDurationWithoutGCD(spellID, onGCD)
   return C_Spell.GetSpellCooldownDuration(spellID, true)
 end
 
+-- The cooldown APIs are slow on this client (a few tenths of a millisecond
+-- each), and one cooldown icon reads them several times per update. Results
+-- are kept for the rest of the frame: game state only changes between frames.
+local cooldownCache, cooldownCacheFrame = {}, nil
+
+-- Called when a cooldown event arrives: a cast finishing and the cooldown it
+-- starts can be reported in the same frame, so values read before the event
+-- must not be served to the trigger that handles it.
+function Private.InvalidateSpellCooldownCache()
+  cooldownCacheFrame = nil
+end
+local cooldownCacheFields = {"cooldown", "conditionOnCooldown", "conditionDuration", "gcdOnly", "onCooldown",
+  "paused", "count", "ready", "charges", "maxCharges", "recharging", "chargeDuration", "textDuration",
+  "wandAppearanceDuration", "duration"}
+local ReadSpellCooldownData
+
 function Private.GetSpellCooldownData(spellID, track, showGCD, showLossOfControl, into)
+  local now = GetTime()
+  if cooldownCacheFrame ~= now then
+    cooldownCacheFrame = now
+    wipe(cooldownCache)
+  end
+  local variant = (track == "charges" and 1 or track == "cooldown" and 2 or 0) + (showGCD and 4 or 0) + (showLossOfControl and 8 or 0)
+  local bySpell = cooldownCache[spellID]
+  if not bySpell then bySpell = {}; cooldownCache[spellID] = bySpell end
+  local cached = bySpell[variant]
+  if cached == nil then
+    cached = ReadSpellCooldownData(spellID, track, showGCD, showLossOfControl) or false
+    bySpell[variant] = cached
+  end
+  if not cached then return end
+  if into then
+    wipe(into)
+    for _, key in ipairs(cooldownCacheFields) do into[key] = cached[key] end
+    return into
+  end
+  return cached
+end
+
+function ReadSpellCooldownData(spellID, track, showGCD, showLossOfControl)
   local info = C_Spell.GetSpellCooldown(spellID)
   local charges = C_Spell.GetSpellCharges(spellID)
   if not info then knownOnCooldown[spellID] = nil end
@@ -92,7 +131,7 @@ function Private.GetSpellCooldownData(spellID, track, showGCD, showLossOfControl
   elseif onCooldown ~= nil and info and info.isEnabled then
     knownOnCooldown[spellID] = onCooldown or nil
   end
-  local result = into and wipe(into) or {}
+  local result = {}
   result.cooldown = cooldown
   result.conditionOnCooldown = conditionOnCooldown
   result.conditionDuration = cooldown
@@ -169,6 +208,78 @@ function WeakAuras.SetSpellCooldownState(state, spellID, showGCD, showGCDText)
   state.cdmTextDurationRequired = hideGCDText
   state.cdmTextDurationObject = hideGCDText and cooldown and cooldown.textDuration or nil
   state.cdmNativePaused = cooldown and cooldown.paused or false
+end
+
+-- GCD-length classification for countdown text, as EllesmereUI does it.
+-- A cooldown whose TOTAL duration is at most one global cooldown (plus a
+-- margin) is a GCD or a wand Shoot lockout, never a real spell cooldown, so its
+-- countdown text is hidden. The game evaluates the curve against the duration
+-- object, so this works on secret timers without reading them. The step
+-- follows spell haste, read once per frame and rounded to 0.05s; it rises at
+-- once but only falls after 2s, so a haste gain mid-GCD cannot reclassify the
+-- GCD already running.
+local gcdStep, gcdStepAt, gcdStepHold, gcdTextCurve, gcdTextCurveStep
+local function GCDStep()
+  local now = GetTime()
+  if gcdStepAt ~= now then
+    gcdStepAt = now
+    local haste = UnitSpellHaste and UnitSpellHaste("player") or 0
+    if issecretvalue(haste) or type(haste) ~= "number" then haste = 0 end
+    local length = math.max(0.75, 1.5 / (1 + haste / 100))
+    -- With a wand, Shoot locks the other spells for the wand's attack speed,
+    -- which can be longer than a GCD; that lockout is classified the same way.
+    -- Forever has no global IsEquippedItemType; it lives under C_Item.
+    local isEquippedType = (C_Item and C_Item.IsEquippedItemType) or IsEquippedItemType
+    local wand = isEquippedType and isEquippedType("Wands")
+    if not issecretvalue(wand) and wand == true and UnitRangedDamage then
+      local speed = UnitRangedDamage("player")
+      if not issecretvalue(speed) and type(speed) == "number" and speed > length and speed < 5 then
+        length = speed
+      end
+    end
+    local step = math.floor((length + 0.15) * 20 + 0.5) / 20
+    if not gcdStep or step >= gcdStep or now >= (gcdStepHold or 0) then
+      gcdStep = step
+      gcdStepHold = now + 2
+    end
+  end
+  return gcdStep
+end
+
+-- Step curve: 0 for a total duration up to one GCD, 1 above it; nil when the
+-- client has no curve support.
+function Private.GetGCDTextCurve()
+  if not (C_CurveUtil and C_CurveUtil.CreateCurve and Enum.LuaCurveType) then return end
+  local step = GCDStep()
+  if gcdTextCurveStep ~= step then
+    gcdTextCurve = C_CurveUtil.CreateCurve()
+    gcdTextCurve:SetType(Enum.LuaCurveType.Step)
+    gcdTextCurve:AddPoint(0, 0)
+    gcdTextCurve:AddPoint(step, 1)
+    gcdTextCurveStep = step
+  end
+  return gcdTextCurve
+end
+
+-- Alpha for a countdown text drawn from duration: 0 while it is a GCD-length
+-- (or wand) lockout, 1 for a real cooldown. nil when it cannot be evaluated.
+-- Evaluations are kept per duration object for the rest of the frame.
+local alphaCache, alphaCacheFrame = setmetatable({}, {__mode = "k"}), nil
+function Private.GCDTextAlpha(duration)
+  if not duration or type(duration) ~= "userdata" and type(duration) ~= "table" then return end
+  if not duration.EvaluateTotalDuration then return end
+  local now = GetTime()
+  if alphaCacheFrame ~= now then
+    alphaCacheFrame = now
+    wipe(alphaCache)
+  end
+  local alpha = alphaCache[duration]
+  if alpha ~= nil then return alpha end
+  local curve = Private.GetGCDTextCurve()
+  if not curve then return end
+  alpha = duration:EvaluateTotalDuration(curve, 0)
+  alphaCache[duration] = alpha
+  return alpha
 end
 
 -- Copied durations keep their total span after expiry. Evaluate remaining time

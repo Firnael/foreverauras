@@ -2,6 +2,8 @@
 -- Save class-pack CDM settings for Blizzard to apply on reload, after asking.
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("CDMSetup")
 local pending, timer, needsReload, confirmed, asked
 local attempts = 0
 

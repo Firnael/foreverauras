@@ -53,6 +53,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("GenericTrigger")
 -- Lua APIs
 local tinsert, tconcat, wipe = table.insert, table.concat, wipe
 local tostring, pairs, type = tostring, pairs, type
@@ -77,6 +79,9 @@ local loaded_unit_events = {};
 local watched_trigger_events = Private.watched_trigger_events
 local delayTimerEvents = {}
 local loaded_auras = {}; -- id to bool map
+-- Which event and unit event lists each loaded aura was put into, so
+-- UnloadDisplays can leave exactly those (see GenericTrigger.UnloadDisplays).
+local loadedEventsByAura = {}
 
 -- Local functions
 local LoadEvent, HandleEvent, HandleUnitEvent, TestForTriState, TestForToggle, TestForLongString, TestForMultiSelect
@@ -1046,16 +1051,21 @@ function Private.ScanEventsInternal(event_list, event, arg1, arg2, ... )
         local delay = GenericTrigger.GetDelay(data)
         if delay == 0 then
           local allStates = WeakAuras.GetTriggerStateForTrigger(id, triggernum);
+          -- Profiling breakdown: trigger functions versus the display update below.
+          Private.StartProfileSystem("trigger functions")
           if (RunTriggerFunc(allStates, data, id, triggernum, event, arg1, arg2, ...)) then
             updateTriggerState = true
           end
+          Private.StopProfileSystem("trigger functions")
         else
           Private.RunTriggerFuncWithDelay(delay, id, triggernum, data, event, arg1, arg2, ...)
         end
       end
     end
     if (updateTriggerState) then
+      Private.StartProfileSystem("display updates")
       Private.UpdatedTriggerState(id);
+      Private.StopProfileSystem("display updates")
     end
     Private.StopProfileAura(id);
     Private.ActivateAuraEnvironment(nil);
@@ -1266,7 +1276,28 @@ function GenericTrigger.ScanWithFakeEvent(id, fake)
   Private.ActivateAuraEnvironment(nil);
 end
 
+-- Events the client fires several times in one frame with identical arguments
+-- around combat and action bar changes. Game state is final before Lua sees
+-- any of them, so the triggers listening to them are run once per frame; the
+-- later firings carry no new information. None of these events are counted
+-- by trigger counters.
+local onceAFrameEvents = {UNIT_FLAGS = true, PLAYER_FLAGS_CHANGED = true, SPELL_UPDATE_USABLE = true,
+  ACTIONBAR_UPDATE_USABLE = true, ACTIONBAR_UPDATE_COOLDOWN = true, SPELL_UPDATE_ICON = true}
+local onceAFrameSeen = {}
+-- Plain and unit registrations dispatch to different trigger lists, so each
+-- keeps its own key (prefix).
+local function RepeatedThisFrame(prefix, event, unit)
+  if not onceAFrameEvents[event] then return false end
+  local key = unit and (prefix .. event .. unit) or (prefix .. event)
+  local now = GetTime()
+  if onceAFrameSeen[key] == now then return true end
+  onceAFrameSeen[key] = now
+  return false
+end
+
 function HandleEvent(frame, event, arg1, arg2, ...)
+  -- Unit events registered as plain events carry their unit as the first argument.
+  if RepeatedThisFrame("E", event, type(arg1) == "string" and arg1 or nil) then return end
   Private.StartProfileSystem("generictrigger " .. event);
   if event == "NAME_PLATE_UNIT_ADDED" then
     nameplateExists[arg1] = true
@@ -1310,6 +1341,7 @@ local brokenUnitMap = {
 }
 
 function HandleUnitEvent(frame, event, unit, ...)
+  if type(unit) == "string" and RepeatedThisFrame("U", event, unit) then return end
   Private.StartProfileSystem("generictrigger " .. event .. " " .. unit);
   if not(WeakAuras.IsPaused()) then
     if Private.ExecEnv.UnitIsUnit(unit, frame.unit)
@@ -1325,6 +1357,7 @@ function GenericTrigger.UnloadAll()
   wipe(loaded_auras);
   wipe(loaded_events);
   wipe(loaded_unit_events);
+  wipe(loadedEventsByAura);
   Private.CancelAllDelayedTriggers();
   Private.UnregisterAllEveryFrameUpdate();
 end
@@ -1332,13 +1365,22 @@ end
 function GenericTrigger.UnloadDisplays(toUnload)
   for id in pairs(toUnload) do
     loaded_auras[id] = nil
-    for eventname, events in pairs(loaded_events) do
-      events[id] = nil;
-    end
-    for unit, events in pairs(loaded_unit_events) do
-      for eventname, auras in pairs(events) do
-        auras[id] = nil;
+    -- Only the lists this aura was loaded into are touched (recorded by
+    -- LoadEvent); walking every event and unit event list for each of the
+    -- dozens of auras a combat change unloads was most of the unload cost.
+    local record = loadedEventsByAura[id]
+    if record then
+      for eventname in pairs(record.events) do
+        local events = loaded_events[eventname]
+        if events then events[id] = nil end
       end
+      for unit, unitEvents in pairs(record.unitEvents) do
+        local events = loaded_unit_events[unit]
+        for eventname in pairs(unitEvents) do
+          if events and events[eventname] then events[eventname][id] = nil end
+        end
+      end
+      loadedEventsByAura[id] = nil
     end
 
     Private.CancelDelayedTrigger(id);
@@ -1384,6 +1426,8 @@ function GenericTrigger.Rename(oldid, newid)
 
   watched_trigger_events[newid] = watched_trigger_events[oldid]
   watched_trigger_events[oldid] = nil
+  loadedEventsByAura[newid] = loadedEventsByAura[oldid]
+  loadedEventsByAura[oldid] = nil
 
   Private.EveryFrameUpdateRename(oldid, newid)
 end
@@ -1454,12 +1498,43 @@ local function MultiUnitLoop(Func, unit, includePets, ...)
   end
 end
 
+-- Notes an event list an aura was loaded into (see loadedEventsByAura).
+local function NoteLoadedEvent(id, event)
+  local record = loadedEventsByAura[id]
+  if not record then record = {events = {}, unitEvents = {}}; loadedEventsByAura[id] = record end
+  record.events[event] = true
+end
+
+-- MultiUnitLoop callback for LoadEvent: registers one trigger for one unit event.
+local function LoadUnitEvent(u, event, id, triggernum, data)
+  loaded_unit_events[u] = loaded_unit_events[u] or {};
+  loaded_unit_events[u][event] = loaded_unit_events[u][event] or {};
+  loaded_unit_events[u][event][id] = loaded_unit_events[u][event][id] or {}
+  loaded_unit_events[u][event][id][triggernum] = data;
+  local record = loadedEventsByAura[id]
+  if not record then record = {events = {}, unitEvents = {}}; loadedEventsByAura[id] = record end
+  record.unitEvents[u] = record.unitEvents[u] or {}
+  record.unitEvents[u][event] = true
+end
+
+local eventsToRegister = {};
+local unitEventsToRegister = {};
+-- MultiUnitLoop callback for GenericTrigger.LoadDisplays: notes a unit event the
+-- frame for that unit is not registered for yet.
+local function NoteUnitEventToRegister(u, event)
+  if not (genericTriggerRegisteredUnitEvents[u] and genericTriggerRegisteredUnitEvents[u][event]) then
+    unitEventsToRegister[u] = unitEventsToRegister[u] or {}
+    unitEventsToRegister[u][event] = true
+  end
+end
+
 function LoadEvent(id, triggernum, data)
   if data.events then
     for index, event in pairs(data.events) do
       loaded_events[event] = loaded_events[event] or {};
       loaded_events[event][id] = loaded_events[event][id] or {};
       loaded_events[event][id][triggernum] = data;
+      NoteLoadedEvent(id, event)
     end
   end
   if (data.internal_events) then
@@ -1467,6 +1542,7 @@ function LoadEvent(id, triggernum, data)
       loaded_events[event] = loaded_events[event] or {};
       loaded_events[event][id] = loaded_events[event][id] or {};
       loaded_events[event][id][triggernum] = data;
+      NoteLoadedEvent(id, event)
     end
   end
   -- this special internal_events function is run when aura load instead of when it is added
@@ -1476,6 +1552,7 @@ function LoadEvent(id, triggernum, data)
       loaded_events[event] = loaded_events[event] or {};
       loaded_events[event][id] = loaded_events[event][id] or {};
       loaded_events[event][id][triggernum] = data;
+      NoteLoadedEvent(id, event)
     end
   end
   if data.unit_events then
@@ -1483,14 +1560,9 @@ function LoadEvent(id, triggernum, data)
     for unit, events in pairs(data.unit_events) do
       unit = string.lower(unit)
       for index, event in pairs(events) do
-        MultiUnitLoop(
-          function(u)
-            loaded_unit_events[u] = loaded_unit_events[u] or {};
-            loaded_unit_events[u][event] = loaded_unit_events[u][event] or {};
-            loaded_unit_events[u][event][id] = loaded_unit_events[u][event][id] or {}
-            loaded_unit_events[u][event][id][triggernum] = data;
-          end, unit, includePets
-        )
+        -- One shared function with arguments instead of a closure per unit event:
+        -- loading many auras at once (a combat change) made hundreds of them.
+        MultiUnitLoop(LoadUnitEvent, unit, includePets, event, id, triggernum, data)
       end
     end
   end
@@ -1504,8 +1576,6 @@ local function trueFunction()
   return true;
 end
 
-local eventsToRegister = {};
-local unitEventsToRegister = {};
 function GenericTrigger.LoadDisplays(toLoad, loadEvent, ...)
   -- All CDM triggers in one synchronous dispatch share catalog/frame discovery.
   -- Restore the outer snapshot for nested scans; later events always get fresh frames.
@@ -1528,14 +1598,7 @@ function GenericTrigger.LoadDisplays(toLoad, loadEvent, ...)
           local includePets = data.includePets
           for unit, events in pairs(data.unit_events) do
             for index, event in pairs(events) do
-              MultiUnitLoop(
-                function (u)
-                  if not (genericTriggerRegisteredUnitEvents[u] and genericTriggerRegisteredUnitEvents[u][event]) then
-                    unitEventsToRegister[u] = unitEventsToRegister[u] or {}
-                    unitEventsToRegister[u][event] = true
-                  end
-                end, unit, includePets
-              )
+              MultiUnitLoop(NoteUnitEventToRegister, unit, includePets, event)
             end
           end
         end
@@ -2065,8 +2128,17 @@ do
     return runeDuration
   end
 
+  -- The shared global cooldown is read from the Classic reference spell 29515,
+  -- as the Global Cooldown trigger does (Prototypes.lua): Forever reports no
+  -- cooldown on retail's 61304, so the shared clock never started and every
+  -- cooldown check had to broadcast GCD_UPDATE instead of GCD_START/END.
+  -- Kept on 61304 for now: with 29515 the clock does run, but then every GCD
+  -- start and end refreshes every "Show GCD" icon (measured 30ms+ per GCD with
+  -- the Mage UI), which costs more than the unconditional refresh it replaces.
+  local GCD_REFERENCE_SPELL = 61304
+
   local function CheckGCD(deferEvent)
-    if C_Secrets.ShouldSpellCooldownBeSecret(61304) then
+    if C_Secrets.ShouldSpellCooldownBeSecret(GCD_REFERENCE_SPELL) then
       if deferEvent then return "GCD_UPDATE" end
       if not WeakAuras.IsPaused() then Private.ScanEvents("GCD_UPDATE") end
       return
@@ -2074,14 +2146,20 @@ do
     local event;
     local startTime, duration, _, modRate
     if GetSpellCooldown then
-      startTime, duration, _, modRate = GetSpellCooldown(61304);
+      startTime, duration, _, modRate = GetSpellCooldown(GCD_REFERENCE_SPELL);
     else
-      local spellCooldownInfo = C_Spell.GetSpellCooldown(61304);
+      local spellCooldownInfo = C_Spell.GetSpellCooldown(GCD_REFERENCE_SPELL);
       if spellCooldownInfo then
         startTime = spellCooldownInfo.startTime
         duration = spellCooldownInfo.duration
         modRate = spellCooldownInfo.modRate
       end
+    end
+    -- A secret timer cannot be compared or scheduled: treat it like a restricted one.
+    if hasanysecretvalues(startTime, duration, modRate) then
+      if deferEvent then return "GCD_UPDATE" end
+      if not WeakAuras.IsPaused() then Private.ScanEvents("GCD_UPDATE") end
+      return
     end
     if(duration and duration > 0) then
       if not(gcdStart) then
@@ -2116,7 +2194,13 @@ do
     Recheck = function(self, id)
       self.handles[id] = nil
       self.expirationTime[id] = nil
-      CheckGCD();
+      -- One spell's cooldown ended: refresh the shared GCD clock, but do not
+      -- broadcast the blanket GCD_UPDATE refresh that a restricted clock
+      -- returns, which re-ran every "Show GCD" icon on each expiry timer.
+      local gcdEvent = CheckGCD(true)
+      if gcdEvent and gcdEvent ~= "GCD_UPDATE" and not WeakAuras.IsPaused() then
+        Private.ScanEvents(gcdEvent)
+      end
       Private.CheckSpellCooldown(id, GetRuneDuration())
     end,
     Schedule = function(self, expirationTime, id)
@@ -2490,10 +2574,37 @@ do
       end
     end,
 
-    CheckSpellCooldowns = function(self, runeDuration)
-      for id, _ in pairs(self.data) do
-        self:CheckSpellCooldown(id, runeDuration)
+    -- Checks every watched spell. With a budget (milliseconds) the check stops
+    -- once it is spent and returns false; the next call continues where it
+    -- stopped (a snapshot of the ids, so spells watched meanwhile are picked up
+    -- by the next full check). Without a budget everything is checked and any
+    -- unfinished partial check is dropped. Returns true when the pass is done.
+    CheckSpellCooldowns = function(self, runeDuration, budget, maxSpells)
+      local pending = self.pendingIds
+      if not pending or not (budget or maxSpells) then
+        pending = {}
+        for id in pairs(self.data) do pending[#pending + 1] = id end
+        self.pendingIds, self.pendingIndex = pending, 1
+        -- Whether this pass is a quiet one (see HandleEvent): a louder request
+        -- arriving during a quiet pass restarts it, so every spell gets it.
+        self.pendingQuiet = self.quietSecretCheck or nil
       end
+      local deadline = budget and (debugprofilestop() + budget)
+      local index = self.pendingIndex
+      -- maxSpells: at most this many spells per call (see FULL_CHECK_SPELLS).
+      local checked = 0
+      while pending[index] do
+        local id = pending[index]
+        if self.data[id] then self:CheckSpellCooldown(id, runeDuration) end
+        index = index + 1
+        checked = checked + 1
+        if pending[index] and ((deadline and debugprofilestop() > deadline) or (maxSpells and checked >= maxSpells)) then
+          self.pendingIndex = index
+          return false
+        end
+      end
+      self.pendingIds, self.pendingIndex = nil, nil
+      return true
     end,
 
     CheckSpellCooldown = function(self, effectiveSpellId, runeDuration)
@@ -2503,10 +2614,14 @@ do
         if not detail or not cooldown then return end
         local ready, charges, maxCharges, count = cooldown.ready, cooldown.charges, cooldown.maxCharges, cooldown.count
         local now = GetTime()
+        -- True when the spell only counts as not ready because a global
+        -- cooldown just started (the guard below), not because of a cooldown
+        -- of its own.
+        local gcdGuard = false
         if ready == true then
           local onGCD, since = Private.GetSpellCooldownGCDFlag(effectiveSpellId)
           local info = onGCD == true and since and now - since < SECRET_MIN_COOLDOWN and C_Spell.GetSpellCooldown(effectiveSpellId)
-          if info and info.isActive == true then ready = false end
+          if info and info.isActive == true then ready = false; gcdGuard = true end
         end
         for _, handler in ipairs(self.cdHandlers) do
           if handler.expirationTime[effectiveSpellId] then
@@ -2520,7 +2635,13 @@ do
           wandOnly = not cast or (detail.lastReadyAt and cast < detail.lastReadyAt - 0.2) or false
         end
         detail.wandOnlyCooldown, detail.ownCooldownEnd = nil, nil
-        if detail.ready == false and ready == true and detail.notReadySince and not wandOnly
+        -- A not-ready stretch that only ever came from the GCD guard ends when
+        -- the guard lifts, which can be a few hundredths after the 1.6s
+        -- threshold: that is a global cooldown ending, not the spell's own
+        -- cooldown, so it fires no ready event unless it lasted longer than
+        -- any global cooldown can.
+        local gcdOnly = detail.notReadyGCD and detail.notReadySince and now - detail.notReadySince < 2.5
+        if detail.ready == false and ready == true and detail.notReadySince and not wandOnly and not gcdOnly
         and now - detail.notReadySince > SECRET_MIN_COOLDOWN and not WeakAuras.IsPaused() then
           self:SendEventsForSpell(effectiveSpellId, "SPELL_COOLDOWN_READY", effectiveSpellId)
         end
@@ -2528,9 +2649,13 @@ do
           if detail.ready ~= false or not detail.notReadySince then
             detail.notReadySince = now
             detail.notReadyWand = Private.IsWandHeldSpell(effectiveSpellId) or nil
+            detail.notReadyGCD = gcdGuard or nil
+          elseif not gcdGuard then
+            -- A cooldown of its own was seen during this stretch.
+            detail.notReadyGCD = nil
           end
         else
-          detail.notReadySince, detail.notReadyWand = nil, nil
+          detail.notReadySince, detail.notReadyWand, detail.notReadyGCD = nil, nil, nil
           if ready == true then detail.lastReadyAt = now end
         end
         local stateChanged = detail.ready ~= ready
@@ -2739,7 +2864,29 @@ do
     end
   end
 
+  -- Milliseconds of spell cooldown checks per frame for a full check that a
+  -- restriction change requested (markSpread; SpellDetails.CheckSpellCooldowns).
+  local FULL_CHECK_BUDGET = 3
+  -- A restriction change flips every watched spell at once, and the client
+  -- sends cooldown and usability events in the same frame that requested the
+  -- same full check unspread. Updating every cooldown icon in the frame of
+  -- the flip was a visible hitch (the client's own cost, not Lua), so for a
+  -- short while after a restriction change every full check is spread: at
+  -- most FULL_CHECK_SPELLS spells (and their display updates) per frame,
+  -- starting the frame after the request. A spell with an event of its own
+  -- (a cast) is still checked at once.
+  local FULL_CHECK_SPELLS = 4
+  local SPREAD_WINDOW = 1
+  local spreadUntil, spreadRequestedAt = 0, nil
+  local markSpread
   local mark_ACTIONBAR_UPDATE_COOLDOWN, mark_PLAYER_ENTERING_WORLD
+  -- Full cooldown checks requested by events are run once, from this frame's
+  -- OnUpdate (after all of the frame's events). Entering or leaving combat
+  -- fires several of them in one frame (restriction change, usability and
+  -- cooldown updates), and each full check re-reads every watched spell and
+  -- item and refreshes every GCD watcher. markQuiet is true while every
+  -- pending request was a quiet one (SPELL_UPDATE_USABLE), false otherwise.
+  local markQuiet
 
   ---@type fun()
   function Private.InitCooldownReady()
@@ -2771,6 +2918,8 @@ do
     end)
 
     cdReadyFrame.HandleEvent = function(self, event, ...)
+      -- Cooldown state reported by this event supersedes anything read earlier in the frame.
+      if type(event) == "string" and Private.InvalidateSpellCooldownCache then Private.InvalidateSpellCooldownCache() end
       if event == "SPELL_UPDATE_USABLE" and C_Secrets.ShouldSpellCooldownBeSecret(61304) then return end
       if event == "SPELL_UPDATE_COOLDOWN" then
         -- Several events in one frame read the same cooldowns: once is enough.
@@ -2801,6 +2950,7 @@ do
       end
       if (event == "ACTIONBAR_UPDATE_COOLDOWN") then
         mark_ACTIONBAR_UPDATE_COOLDOWN = true
+        markQuiet = false
         cdReadyFrame:Show()
         return
       end
@@ -2813,9 +2963,30 @@ do
           Private.CheckItemSlotCooldowns()
           mark_PLAYER_ENTERING_WORLD = nil
           mark_ACTIONBAR_UPDATE_COOLDOWN = nil
+          markQuiet = nil
+          markSpread = nil
         elseif mark_ACTIONBAR_UPDATE_COOLDOWN then
-          Private.CheckCooldownReady()
-          mark_ACTIONBAR_UPDATE_COOLDOWN = nil
+          SpellDetails.quietSecretCheck = markQuiet or nil
+          -- A batch of usability events alone cannot change item cooldowns.
+          -- A check requested by a restriction change is spread over frames
+          -- (FULL_CHECK_BUDGET): a combat change flips every watched spell at
+          -- once, and one frame holding all of them and the triggers they wake
+          -- was a visible hitch. The marks stay set, and the frame shown, until
+          -- the pass completes.
+          if SpellDetails.pendingIds and SpellDetails.pendingQuiet and not markQuiet then SpellDetails.pendingIds = nil end
+          -- A spread check starts the frame after it was requested.
+          if markSpread and spreadRequestedAt == GetTime() then
+            Private.StopProfileSystem("generictrigger cd tracking")
+            return
+          end
+          local done = Private.CheckCooldownReady(nil, markQuiet, markSpread and FULL_CHECK_BUDGET or nil,
+            markSpread and FULL_CHECK_SPELLS or nil)
+          SpellDetails.quietSecretCheck = nil
+          if done then
+            mark_ACTIONBAR_UPDATE_COOLDOWN = nil
+            markQuiet = nil
+            markSpread = nil
+          end
         end
       elseif(event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_CHARGES" or event == "RUNE_POWER_UPDATE"
         or event == "PLAYER_TALENT_UPDATE" or event == "PLAYER_PVP_TALENT_UPDATE"
@@ -2833,7 +3004,25 @@ do
           mark_ACTIONBAR_UPDATE_COOLDOWN = nil
         end
         if spellId and not SpellDetails.data[spellId] then spellId = nil end
-        SpellDetails.quietSecretCheck = event == "SPELL_UPDATE_USABLE" or nil
+        local quiet = event == "SPELL_UPDATE_USABLE"
+        if spellId == nil and event ~= "PLAYER_TALENT_UPDATE" and event ~= "PLAYER_PVP_TALENT_UPDATE"
+          and event ~= "CHARACTER_POINTS_CHANGED" then
+          -- A full check: run it once, from this frame's OnUpdate.
+          mark_ACTIONBAR_UPDATE_COOLDOWN = true
+          if markQuiet == nil then markQuiet = quiet else markQuiet = markQuiet and quiet end
+          -- A restriction change flips every watched spell: that check may be
+          -- spread over frames. Other full checks (a cast, a wand shot) stay
+          -- in their frame, as the displays built on them expect.
+          if event == "WA_SECRET_STATE_UPDATE" then spreadUntil = GetTime() + SPREAD_WINDOW end
+          if GetTime() < spreadUntil then
+            if not markSpread then spreadRequestedAt = GetTime() end
+            markSpread = true
+          end
+          Private.StopProfileSystem("generictrigger cd tracking")
+          cdReadyFrame:Show()
+          return
+        end
+        SpellDetails.quietSecretCheck = quiet or nil
         Private.CheckCooldownReady(spellId)
         if spellId then
           SpellDetails.quietSecretCheck = true
@@ -2841,6 +3030,7 @@ do
           -- Spells sharing its cooldown (Earth and Flame Shock) get no event of
           -- their own: check every spell once, on the next frame.
           mark_ACTIONBAR_UPDATE_COOLDOWN = true
+          markQuiet = false
         end
         SpellDetails.quietSecretCheck = nil
       elseif(event == "SPELLS_CHANGED") then
@@ -3455,8 +3645,10 @@ do
     end
   end
 
-  ---@type fun(spell: number|string?)
-  function Private.CheckCooldownReady(spell)
+  -- A GCD event found by a budgeted pass that did not finish; sent when it does.
+  local pendingGcdEvent
+  ---@type fun(spell: number|string?, skipItems: boolean?, budget: number?): boolean
+  function Private.CheckCooldownReady(spell, skipItems, budget, maxSpells)
     -- Refresh the shared clock first, but do not let GCD listeners read the old
     -- per-spell cache and momentarily blank the swipe before this batch completes.
     local gcdEvent = CheckGCD(true);
@@ -3466,12 +3658,20 @@ do
         SpellDetails:CheckSpellCooldown(spell, runeDuration)
       end
     else
-      SpellDetails:CheckSpellCooldowns(runeDuration);
-      Private.CheckItemCooldowns();
-      Private.CheckItemSlotCooldowns();
+      -- budget: milliseconds for this frame's share of the spells; the pass
+      -- continues on the next call and nothing below runs before it is done.
+      if gcdEvent then pendingGcdEvent = gcdEvent end
+      if not SpellDetails:CheckSpellCooldowns(runeDuration, budget, maxSpells) then return false end
+      gcdEvent, pendingGcdEvent = pendingGcdEvent, nil
+      -- skipItems: the batch held only spell usability events (see HandleEvent).
+      if not skipItems then
+        Private.CheckItemCooldowns();
+        Private.CheckItemSlotCooldowns();
+      end
     end
     -- Refresh watched GCD timers even when the shared GCD clock emits no event.
     if not WeakAuras.IsPaused() then Private.ScanEvents(gcdEvent or "GCD_UPDATE") end
+    return true
   end
 
   ---@private

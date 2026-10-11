@@ -1,6 +1,8 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("CDMAuraProgress")
 local Display = {}
 Private.CDMAuraProgress = Display
 
@@ -72,8 +74,8 @@ local function CreateNative(owner, initialize)
   })
   -- Disable native event processing when the owning aura/subtext is hidden.
   -- The public owner controls lifecycle; native slot visibility is never read.
-  owner:HookScript("OnHide", function() container:SetEnabled(false) end)
-  owner:HookScript("OnShow", function() container:SetEnabled(native.wanted == true) end)
+  TimedHookScript(owner, "OnHide", function() container:SetEnabled(false) end)
+  TimedHookScript(owner, "OnShow", function() container:SetEnabled(native.wanted == true) end)
   return native
 end
 

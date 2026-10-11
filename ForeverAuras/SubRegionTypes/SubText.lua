@@ -6,6 +6,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SubSubText")
 local SharedMedia = LibStub("LibSharedMedia-3.0");
 local L = WeakAuras.L;
 local FontStringScaleAnimationMode = Enum and Enum.FontStringScaleAnimationMode
@@ -348,6 +350,10 @@ local function modify(parent, region, parentData, data, first)
       return
     end
     local UpdateText
+    -- A text that is only a %p or %t timer hides itself, like the native
+    -- countdown, while its timer is a GCD-length or wand Shoot lockout.
+    local timerOnly = type(region.text_text) == "string" and region.text_text:match("^%s*%%[pt]%s*$") ~= nil
+    text:SetAlpha(1)
     if region.text_text and Private.ContainsAnyPlaceHolders(region.text_text) then
       UpdateText = function()
         if Private.CDMAuraProgress.UpdateText(parent, region, data, nativeKind, nativeTrigger) then return end
@@ -363,6 +369,12 @@ local function modify(parent, region, parentData, data, first)
 
         if text:GetFont() then
           text:SetText(WeakAuras.ReplaceRaidMarkerSymbols(textStr))
+        end
+        if timerOnly then
+          local state = parent.state
+          local alpha = state and state.cdmHideGCDText and not state.cdmTextPreview
+            and state.cdmTextDurationObject and Private.GCDTextAlpha(state.cdmTextDurationObject)
+          text:SetAlpha(alpha or 1)
         end
         region:UpdateAnchorOnTextChange()
       end

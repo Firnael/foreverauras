@@ -31,6 +31,8 @@ function Private.ApplyTextFont(text, fontObject, fontPath, size, flags, shadowCo
   end
   text:SetFontObject(fontObject)
   text:SetFont(fontPath, size, flags)
+  -- Counted for /fa phitch: a font change re-lays out the text on the client.
+  if Private.HitchCount then Private.HitchCount("SetFont") end
 
   -- Retain the font-loading retry and fallback without rewriting the saved font.
   if not text:GetFont() and fontPath then

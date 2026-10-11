@@ -6,6 +6,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("Secrets")
 local knownEvents = {
   PLAYER_ENTERING_WORLD = true,
   ADDON_RESTRICTION_STATE_CHANGED = true,

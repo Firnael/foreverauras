@@ -2,6 +2,8 @@
 if not WeakAuras.IsLibsOK() then return end
 local _, Private = ...
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("ItemStatus")
 function Private.ExecEnv.GetEquipmentDurability(selectedSlot)
   local lowest, currentTotal, maximumTotal, broken, count = 100, 0, 0, 0, 0
   selectedSlot = tonumber(selectedSlot) or 0

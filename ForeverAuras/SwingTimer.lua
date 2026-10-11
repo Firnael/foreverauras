@@ -1,6 +1,9 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
 -- Player swing timing supplied by Blizzard; no combat-log reconstruction.
 if not WeakAuras.IsLibsOK() then return end
+local Private = select(2, ...)
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("SwingTimer")
 local swings, timers = {}, {}
 local frame
 local eventName = 'FA_SWING_TIMER_UPDATE'

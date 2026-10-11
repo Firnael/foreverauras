@@ -13,6 +13,13 @@ local WeakAuras = WeakAuras
 local L = WeakAuras.L
 local prettyPrint = WeakAuras.prettyPrint
 local LGF = LibStub("LibGetFrame-1.0")
+-- LibCustomGlow's per-frame glow handlers are timed under "glow ..." while
+-- profiling runs (see Timed in the library).
+local LCG = LibStub("LibCustomGlow-1.0-foreverauras", true)
+if LCG then
+  LCG.StartProfiling = function(name) Private.StartProfileSystem(name) end
+  LCG.StopProfiling = function(name) Private.StopProfileSystem(name) end
+end
 
 local profileData = {}
 profileData.systems = {}
@@ -97,6 +104,8 @@ local function StartProfiling(map, id)
 end
 
 local function StopProfiling(map, id)
+  -- A handler that began before profiling (re)started has no entry to stop.
+  if not map[id] then return end
   map[id].count = map[id].count - 1
   if map[id].count == 0 then
     local elapsed = debugprofilestop() - map[id].start
@@ -104,6 +113,84 @@ local function StopProfiling(map, id)
     if elapsed > map[id].spike then
       map[id].spike = elapsed
     end
+  end
+end
+
+-- Hitch capture (/fa phitch): while active, every finished measurement is also
+-- added to a per-frame bucket so a slow frame can be broken down afterwards.
+-- The buckets live beside the normal totals and are only touched in this mode.
+local hitch = {active = false, threshold = 30, touched = {}, events = {}, counts = {}}
+
+-- Counts a widget call of note (container refreshes, reparenting, texture and
+-- font changes) in the current frame's bucket. These calls cost the client
+-- layout or loading time that no Lua profiler sees, so the counts are printed
+-- with a slow frame to show what ForeverAuras asked of the client in it.
+function Private.HitchCount(name, n)
+  if hitch.active then hitch.counts[name] = (hitch.counts[name] or 0) + (n or 1) end
+end
+
+-- Adds one finished measurement to the current frame's bucket for map[id].
+local function HitchAccumulate(map, id, elapsed)
+  local entry = map[id]
+  if not entry.frame or entry.frame == 0 then
+    entry.frame = 0
+    hitch.touched[#hitch.touched + 1] = {entry = entry, name = id, aura = map == profileData.auras}
+  end
+  entry.frame = entry.frame + elapsed
+end
+
+-- Same as StopProfiling, plus the per-frame bucket used by hitch capture.
+local function StopProfilingHitch(map, id)
+  -- A handler that began before profiling (re)started has no entry to stop.
+  if not map[id] then return end
+  map[id].count = map[id].count - 1
+  if map[id].count == 0 then
+    local elapsed = debugprofilestop() - map[id].start
+    map[id].elapsed = map[id].elapsed + elapsed
+    if elapsed > map[id].spike then
+      map[id].spike = elapsed
+    end
+    HitchAccumulate(map, id, elapsed)
+  end
+end
+
+-- Helper functions used by the built-in cooldown triggers, timed one by one
+-- while profiling runs ("api ..." systems) to see which part of a trigger is
+-- expensive. The original functions are put back when profiling stops.
+local apiWrapped = {}
+local function ApiTargets()
+  return {
+    {WeakAuras, "WeakAuras", {"GetSpellCooldown", "GetSpellCharges", "IsSpellKnownIncludingPet",
+      "GetSpellCooldownDurationNoGCD", "GetSpellCooldownDuration", "GetSpellLossOfControlCooldown"}},
+    {Private.ExecEnv, "ExecEnv", {"GetEffectiveSpellId", "GetSpellCooldownData", "GetSpellInfo", "GetSpellName"}},
+    {Private, "Private", {"GetWandCooldownDuration", "GetSpellCooldownData", "GCDTextAlpha"}},
+  }
+end
+local function StopApi(name, ...)
+  Private.StopProfileSystem(name)
+  return ...
+end
+local function WrapApis()
+  for _, target in ipairs(ApiTargets()) do
+    local tbl, prefix, keys = target[1], target[2], target[3]
+    for _, key in ipairs(keys) do
+      local fn = tbl and rawget(tbl, key)
+      if type(fn) == "function" then
+        local name = "api " .. prefix .. "." .. key
+        apiWrapped[#apiWrapped + 1] = {tbl, key, fn}
+        rawset(tbl, key, function(...)
+          Private.StartProfileSystem(name)
+          return StopApi(name, fn(...))
+        end)
+      end
+    end
+  end
+end
+local function UnwrapApis()
+  for i = #apiWrapped, 1, -1 do
+    local entry = apiWrapped[i]
+    rawset(entry[1], entry[2], entry[3])
+    apiWrapped[i] = nil
   end
 end
 
@@ -195,6 +282,9 @@ function WeakAuras.StartProfile(startType)
   profileData.systems.time.count = 1
 
   Private.StartProfileSystem = StartProfileSystem
+  -- Times handlers set through Private.TimedAPI while profiling runs.
+  Private.handlerTiming = true
+  if #apiWrapped == 0 then WrapApis() end
   Private.StartProfileAura = StartProfileAura
   Private.StartProfileUID = StartProfileUID
   Private.StopProfileSystem = StopProfileSystem
@@ -205,6 +295,171 @@ end
 
 local function doNothing() end
 
+-- Hitch-capture variants of the stop functions; installed instead of the
+-- normal ones by WeakAuras.StartHitchCapture.
+local function StopProfileSystemHitch(system)
+  StopProfilingHitch(profileData.systems, "wa")
+  StopProfilingHitch(profileData.systems, system)
+end
+
+local function StopProfileAuraHitch(id)
+  StopProfilingHitch(profileData.auras, id)
+end
+
+local function StopProfileUIDHitch(uid)
+  StopProfilingHitch(profileData.auras, Private.UIDtoID(uid))
+end
+
+-- Summarises one frame interval (from one hitchFrame OnUpdate to the next):
+-- its length, ForeverAuras time from the client's addon profiler (covers all
+-- of the addon's code), the part covered by the ForeverAuras profiler, Lua
+-- memory change, events of note and the most expensive systems and auras.
+-- Returns the two report lines.
+local function SummariseInterval(frameMs, memDelta)
+  local addonMs
+  if C_AddOnProfiler and C_AddOnProfiler.GetAddOnMetric and Enum.AddOnProfilerMetric then
+    addonMs = C_AddOnProfiler.GetAddOnMetric(AddonName, Enum.AddOnProfilerMetric.LastTime)
+  end
+  local waEntry = profileData.systems.wa
+  local tracked = waEntry and waEntry.frame or 0
+  local systems, auras = {}, {}
+  for _, t in ipairs(hitch.touched) do
+    if t.name ~= "wa" and t.entry.frame >= 0.2 then
+      tinsert(t.aura and auras or systems, t)
+    end
+  end
+  local byTime = function(a, b) return a.entry.frame > b.entry.frame end
+  sort(systems, byTime)
+  sort(auras, byTime)
+  local parts = {}
+  for i = 1, math.min(14, #systems) do
+    parts[#parts + 1] = ("%s %.1f"):format(systems[i].name, systems[i].entry.frame)
+  end
+  for i = 1, math.min(3, #auras) do
+    parts[#parts + 1] = ("|cffffff99%s|r %.1f"):format(auras[i].name, auras[i].entry.frame)
+  end
+  local events = {}
+  for event, count in pairs(hitch.events) do
+    events[#events + 1] = count > 1 and (event .. "x" .. count) or event
+  end
+  -- Lua time of all addons together and of Blizzard's aura container code
+  -- (which runs the native aura buttons of Modern displays), when the client
+  -- reports them.
+  local others = ""
+  if C_AddOnProfiler and C_AddOnProfiler.GetOverallMetric and Enum.AddOnProfilerMetric then
+    local metric = Enum.AddOnProfilerMetric.LastTime
+    local all = C_AddOnProfiler.GetOverallMetric(metric)
+    local ok, container = pcall(C_AddOnProfiler.GetAddOnMetric, "Blizzard_AuraContainer", metric)
+    others = (" | all addons %s | AuraContainer %s"):format(all and ("%.1fms"):format(all) or "?",
+      ok and type(container) == "number" and ("%.1fms"):format(container) or "?")
+  end
+  local header = ("%.0fms | FA %s | tracked %.1fms | mem %+.0fKB%s%s"):format(frameMs,
+    addonMs and ("%.1fms"):format(addonMs) or "?", tracked, memDelta, others,
+    #events > 0 and (" | " .. table.concat(events, " ")) or "")
+  -- Widget calls of the interval (Private.HitchCount), most frequent first.
+  local counts = {}
+  for name, count in pairs(hitch.counts) do counts[#counts + 1] = {name = name, count = count} end
+  sort(counts, function(a, b) return a.count > b.count end)
+  for i = 1, math.min(8, #counts) do
+    parts[#parts + 1] = ("|cff99ccff%s|r x%d"):format(counts[i].name, counts[i].count)
+  end
+  return header, #parts > 0 and ("   " .. table.concat(parts, ", ")) or nil
+end
+
+-- Runs at the start of every frame while hitch capture is active. Events are
+-- dispatched before OnUpdate, so the frame in which combat starts or ends is
+-- summarised one interval before the slow drawing it causes shows up. Each
+-- interval's summary is therefore kept, and a slow interval is reported
+-- together with the one before it.
+local hitchFrame = CreateFrame("Frame")
+hitchFrame:Hide()
+hitchFrame:SetScript("OnUpdate", function(_, elapsed)
+  local mem = collectgarbage("count")
+  local frameMs = elapsed * 1000
+  if hitch.lastMem then
+    local header, details = SummariseInterval(frameMs, mem - hitch.lastMem)
+    if frameMs >= hitch.threshold then
+      if hitch.previous then
+        prettyPrint("Before hitch: " .. hitch.previous[1])
+        if hitch.previous[2] then print(hitch.previous[2]) end
+      end
+      prettyPrint("Hitch " .. header)
+      if details then print(details) end
+    end
+    hitch.previous = {header, details}
+  end
+  hitch.lastMem = mem
+  for i, t in ipairs(hitch.touched) do
+    t.entry.frame = 0
+    hitch.touched[i] = nil
+  end
+  wipe(hitch.events)
+  wipe(hitch.counts)
+end)
+-- Combat and restriction changes are labelled in the report so transitions
+-- can be told apart from other slow frames; the other labels mark the common
+-- causes of display work outside combat changes (target, auras, cooldowns,
+-- nameplates, roster), so a slow frame can be matched to what happened in it.
+local hitchEvents = {PLAYER_REGEN_DISABLED = "+combat", PLAYER_REGEN_ENABLED = "-combat",
+  ADDON_RESTRICTION_STATE_CHANGED = "restriction", PLAYER_ENTERING_WORLD = "loading",
+  PLAYER_TARGET_CHANGED = "target", PLAYER_FOCUS_CHANGED = "focus", UPDATE_MOUSEOVER_UNIT = "mouseover",
+  UNIT_AURA = "aura", SPELL_UPDATE_COOLDOWN = "cooldown", SPELL_UPDATE_USABLE = "usable",
+  NAME_PLATE_UNIT_ADDED = "+plate", NAME_PLATE_UNIT_REMOVED = "-plate", GROUP_ROSTER_UPDATE = "roster",
+  UNIT_PET = "pet", PLAYER_EQUIPMENT_CHANGED = "equip", UNIT_SPELLCAST_SUCCEEDED = "cast",
+  ZONE_CHANGED_NEW_AREA = "zone", UI_SCALE_CHANGED = "scale", COOLDOWN_VIEWER_DATA_LOADED = "cdm"}
+-- Unit events are only labelled for the player and its target.
+local hitchUnitEvents = {UNIT_AURA = true, UNIT_SPELLCAST_SUCCEEDED = true}
+hitchFrame:SetScript("OnEvent", function(_, event, unit)
+  local label = hitchEvents[event]
+  if hitchUnitEvents[event] then
+    if unit ~= "player" and unit ~= "target" then return end
+    label = label .. ":" .. unit
+  end
+  hitch.events[label] = (hitch.events[label] or 0) + 1
+end)
+
+-- /fa phitch [ms]: starts profiling and reports every frame slower than ms
+-- (default 30) until /fa phitch is used again. The normal profiling report
+-- stays available afterwards through /fa pprint.
+function WeakAuras.ToggleHitchCapture(threshold)
+  if hitch.active then
+    hitch.active = false
+    hitchFrame:Hide()
+    hitchFrame:UnregisterAllEvents()
+    WeakAuras.StopProfile()
+    return
+  end
+  if currentProfileState == "profiling" then
+    WeakAuras.StopProfile()
+  end
+  hitch.threshold = tonumber(threshold) or 30
+  WeakAuras.StartProfile()
+  if currentProfileState ~= "profiling" then return end
+  hitch.active = true
+  hitch.lastMem = nil
+  hitch.previous = nil
+  wipe(hitch.touched)
+  wipe(hitch.events)
+  wipe(hitch.counts)
+  Private.StopProfileSystem = StopProfileSystemHitch
+  Private.StopProfileAura = StopProfileAuraHitch
+  Private.StopProfileUID = StopProfileUIDHitch
+  for event in pairs(hitchEvents) do
+    if hitchUnitEvents[event] then
+      hitchFrame:RegisterUnitEvent(event, "player", "target")
+    else
+      hitchFrame:RegisterEvent(event)
+    end
+  end
+  hitchFrame:Show()
+  prettyPrint(("Hitch capture started: frames slower than %dms are reported. Type /fa phitch again to stop."):format(hitch.threshold))
+  -- How much native aura content the Modern displays currently hold.
+  if Private.BlizzardAuraDisplay and Private.BlizzardAuraDisplay.CountContainers then
+    local displays, containers, shown = Private.BlizzardAuraDisplay.CountContainers()
+    prettyPrint(("Modern displays active: %d, native containers: %d (%d shown)"):format(displays, containers, shown))
+  end
+end
+
 ---@diagnostic disable-next-line: duplicate-set-field
 function WeakAuras.StopProfile()
   if currentProfileState ~= "profiling" then
@@ -214,10 +469,19 @@ function WeakAuras.StopProfile()
 
   prettyPrint(L["Profiling stopped."])
 
+  -- Stopping profiling by any route also ends hitch capture.
+  if hitch.active then
+    hitch.active = false
+    hitchFrame:Hide()
+    hitchFrame:UnregisterAllEvents()
+  end
+
   profileData.systems.time.elapsed = debugprofilestop() - profileData.systems.time.start
   profileData.systems.time.count = 0
 
   Private.StartProfileSystem = doNothing
+  Private.handlerTiming = false
+  UnwrapApis()
   Private.StartProfileAura = doNothing
   Private.StartProfileUID = doNothing
   Private.StopProfileSystem = doNothing

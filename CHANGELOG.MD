@@ -1,5 +1,24 @@
 # Changelog
 ## Versions
+## 0.74.0
+Performance
+- Entering and leaving combat: the spell cooldown re-check that a restriction change triggers is now spread over several frames and starts the frame after the change, instead of refreshing every cooldown icon in the frame the client is already busy with. Spells with their own event (a cast) are still checked immediately.
+- Cooldown data is read once per frame per spell and shared between the trigger, the swipe, the text and conditions (the cooldown APIs are slow on this client); the cache is invalidated by cooldown and wand events so a fresh cooldown shows immediately.
+- Spell name and icon lookups are cached and refreshed when spells change.
+- Talent data is cached instead of re-read from the trait tree on every query. This fixes the multi-second freeze when opening the Load tab of a large group.
+- Display updates that only changed a load state or a unit now batch their dynamic-group re-sorting instead of re-sorting once per child.
+- Aura data copies, condition templates and the loaded-events table are cached; duplicate client events in one frame (unit flags, usability, action bar updates) are handled once.
+- Modern (native) aura displays redraw less: containers are only enabled, shown or re-parented when that actually changes, and the appearance refresh only touches displays whose state changed.
+- Frame-anchored displays no longer re-parent, re-strata and re-level themselves on every update when nothing changed.
+- Fewer per-frame refreshes from global cooldown updates out of combat.
+
+Fixes
+- GCD and wand Shoot text no longer appears on cooldown icons while wanding; GCD-length timers are classified by total duration with a haste- and wand-speed-aware threshold.
+- A cooldown that starts during the global cooldown (Fire Blast after a cast) now updates immediately instead of after the GCD ends.
+- Cooldown-ready events no longer fire for spells that merely came off the global cooldown, which stopped false “ready” pulses in combat.
+- Login errors from an event registration that does not exist on this client.
+- Minimap button icon fits its border.
+
 ## 0.72.4
 - Fixed the Talent load option's picker piling icons together in rare situations: talents now sit on a tidy grid, separate trees side by side, with a dark background
 - Add Humanoid Form

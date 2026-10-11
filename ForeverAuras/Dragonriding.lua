@@ -6,6 +6,8 @@ local AddonName = ...
 ---@class Private
 local Private = select(2, ...)
 
+-- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
+local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("Dragonriding")
 local LibAdvFlight = LibStub("LibAdvFlight-1.1")
 local Events = LibAdvFlight.Events;
 
