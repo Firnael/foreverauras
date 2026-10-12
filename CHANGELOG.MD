@@ -1,5 +1,9 @@
 # Changelog
 ## Versions
+## 0.74.8
+- LibSerialize update
+- Default icon selection to "All Icons"
+
 ## 0.74.6
 - SetPoint LUA error fix
 - Re-fix broken spell cooldown from 0.74.4

@@ -227,7 +227,8 @@ ChatFrame_AddMessageEventFilter("CHAT_MSG_INSTANCE_CHAT_LEADER", filterFunc)
 local Compresser = LibStub:GetLibrary("LibCompress")
 local LibDeflate = LibStub:GetLibrary("LibDeflate")
 local Serializer = LibStub:GetLibrary("AceSerializer-3.0")
-local LibSerialize = LibStub("LibSerialize")
+-- The addon's own copy, whatever other addons registered (see Libs/LibSerialize).
+local LibSerialize = ForeverAurasLibSerialize or LibStub("LibSerialize")
 local Comm = LibStub:GetLibrary("AceComm-3.0")
 local Chomp = LibStub:GetLibrary("Chomp")
 -- the biggest bottleneck by far is in transmission and printing; so use maximal compression
