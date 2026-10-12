@@ -12,7 +12,8 @@ local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("
 local WeakAuras = WeakAuras
 local L = WeakAuras.L
 
-local LibSerialize = LibStub("LibSerialize")
+-- The addon's own copy, whatever other addons registered (see Libs/LibSerialize).
+local LibSerialize = ForeverAurasLibSerialize or LibStub("LibSerialize")
 local LibDeflate = LibStub:GetLibrary("LibDeflate")
 
 local UnitAura = UnitAura

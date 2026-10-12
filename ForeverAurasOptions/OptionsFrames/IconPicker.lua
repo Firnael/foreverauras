@@ -35,7 +35,9 @@ local function ConstructIconPicker(frame)
   scroll.frame:SetClipsChildren(true);
   group:AddChild(scroll);
 
-  local source = "spells"
+  -- Opens on All Icons: a search then covers spells, achievements, the
+  -- game's icons and the icon library at once, rather than spells alone.
+  local source = "all"
   local MAX_RESULTS = 500
   local MAX_FOLDER_RESULTS = 1000
 
