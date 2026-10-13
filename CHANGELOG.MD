@@ -1,6 +1,6 @@
 # Changelog
 ## VERSIONS
-## 0.83.3
+## 0.82.3
 - Fix Glow Elements OOC leading to Game Crashes
 
 ## 0.82.2
