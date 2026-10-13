@@ -15,6 +15,9 @@ local rootProperties = {
 local elementProperties = {
   subtext = {text_color = 'color', text_visible = 'bool', text_text = 'string', text_fontSize = 'number', text_anchorXOffset = 'number', text_anchorYOffset = 'number', text_alpha = 'number'},
   subglow = {glow = 'bool'},
+  -- The border the display draws on native buttons (SecretAuraAppearance);
+  -- its colour and visibility are plain texture writes.
+  subborder = {border_color = 'color', border_visible = 'bool'},
 }
 
 -- These checks are declarations consumed by Blizzard, never Lua state predicates.
@@ -39,24 +42,42 @@ local function UsesVariable(check, trigger, variable)
   return false
 end
 local nativeVariables = {faAuraPandemic = true, faAuraStealable = true, faAuraNotStealable = true,
-  faAuraDispel = true, faAuraType = true, faAuraPresent = true, faAuraApplications = true,
+  faAuraDispel = true, faAuraType = true, faAuraPresent = true, faAuraActive = true, faAuraApplications = true,
   -- The Missing look of Show On: Aura(s) Missing or Always. Unlike the others
   -- it styles our own static icon, never a live aura (Display.MissingDesaturated).
   faAuraMissing = true}
 for key in pairs(durationVariables) do nativeVariables[key] = true end
+-- Alpha is included: the Missing icon is the addon's own static sample, so
+-- fading it needs no aura state (Display.SetMissingVisible keeps the fade
+-- separate from the sample's own show/hide alpha).
+-- displayIcon swaps the sample's texture, e.g. to the spell to cast.
 Display.missingRootProperties = {
-  icon = {desaturate = true, color = true, zoom = true},
-  aurabar = {barColor = true, backgroundColor = true, icon_color = true, desaturate = true},
-  progresstexture = {foregroundColor = true, backgroundColor = true, desaturateForeground = true},
-  text = {color = true},
+  icon = {desaturate = true, color = true, zoom = true, alpha = true, displayIcon = true},
+  aurabar = {barColor = true, backgroundColor = true, icon_color = true, desaturate = true, alpha = true, displayIcon = true},
+  progresstexture = {foregroundColor = true, backgroundColor = true, desaturateForeground = true, alpha = true},
+  text = {color = true, alpha = true},
 }
+
+-- The static Missing sample's alpha is the product of its visibility (set by
+-- the Missing logic) and an "Aura Missing" alpha condition, so neither
+-- overwrites the other.
+function Display.SetMissingVisible(native, alpha)
+  native.visibleAlpha = alpha
+  native.button:SetAlpha(alpha * (native.conditionAlpha or 1))
+end
 local indicatorProperties = {faAuraHighlightColor = true, faAuraHighlightStyle = true, faAuraHighlightSize = true, faAuraHighlightTexture = true, faAuraHighlightPulse = true}
 function Display.IsNativeDurationCondition(check) return check and durationVariables[check.variable] ~= nil end
 function Display.NativeConditionKind(data, check)
   local entry = check and data.triggers and data.triggers[check.trigger]
   local trigger = type(entry) == "table" and entry.trigger
   -- Multi-selection trigger slots can be placeholders rather than trigger entries.
-  return type(trigger) == "table" and trigger.type == "secretAura" and nativeVariables[check.variable] and check.variable or nil
+  if type(trigger) ~= "table" or trigger.type ~= "secretAura" or not nativeVariables[check.variable] then return nil end
+  -- "Aura Active" is one check with a true/false value: true styles the live
+  -- aura (Present), false the look while it is missing (Missing).
+  if check.variable == "faAuraActive" then
+    return (check.value == 0 or check.value == false) and "faAuraMissing" or "faAuraPresent"
+  end
+  return check.variable
 end
 function Display.ContainsNativeCondition(data, check)
   if Display.NativeConditionKind(data, check) then return true end
@@ -151,15 +172,21 @@ function Display.NativeConditionAllowsProperty(data, check, property)
   end
   if kind == "faAuraApplications" then return TextProperty(data, property, "stack") ~= nil end
   -- only while the aura is missing (its clip hides it otherwise).
-  if kind == "faAuraMissing" then
+  -- Aura Active: the same static look either way. False paints the Missing
+  -- sample; True paints the live buttons when they are set up, the same way
+  -- the display's own settings do (Display.ApplyPresentConditions). Only the
+  -- icon swap is Missing-only: a live button's icon is bound to the aura.
+  if kind == "faAuraMissing" or kind == "faAuraPresent" then
     local allowed = Display.missingRootProperties[data.regionType]
     if not allowed then return false end
-    if indicatorProperties[property] or allowed[property] then return true end
+    if indicatorProperties[property] then return true end
+    if allowed[property] then return kind == "faAuraMissing" or property ~= "displayIcon" end
     local index, key = (property or ""):match("^sub%.(%d+)%.(.+)$")
     local element = index and data.subRegions and data.subRegions[tonumber(index)]
     if not element or Display.IsDetachedElement(data, element) then return false end
     return (element.type == "subglow" and key == "glow")
       or (element.type == "subtext" and (key == "text_visible" or key == "text_color"))
+      or (element.type == "subborder" and (key == "border_visible" or key == "border_color"))
   end
   if kind then return indicatorProperties[property] == true end
   return not indicatorProperties[property]
@@ -185,11 +212,20 @@ function Display.MigrateNativeConditions(data)
     for index, entry in ipairs(data.triggers or {}) do
       if type(entry) == "table" and entry.trigger and entry.trigger.type == "secretAura" then
         data.conditions = data.conditions or {}
-        table.insert(data.conditions, {check = {trigger = index, variable = "faAuraMissing"},
+        table.insert(data.conditions, {check = {trigger = index, variable = "faAuraActive", value = 0},
           changes = {{property = "desaturate", value = true}}})
         settings.missingDesaturate = nil
         break
       end
+    end
+  end
+  -- The former Aura Present / Aura Missing checks are the one Aura Active
+  -- check with a true / false value.
+  for _, condition in ipairs(data.conditions or {}) do
+    local check = condition.check
+    if check and (check.variable == "faAuraPresent" or check.variable == "faAuraMissing") then
+      check.value = check.variable == "faAuraPresent" and 1 or 0
+      check.variable = "faAuraActive"
     end
   end
   if settings.remainingTimeColorEnabled then
@@ -429,8 +465,7 @@ function Display.FilterConditionTemplates(data, templates)
         faAuraPandemic = {display = "In Pandemic Window", type = "alwaystrue"},
         faAuraStealable = {display = "Buff Is Stealable", type = "alwaystrue"},
         faAuraNotStealable = {display = "Buff Is Not Stealable", type = "alwaystrue"},
-        faAuraPresent = {display = "Aura Present", type = "alwaystrue"},
-        faAuraMissing = {display = "Aura Missing", type = "alwaystrue"},
+        faAuraActive = {display = "Aura Active", type = "bool"},
         faAuraType = {display = "Aura Type", type = "select", operator_types = "native_aura_dispel", values = {HELPFUL = "Buff", HARMFUL = "Debuff"}},
         faAuraDispel = {display = "Dispel Type", type = "select", operator_types = "native_aura_dispel",
           values = {Magic = "Magic", Curse = "Curse", Disease = "Disease", Poison = "Poison", Bleed = "Bleed", Enrage = "Enrage", None = "None"}},
@@ -490,15 +525,6 @@ function Display.ValidateConditions(data)
         and condition.check.op ~= "==" and condition.check.op ~= "~=" then
         return "Aura (Modern) type conditions support = and !=."
       end
-      if kind == "faAuraMissing" then
-        local showOn = Display.ShowOn(Display.GetTrigger(data))
-        if not Display.missingRootProperties[data.regionType] then
-          return "Aura Missing works on Icon, Bar, Progress Texture and Text displays."
-        end
-        if showOn ~= "showOnMissing" and showOn ~= "showAlways" then
-          return "Aura Missing needs the trigger's Show On set to Aura(s) Missing or Always."
-        end
-      end
       for _, change in ipairs(condition.changes or {}) do
         if kind == "faAuraRemaining" and IsGlowProperty(data, change.property)
           and (condition.check.op ~= "<" or change.value ~= true) then
@@ -522,7 +548,7 @@ function Display.ValidateConditions(data)
           end
         end
         if change.property and not Display.NativeConditionAllowsProperty(data, condition.check, change.property) then
-          return "Choose a supported property for this Aura (Modern) condition."
+          return "Incompatible condition."
         end
       end
     end
@@ -560,11 +586,12 @@ local function SetFontSize(text, size)
   text:SetFont(font, size, flags)
 end
 
-local function ApplyProperty(button, data, property, value, overrides)
+local function ApplyProperty(button, data, property, value, overrides, setup)
   -- Native aura children deny addon access while aura information is secret.
-  -- Sample icons (the preview and the static Missing icon) are the addon's own.
+  -- Sample icons (the preview and the static Missing icon) are the addon's own,
+  -- and a button being set up takes its look like any other set-up styling.
   if OwnsDurationColor(data, property) then return end
-  if not button.preview and (InCombatLockdown() or C_Secrets.ShouldAurasBeSecret()) then return end
+  if not setup and not button.preview and (InCombatLockdown() or C_Secrets.ShouldAurasBeSecret()) then return end
   local index, key = property:match('^sub%.(%d+)%.(.+)$')
   if index then
     index = tonumber(index)
@@ -586,6 +613,11 @@ local function ApplyProperty(button, data, property, value, overrides)
     elseif key == 'glow' then
       local frame = entry.elementFrames and entry.elementFrames.glow
       if frame then frame:SetAlpha(value and 1 or 0) end
+    -- A border hidden in the display's settings is never drawn, so only a
+    -- drawn border can be recoloured or hidden here.
+    elseif key == 'border_color' and entry.borderPieces then
+      for _, piece in pairs(entry.borderPieces) do piece:SetVertexColor(unpack(value)) end
+    elseif key == 'border_visible' and entry.border then entry.border:SetShown(value)
     end
   elseif property == 'color' then
     if data.regionType == 'text' then
@@ -597,6 +629,13 @@ local function ApplyProperty(button, data, property, value, overrides)
   elseif property == 'barColor' and button.bar then button.bar:SetStatusBarColor(unpack(value))
   elseif property == 'backgroundColor' and button.barBackground then button.barBackground:SetColorTexture(unpack(value))
   elseif property == 'desaturate' then button.icon:SetDesaturated(value)
+  elseif property == 'displayIcon' and button.icon then
+    -- Only reachable for the static Missing sample (Display.missingRootProperties).
+    button.icon:SetTexture(value)
+  elseif property == 'alpha' then
+    -- Only reachable for the static Missing sample (Display.missingRootProperties).
+    button.conditionAlpha = value
+    button.button:SetAlpha((button.visibleAlpha or 1) * value)
   elseif property == 'icon_color' then button.icon:SetVertexColor(unpack(value))
   elseif property == 'zoom' then
     -- Preserve the configured aspect ratio and texture offsets on condition edits.
@@ -613,10 +652,10 @@ end
 -- colour, desaturation, zoom, glows and texts. Called when it is styled and
 -- after other conditions changed the same properties. Highlights are drawn by
 -- StyleNativeConditionIndicators and shown by StyleMissingIcon.
-function Display.ApplyMissingConditions(native, data)
+local function ApplyKindConditions(native, data, wanted, setup)
   local values = {}
   for _, condition in ipairs(data.conditions or {}) do
-    if Display.NativeConditionKind(data, condition.check) == "faAuraMissing" then
+    if Display.NativeConditionKind(data, condition.check) == wanted then
       for _, change in ipairs(condition.changes or {}) do
         if change.property and not indicatorProperties[change.property] and change.value ~= nil
           and Display.NativeConditionAllowsProperty(data, condition.check, change.property) then
@@ -625,7 +664,19 @@ function Display.ApplyMissingConditions(native, data)
       end
     end
   end
-  for property, value in pairs(values) do ApplyProperty(native, data, property, value, values) end
+  for property, value in pairs(values) do ApplyProperty(native, data, property, value, values, setup) end
+end
+
+function Display.ApplyMissingConditions(native, data)
+  ApplyKindConditions(native, data, "faAuraMissing")
+end
+
+-- "Aura Active = True" conditions are part of the live buttons' set-up look:
+-- a button only exists while its aura is shown, so they are applied once when
+-- it is styled, never on the samples (the Missing look and the preview).
+function Display.ApplyPresentConditions(native, data)
+  if native.preview then return end
+  ApplyKindConditions(native, data, "faAuraPresent", true)
 end
 
 function Display.ApplyConditionAppearance(button, region, data)

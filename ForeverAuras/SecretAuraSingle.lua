@@ -264,6 +264,8 @@ end
 local GREEN, ORANGE, RED = "|cff33ff99", "|cffff9933", "|cffff2020"
 function Display.TriggerStatus(data, trigger)
   local problem = Display.Validate(data)
+  -- Condition problems are a short red line of their own; the trigger works.
+  if problem == "Incompatible condition." then return RED .. problem .. "|r" end
   if problem then return RED .. "Won't work:|r " .. problem end
   local severity, reason = Display.SpellIDFilterNote(trigger)
   -- Blizzard still plays Actions sounds for these spell IDs (AddAuraSound).
@@ -381,6 +383,9 @@ end
 -- Draws the display's idle look on the static sample in the Missing clip.
 function Display.StyleMissingIcon(native, data)
   if native.icon then native.icon:SetDesaturated(data.desaturate == true) end
+  -- A removed "Aura Missing" alpha condition restores the full sample.
+  native.conditionAlpha = nil
+  Display.SetMissingVisible(native, native.visibleAlpha or 1)
   -- Highlights describe a present aura, except those of Aura Missing conditions.
   for _, entry in ipairs(native.conditionPreview or {}) do entry.texture:SetShown(entry.kind == "faAuraMissing") end
   Display.ApplyMissingConditions(native, data)
@@ -627,7 +632,7 @@ local function ApplyMissingSource(region, missing, data, source)
   source = ResolveSource(region, data, source)
   if data.regionType == "icon" then ApplyIconSource(region, missing, data, source)
   else ApplyTimerSource(region, missing, data, source) end
-  missing.native.button:SetAlpha((not missing.foundMode or missing.following) and 1 or 0)
+  Display.SetMissingVisible(missing.native, (not missing.foundMode or missing.following) and 1 or 0)
 end
 
 function Display.UpdateMissingSource(region)
@@ -858,7 +863,7 @@ local function EnsureMissing(single, region, data, trigger, instance)
   if missing.following then ClearFollowBars(missing.native) end
   missing.following = nil
   missing.foundMode = single.foundMode == true
-  missing.native.button:SetAlpha(1)
+  Display.SetMissingVisible(missing.native, 1)
   local source = Display.MissingSource(data, trigger)
   if source or missing.foundMode then ApplyMissingSource(region, missing, data, source) end
 end

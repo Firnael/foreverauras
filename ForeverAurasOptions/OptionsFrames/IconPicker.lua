@@ -20,6 +20,21 @@ local L = WeakAuras.L
 
 local iconPicker
 
+-- The game icon list covers every client; names missing from this one would
+-- draw as green squares, so each is checked against the client's file manifest
+-- once and remembered.
+local gameIconExists = {}
+function OptionsPrivate.GameIconExists(name)
+  local known = gameIconExists[name]
+  if known ~= nil then return known end
+  local exists = true
+  if GetFileIDFromPath then
+    exists = GetFileIDFromPath("Interface\\Icons\\" .. name) ~= nil
+  end
+  gameIconExists[name] = exists
+  return exists
+end
+
 local spellCache = WeakAuras.spellCache
 
 local function ConstructIconPicker(frame)
@@ -91,7 +106,7 @@ local function ConstructIconPicker(frame)
       if not names then return end
       local altFilter = filter and filter:gsub(" ", "_")
       for name, fileID in names:gmatch("([^\n]+)=(%d+)") do
-        if not filter or name:find(filter, 1, true) or name:find(altFilter, 1, true) then
+        if (not filter or name:find(filter, 1, true) or name:find(altFilter, 1, true)) and OptionsPrivate.GameIconExists(name) then
           AddButton(name, tonumber(fileID))
           if num >= limit then return end
         end
@@ -144,11 +159,13 @@ local function ConstructIconPicker(frame)
     elseif source == "spells" then
       if filter then AddSpells(filter) end
     else
+      -- All Icons lists the game's own icons before the icon library, so a
+      -- search (or an unfiltered browse) starts with spell-style icons rather
+      -- than the library's emotes; the library folders stay reachable from the
+      -- source dropdown and after the game icons.
+      if filter then AddSpells(filter) end
+      AddGameIcons(filter)
       AddLibrary(filter)
-      if filter then
-        AddSpells(filter)
-        AddGameIcons(filter)
-      end
     end
   end
 
