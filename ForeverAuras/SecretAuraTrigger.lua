@@ -23,7 +23,31 @@ local function Drawable(data)
   return result
 end
 
+-- An Aura (Modern) trigger only draws when it is the display's Dynamic
+-- Information trigger (Display.GetSavedTrigger). Whenever the display is
+-- saved with such a trigger that is not selected, Dynamic Information is
+-- pointed at the first one, and a progress source naming another trigger goes
+-- back to Automatic, so adding the trigger is enough.
+local function SelectModernTrigger(data)
+  if not data or type(data.triggers) ~= "table" then return end
+  -- "First active trigger" would pick one at run time, which can be another
+  -- trigger whenever this one is not active; an explicit choice is needed.
+  local mode = tonumber(data.triggers.activeTriggerMode) or -1
+  local chosen = mode > 0 and data.triggers[mode]
+  chosen = type(chosen) == "table" and chosen.trigger
+  local source = data.progressSource and data.progressSource[1]
+  if chosen and chosen.type == "secretAura" and not (source and source > 0 and source ~= mode) then return end
+  local first
+  for index, entry in ipairs(data.triggers) do
+    if type(entry) == "table" and entry.trigger and entry.trigger.type == "secretAura" then first = index; break end
+  end
+  if not first then return end
+  data.triggers.activeTriggerMode = first
+  if source and source > 0 and source ~= first then data.progressSource = {-1, ""} end
+end
+
 function Trigger.Add(data)
+  SelectModernTrigger(data)
   Display.MigrateNativeConditions(data)
   Display.MigrateFallback(data)
   drawable[data] = nil

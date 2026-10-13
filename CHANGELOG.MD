@@ -1,5 +1,23 @@
 # Changelog
 ## Versions
+## 0.82.2
+### Aura (Modern) trigger
+Changed
+- **Dynamic Information set explicitly:** saving a display with an Aura (Modern) trigger now points Dynamic Information at that trigger’s number instead of trusting “first active trigger”, which resolved to another trigger whenever the aura trigger was not active and made the display ineligible (0.79.1).
+
+### Aura (Modern) conditions
+New
+- **Aura Active (true / false):** Aura Present and Aura Missing are one check, “Aura Active”, with a True or False value, like Legacy’s “Trigger active”. It is offered on every Show On. Saved Aura Present / Aura Missing conditions migrate to Aura Active = True / False with their changes intact (0.80.0).
+- **True styles the live aura:** Aura Active = True now offers the same look properties as False — Alpha, Color, Desaturate, Zoom, Border, Texts and the highlights — painted when the aura’s button is set up, in or out of combat. Icon stays False-only, since a live button’s icon is bound to the aura. Useful on Show On: Always to give the live aura and the missing icon different looks (0.81.0).
+
+Changed
+- **No clearing, no auto-changes:** conditions are never emptied and trigger settings are never changed to suit a condition. A check whose state is not drawn (for example Aura Active = False on Show On: Found without a fallback trigger) simply has nothing to paint (0.80.0).
+- **Aura Missing on Found with a fallback:** with “When Aura (Modern) Filters Are Not Met, Use” set, the display draws while the aura is missing, so an Aura Active = False condition styles that look (0.79.2).
+- **Status line:** the only remaining condition problem (a property an Aura (Modern) condition cannot apply, possible from imports only) shows as a red “Incompatible condition.” (0.79.2).
+
+### New trigger
+- **Spell → Spell in Range (Action Bar):** range of a spell that is on an action bar, against the current target, from the client’s own range-change event (`ACTION_RANGE_CHECK_UPDATE`); no per-frame polling and readable in combat. Enter the spell by name or ID (any rank on the bars counts unless Exact Spell ID is ticked); Show On: In Range, Out of Range or No Target. Spells inside macros are not seen. The existing Spell in Range and Range Check triggers are unchanged (0.82.0–0.82.2).
+
 ## 0.74.8
 - LibSerialize update
 - Default icon selection to "All Icons"

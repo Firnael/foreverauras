@@ -383,7 +383,10 @@ end
 
 function Display.Validate(data)
   if not Display.Eligible(data) then
-    return "Select an Aura (Modern) trigger as the progress source of an Icon, Progress Bar, Progress Texture or Text."
+    if Display.HasTrigger(data) and data.regionType ~= "icon" and data.regionType ~= "aurabar" and data.regionType ~= "text" and data.regionType ~= "progresstexture" then
+      return "Aura (Modern) works on Icon, Progress Bar, Progress Texture and Text displays."
+    end
+    return "Set Dynamic Information to this trigger."
   end
   if data.regionType == "progresstexture" and Private.ProgressTextureNative.IsCircular(data.orientation) and not Enum.StatusBarRenderMode then
     return "This client does not support native circular Progress Textures."
@@ -888,6 +891,7 @@ end
 
 local function Style(native, data, region)
   Display.StyleAppearance(native, Display.PrepareConditionAppearance(data), ElementFrame, StyleText, StyleGlow)
+  Display.ApplyPresentConditions(native, data)
   Display.ApplyConditionAppearance(native, region, data)
   if Display.StyleEraser then Display.StyleEraser(native, data) end
 end

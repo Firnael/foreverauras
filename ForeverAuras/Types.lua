@@ -3469,16 +3469,20 @@ Private.item_slot_types = {
   [15] = BACKSLOT,
   [16] = MAINHANDSLOT,
   [17] = SECONDARYHANDSLOT,
+  -- Forever keeps the Classic ranged slot (bows, guns, wands, relics); the
+  -- global string is absent on clients without that slot.
+  [18] = RANGEDSLOT or L["Ranged"],
   [19] = TABARDSLOT,
-  [20] = L["1. Professsion Tool"],
-  [21] = L["1. Profession 1. Accessory"],
-  [22] = L["1. Profession 2. Accessory"],
-  [23] = L["2. Professsion Tool"],
-  [24] = L["2. Profession 1. Accessory"],
-  [25] = L["2. Profession 2. Accessory"],
-  [26] = COOKINGTOOLSLOT,
-  [27] = COOKINGGEAR0SLOT,
-  [28] = FISHINGTOOLSLOT,
+  -- The retail profession, cooking and fishing slots (20-28) are not part of
+  -- the Forever client, whose equipped slots end at the tabard.
+}
+
+-- Spell in Range (Action Bar): range is against the current target only.
+---@type table<string, string>
+Private.action_range_types = {
+  inRange = "In Range",
+  outOfRange = "Out of Range",
+  noTarget = "No Target",
 }
 
 ---@type table<string, string>

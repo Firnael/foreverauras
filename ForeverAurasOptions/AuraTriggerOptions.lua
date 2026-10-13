@@ -185,7 +185,7 @@ function Editor.AddOptions(options, data, triggernum)
         trigger.secretShowOn = value ~= "showOnActive" and value or nil
         Save()
       end}
-    -- The Missing icon's look is set with an "Aura Missing" condition
+    -- The Missing icon's look is set with an "Aura Active = False" condition
     -- (SecretAuraConditions.lua); the former box here is migrated to one.
     -- As in Aura (Legacy): the trigger is inactive while its target, focus or
     -- pet does not exist (SecretAuraTrigger.lua), unless this is ticked.

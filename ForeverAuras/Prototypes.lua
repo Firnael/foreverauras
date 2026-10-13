@@ -6780,6 +6780,92 @@ if count == nil then return false end
     },
   },
 
+  -- Range from the action bars (ActionRange.lua): the client reports range
+  -- changes for the slots holding the spell, so this never polls.
+  ["Spell in Range (Action Bar)"] = {
+    type = "spell",
+    name = "Spell in Range (Action Bar)",
+    statesParameter = "one",
+    automaticrequired = true,
+    progressType = "none",
+    events = {events = {}},
+    internal_events = {"FA_ACTION_RANGE_UPDATE"},
+    force_events = "FA_ACTION_RANGE_UPDATE",
+    loadFunc = function(trigger)
+      Private.ExecEnv.WatchActionRange(trigger.spellName, trigger.use_exact_spellName)
+    end,
+    init = function(trigger)
+      local spell = trigger.spellName
+      local literal = tonumber(spell) or string.format("%q", tostring(spell or ""))
+      return ([[local inRange, checksRange, slot, name, icon = Private.ExecEnv.GetActionRange(%s, %s)
+if slot == nil then return false end
+local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "noTarget"
+]]):format(literal, tostring(trigger.use_exact_spellName == true))
+    end,
+    GetNameAndIcon = GetNameAndIconForSpellName,
+    args = {
+      {
+        name = "spellName",
+        required = true,
+        display = L["Spell"],
+        type = "spell",
+        test = "true",
+        showExactOption = true,
+        desc = "The spell must be on an action bar (any page). Without Exact Spell ID, any rank on the bars counts.",
+      },
+      {
+        name = "actionBarNote",
+        type = "description",
+        display = "",
+        text = function() return "Spell must be on the Action Bar. Cheaper than the Spell in Range trigger." end,
+      },
+      -- Range is only ever checked against the current target; Out of Range
+      -- means a target exists and is out of range, so no-target is neither.
+      {
+        name = "rangeState",
+        display = "Show On",
+        type = "select",
+        values = "action_range_types",
+        init = "rangeState",
+        store = true,
+        conditionType = "select",
+      },
+      {
+        name = "inRange",
+        display = "In Range",
+        init = "inRange == true",
+        hidden = true,
+        store = true,
+        test = "true",
+        conditionType = "bool",
+      },
+      {
+        name = "slot",
+        display = "Action Slot",
+        init = "slot",
+        hidden = true,
+        store = true,
+        test = "true",
+        conditionType = "number",
+      },
+      {
+        name = "name",
+        display = L["Name"],
+        init = "name",
+        hidden = true,
+        store = true,
+        test = "true"
+      },
+      {
+        name = "icon",
+        init = "icon",
+        hidden = true,
+        store = true,
+        test = "true"
+      },
+    },
+  },
+
   ["Item Count"] = {
     type = "item",
     events = {

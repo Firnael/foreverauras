@@ -90,17 +90,29 @@ local function StageVisibility()
   for _, key in ipairs({"Essential", "Utility", "BuffIcon", "BuffBar"}) do
     if not found[indices[key]] then error("Edit Mode has no settings for " .. key .. ".") end
   end
+  -- Every viewer also gets its tooltips turned off (Essential, Utility and
+  -- both Tracked Buffs displays): the class packs' own auras show what each
+  -- icon is, and consume auras follow this setting for their own tooltips.
+  -- Clients without the setting skip it.
+  local tooltipBars = settings.ShowTooltips and viewers or {}
   for _, system in ipairs(active.systems) do
     if system.system == Enum.EditModeSystem.CooldownViewer and viewers[system.systemIndex] then
-      local visible
+      local visible, tooltips
       for _, setting in ipairs(system.settings) do
         if setting.setting == settings.VisibleSetting then
           visible = setting
           if setting.value ~= always then setting.value = always; count = count + 1 end
+        elseif tooltipBars[system.systemIndex] and setting.setting == settings.ShowTooltips then
+          tooltips = setting
+          if setting.value ~= 0 then setting.value = 0; count = count + 1 end
         end
       end
       if not visible then
         system.settings[#system.settings + 1] = {setting = settings.VisibleSetting, value = always}
+        count = count + 1
+      end
+      if tooltipBars[system.systemIndex] and not tooltips then
+        system.settings[#system.settings + 1] = {setting = settings.ShowTooltips, value = 0}
         count = count + 1
       end
     end
@@ -168,7 +180,7 @@ local function ApplySetup()
   Private.db.cdmHideBlizzard = true
   if enable then C_CVar.SetCVar("cooldownViewerEnabled", "1") end
   Private.ApplyCDMBackground()
-  print("ForeverAuras: CDM setup saved. " .. count .. " buffs and " .. cooldownCount .. " spell cooldowns added. Reload to apply.")
+  print("ForeverAuras: CDM setup saved. " .. count .. " buffs and " .. cooldownCount .. " spell cooldowns added; viewers set to Always visible with tooltips off. Reload to apply.")
   StaticPopup_Show("FOREVERAURAS_CDM_SETUP_RELOAD")
   return true
 end
