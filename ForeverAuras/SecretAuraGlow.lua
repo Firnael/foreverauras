@@ -44,6 +44,56 @@ function Display.ClearElementGlow(entry)
   entry.keptGlow = glow
 end
 
+-- Textures, edge frames and animation groups cannot be destroyed, so a build
+-- that is replaced hands its pieces to per-element pools (one list per parent
+-- frame, since nothing is re-parented) and the next build takes from there.
+-- Without this every edit of a glow setting created a new set, and dragging a
+-- slider on a Pixel Glow piled up thousands of live animations.
+local function Recycle(entry, glow)
+  entry.freeTextures = entry.freeTextures or {}
+  entry.freeFrames = entry.freeFrames or {}
+  for _, texture in ipairs(glow.textures) do
+    local parent = texture:GetParent()
+    entry.freeTextures[parent] = entry.freeTextures[parent] or {}
+    table.insert(entry.freeTextures[parent], texture)
+  end
+  for _, frame in ipairs(glow.frames) do
+    local parent = frame:GetParent()
+    entry.freeFrames[parent] = entry.freeFrames[parent] or {}
+    table.insert(entry.freeFrames[parent], frame)
+  end
+end
+
+local function ResetTexture(texture, layer)
+  texture:Hide()
+  texture:ClearAllPoints()
+  texture:SetDrawLayer(layer or "OVERLAY")
+  texture:SetBlendMode("ADD")
+  texture:SetDesaturated(false)
+  texture:SetVertexColor(1, 1, 1, 1)
+  texture:SetRotation(0)
+  texture:SetTexCoord(0, 1, 0, 1)
+  texture:SetAlpha(1)
+  for _, group in pairs(texture.faGroups or {}) do group:Stop() end
+end
+
+-- A pooled animation group on texture of one shape: "flip" (one FlipBook),
+-- "move<n>" (n Translations) or "twinkle" (two Alphas). Its animations are
+-- reconfigured by the caller; a group of the wrong shape is never reused.
+local function GroupFor(glow, texture, shape, build)
+  texture.faGroups = texture.faGroups or {}
+  local group = texture.faGroups[shape]
+  if not group then
+    group = texture:CreateAnimationGroup()
+    group:SetLooping("REPEAT")
+    group.faAnimations = build(group)
+    texture.faGroups[shape] = group
+  end
+  group:Stop()
+  glow.groups[#glow.groups + 1] = group
+  return group
+end
+
 -- Everything a build depends on; an equal key means the kept build fits.
 local GLOW_KEYS = {"glowType", "glowLines", "glowFrequency", "glowLength", "glowThickness", "glowXOffset",
   "glowYOffset", "glowScale", "glowBorder", "glowDuration", "useGlowColor"}
@@ -57,17 +107,30 @@ local function GlowKey(button, parent, anchor, element, w, h)
 end
 
 local function NewTexture(glow, parent, layer)
-  local texture = parent:CreateTexture(nil, layer or "OVERLAY")
-  texture:SetBlendMode("ADD")
+  local free = glow.entry.freeTextures and glow.entry.freeTextures[parent]
+  local texture = free and table.remove(free)
+  if texture then
+    ResetTexture(texture, layer)
+  else
+    texture = parent:CreateTexture(nil, layer or "OVERLAY")
+    texture:SetBlendMode("ADD")
+  end
+  texture:Show()
   glow.textures[#glow.textures + 1] = texture
   return texture
 end
 
-local function NewGroup(glow, texture)
-  local group = texture:CreateAnimationGroup()
-  group:SetLooping("REPEAT")
-  glow.groups[#glow.groups + 1] = group
-  return group
+local function NewFrame(glow, parent)
+  local free = glow.entry.freeFrames and glow.entry.freeFrames[parent]
+  local frame = free and table.remove(free)
+  if frame then
+    frame:ClearAllPoints()
+  else
+    frame = CreateFrame("Frame", nil, parent)
+  end
+  frame:Show()
+  glow.frames[#glow.frames + 1] = frame
+  return frame
 end
 
 -- The glow colour when "Use Custom Color" is on; tinted artwork is desaturated
@@ -85,8 +148,8 @@ local function Tint(texture, element, fallback)
 end
 
 local function FlipBook(glow, texture, rows, columns, frames, duration, frameSize)
-  local group = NewGroup(glow, texture)
-  local flip = group:CreateAnimation("FlipBook")
+  local group = GroupFor(glow, texture, "flip", function(g) return {g:CreateAnimation("FlipBook")} end)
+  local flip = group.faAnimations[1]
   flip:SetDuration(duration)
   flip:SetFlipBookRows(rows)
   flip:SetFlipBookColumns(columns)
@@ -123,12 +186,16 @@ local function Perimeter(glow, texture, holder, w, h, duration, phase, reverse)
     end
   end
   table.sort(stops)
-  local group = NewGroup(glow, texture)
+  local group = GroupFor(glow, texture, "move" .. #stops, function(g)
+    local moves = {}
+    for index = 1, #stops do moves[index] = g:CreateAnimation("Translation") end
+    return moves
+  end)
   local previous, px, py = 0, x0, y0
   for order, distance in ipairs(stops) do
     local x, y = Point(start + (reverse and -distance or distance))
     if order == #stops then x, y = x0, y0 end
-    local move = group:CreateAnimation("Translation")
+    local move = group.faAnimations[order]
     move:SetOrder(order)
     move:SetDuration(duration * (distance - previous) / perimeter)
     move:SetOffset(x - px, y - py)
@@ -153,10 +220,11 @@ function Display.StyleElementGlow(entry, button, parent, anchor, element, w, h)
     for _, group in ipairs(kept.groups) do button:AddAuraShownAnimation(group) end
     return
   end
-  -- Changed settings: the old pieces stay hidden (AnimationGroups cannot be
-  -- emptied), so only edits create new ones.
+  -- Changed settings: the old pieces go to the pools (Recycle) and are
+  -- reused by this build where their parent frame matches.
+  if kept then Recycle(entry, kept) end
   entry.keptGlow = nil
-  local glow = {button = button, groups = {}, textures = {}, frames = {}, key = key}
+  local glow = {button = button, entry = entry, groups = {}, textures = {}, frames = {}, key = key}
   entry.nativeGlow = glow
   local xOffset = Number(element.glowXOffset, 0, -200, 200)
   local yOffset = Number(element.glowYOffset, 0, -200, 200)
@@ -214,8 +282,7 @@ function Display.StyleElementGlow(entry, button, parent, anchor, element, w, h)
       local side = math.max(thickness, length) / math.sqrt(2)
       local edges = {}
       for index, point in ipairs({"TOP", "BOTTOM", "LEFT", "RIGHT"}) do
-        local edge = CreateFrame("Frame", nil, holder)
-        glow.frames[#glow.frames + 1] = edge
+        local edge = NewFrame(glow, holder)
         edge:SetClipsChildren(true)
         edge:SetPoint(point, holder, point)
         if index <= 2 then edge:SetSize(gw, thickness) else edge:SetSize(thickness, gh) end
@@ -247,9 +314,9 @@ function Display.StyleElementGlow(entry, button, parent, anchor, element, w, h)
         Tint(texture, element)
         Perimeter(glow, texture, holder, gw, gh, duration, (sparkle - 1) / count, reverse)
         -- The shine's twinkle: fade in, then out, alongside one lap of movement.
-        local group = NewGroup(glow, texture)
+        local group = GroupFor(glow, texture, "twinkle", function(g) return {g:CreateAnimation("Alpha"), g:CreateAnimation("Alpha")} end)
         for half = 1, 2 do
-          local alpha = group:CreateAnimation("Alpha")
+          local alpha = group.faAnimations[half]
           alpha:SetOrder(1)
           alpha:SetStartDelay(half == 1 and 0 or duration / 2)
           alpha:SetDuration(duration / 2)
