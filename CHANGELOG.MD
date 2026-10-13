@@ -1,5 +1,8 @@
 # Changelog
-## Versions
+## VERSIONS
+## 0.82.3
+- Fix Glow Elements OOC leading to Game Crashes
+
 ## 0.82.2
 ### Aura (Modern) trigger
 Changed
