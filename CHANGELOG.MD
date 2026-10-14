@@ -1,5 +1,34 @@
 # Changelog
 ## VERSIONS
+## 0.84.9
+### Aura (Modern) conditions
+New
+- **All of / Any of with Aura Active:** an Aura Active check can now sit inside an All of or Any of group together with ordinary checks, once per condition (0.83.0). The ordinary part is evaluated by Lua and gates the Aura Active look: with All of, the look is painted only while the other checks pass; with Any of, the look is painted while they fail and the Lua result takes over while they pass. The Missing icon repaints at once; live aura buttons repaint when access allows, after combat. Nested groups, Else If and a second Aura Active in the same group remain unsupported, with a message in the condition.
+
+### Modern Aura Groups
+Fixed
+- **Glow on normal displays:** a Glow element on an Icon or Text display inside a Modern Aura Group is now drawn on the icon where the group shows it (0.84.1, 0.84.2). Such a display is shown by copies inside the row, and the glow was not among the copied pieces, so it played at the display’s parked position off screen. The glow is built in place from the element’s settings, follows Show Glow, conditions, setting changes and resizes, and is cleared when the display leaves the group. All four glow types.
+
+### Aura (Modern) glows
+Changed
+- **Glow colours match the regular Glow element:** Action Button Glow, Pixel Glow, Autocast Shine and Proc Glow on Aura (Modern) icons were drawn with additive blending, which washed the ants and border out to near white (0.84.3). They now use plain blending, as the Glow element does elsewhere.
+
+Fixed
+- **Remaining Time textures and icon colour**: Texture elements and the icon drawn during a Remaining Time window ignored their colour, kept their file extension (which the inline markup cannot load) and were layered above the icon regardless of element order (0.83.1). Colour is applied, the extension is stripped, and a texture placed below the icon in the element list stays below it.
+
+### Item triggers
+New
+- **Ammo trigger counts the equipped ammo:** with Item IDs left blank, the trigger reads the ammo slot and shows that item’s icon and name, counting the loaded stack plus every stack of the same ammo in your bags (0.84.0). A new “Count” setting offers “Equipped ammo” (default) and “All carried ammo” for the old total of every projectile carried; it is greyed out once Item IDs are set. The loaded stack is now included when IDs are listed too. Swapping ammo updates the display immediately.
+
+### Load conditions
+Fixed
+- **Talents with one point:** a multi-rank talent now counts as known from its first point (0.84.5). The check reads every rank field the client reports and uses the highest, where before a partly filled talent could read as not taken.
+
+### Interface
+Changed
+- **Minimap icon:** redrawn from the logo master for the size the minimap button actually uses: the FA letters on the logo’s blue disc, no gold ring, soft edge, 32 px texture so it filters cleanly instead of aliasing (0.84.9).
+- **Options portrait centred:** the logo in the classic-style options window sat two pixels low because Blizzard's portrait mask is inset at the bottom; the portrait texture is now laid out to match that mask (0.84.5)
+
 ## 0.82.3
 - Fix Glow Elements OOC leading to Game Crashes
 

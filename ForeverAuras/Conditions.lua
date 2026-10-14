@@ -309,6 +309,10 @@ function Private.ExecEnv.SetSecretAuraConditionProperty(region, property, ...)
   Private.BlizzardAuraDisplay.SetConditionProperty(region, property, ...)
 end
 
+function Private.ExecEnv.SetSecretAuraConditionGate(region, index, on)
+  Private.BlizzardAuraDisplay.SetConditionGate(region, index, on)
+end
+
 function Private.ExecEnv.GetConditionValue(state, variable)
   if not state then return nil end
   if state.progressType == "durationObject" and WeakAuras.IsDurationObject(state.durationObject) then
@@ -861,8 +865,43 @@ local function CreateTestForCondition(data, input, allConditionsTemplate, usedSt
   return check, recheckCode;
 end
 
+-- The ordinary part of an All of / Any of with one Aura Active check
+-- (BlizzardAuraDisplay.CombinationNative): the combination without that
+-- child, compiled as usual. Returns the test and the operator.
+local function CombinationWithoutNative(data, condition, allConditionsTemplate, usedStates)
+  local native, _, operator = Private.BlizzardAuraDisplay.CombinationNative(data, condition.check)
+  if not native then return end
+  local rest = CopyTable(condition.check)
+  rest.checks = {}
+  for _, child in ipairs(condition.check.checks or {}) do
+    if child ~= native then rest.checks[#rest.checks + 1] = CopyTable(child) end
+  end
+  if #rest.checks == 0 then return "true", operator, nil end
+  local test, recheckCode = CreateTestForCondition(data, rest, allConditionsTemplate, usedStates)
+  return test or "false", operator, recheckCode
+end
+
 local function CreateCheckCondition(data, ret, condition, conditionNumber, allConditionsTemplate, nextIsLinked, debug)
   local usedStates = {};
+  -- All of: the ordinary part gates the declared Aura Active look, and the
+  -- condition is never active in Lua. Any of: while the ordinary part is true
+  -- the condition is active like any other (its changes applied outright);
+  -- otherwise the declared look applies. The gate is set after the property
+  -- loop (ret.secretGates), so a withdrawn Any of restores its base values
+  -- before the declared look is painted again.
+  local gateTest, operator, gateRecheck = CombinationWithoutNative(data, condition, allConditionsTemplate, usedStates)
+  if gateTest then
+    ret.secretGates = ret.secretGates or {}
+    if operator == "AND" then
+      table.insert(ret.secretGates, "  Private.ExecEnv.SetSecretAuraConditionGate(region, " .. conditionNumber .. ", not hideRegion and (" .. gateTest .. ") and true or false)\n")
+      return gateRecheck
+    end
+    table.insert(ret, "      if (" .. gateTest .. ") then\n")
+    table.insert(ret, "        newActiveConditions[" .. conditionNumber .. "] = true;\n")
+    table.insert(ret, "      end\n")
+    table.insert(ret.secretGates, "  Private.ExecEnv.SetSecretAuraConditionGate(region, " .. conditionNumber .. ", not (not hideRegion and (" .. gateTest .. ")))\n")
+    return gateRecheck
+  end
   local check, recheckCode = CreateTestForCondition(data, condition.check, allConditionsTemplate, usedStates);
   if not check then
     check = "false"
@@ -1954,6 +1993,9 @@ local function ConstructConditionFunction(data)
       table.insert(ret, "  end\n")
     end
   end
+  -- Gates for All of / Any of with an Aura Active check (CreateCheckCondition).
+  for _, line in ipairs(ret.secretGates or {}) do table.insert(ret, line) end
+  ret.secretGates = nil
   table.insert(ret, "end\n")
 
   if #constants.lines > 0 then

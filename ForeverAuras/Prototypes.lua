@@ -743,9 +743,15 @@ do
                 local entryInfo = C_Traits.GetEntryInfo(configId, talentId)
                 if entryInfo and entryInfo.definitionID then
                   local definitionInfo = C_Traits.GetDefinitionInfo(entryInfo.definitionID)
-                  local rank = node.activeRank
+                  -- A talent counts as known from its first point. The client
+                  -- reports a node's points in several fields (ranksPurchased,
+                  -- currentRank, activeRank, activeEntry.rank), and on this
+                  -- client a partly filled multi-rank talent did not show up in
+                  -- the one that was read, so the highest of them is used.
+                  -- Blizzard's own talent frame reads ranksPurchased for "has points".
+                  local rank = math.max(node.ranksPurchased or 0, node.currentRank or 0, node.activeRank or 0)
                   if node.activeEntry then
-                    rank = node.activeEntry.entryID == talentId and node.activeEntry.rank or 0
+                    rank = node.activeEntry.entryID == talentId and math.max(rank, node.activeEntry.rank or 0) or 0
                   end
                   if node.subTreeID then
                     local subTreeInfo = C_Traits.GetSubTreeInfo(configId, node.subTreeID)
@@ -6705,9 +6711,9 @@ if free == nil then return false end
     force_events = "FA_AMMO_UPDATE",
     loadFunc = function() Private.ExecEnv.WatchAmmo() end,
     init = function(trigger)
-      return ([[local count, name, icon = Private.ExecEnv.GetAmmoCount(%q)
+      return ([[local count, name, icon = Private.ExecEnv.GetAmmoCount(%q, %q)
 if count == nil then return false end
-]]):format(trigger.ammoItemIDs or "")
+]]):format(trigger.ammoItemIDs or "", trigger.ammoMode or "equipped")
     end,
     args = {
       {
@@ -6718,8 +6724,21 @@ if count == nil then return false end
         test = "true",
         default = "",
         reloadOptions = true,
-        desc = "Leave blank to count all carried arrows and bullets. Enter comma-separated item IDs to count only those ammo items. Bank storage is excluded.",
+        desc = "Leave blank to count the equipped ammo (or all carried ammo, see Count). Enter comma-separated item IDs to count only those ammo items. Bank storage is excluded.",
         validate = function(_, value) return Private.ExecEnv.ValidateAmmoItemIDs(value) end,
+      },
+      -- With the IDs blank: the equipped ammo's icon and amount (what is
+      -- shot), or every kind carried under a generic icon.
+      {
+        name = "ammoMode",
+        display = "Count",
+        type = "select",
+        values = "ammo_mode_types",
+        required = true,
+        test = "true",
+        default = "equipped",
+        reloadOptions = true,
+        enable = function(trigger) return not trigger.ammoItemIDs or trigger.ammoItemIDs:match("^%s*$") ~= nil end,
       },
       {
         name = "count",

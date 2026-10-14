@@ -376,19 +376,20 @@ end
 
 -- Conditions from other triggers restore the display's own look; the Aura
 -- Missing conditions stay on top of them.
-function Display.KeepMissingDesaturated(native, data)
-  Display.ApplyMissingConditions(native, data)
+function Display.KeepMissingDesaturated(native, data, gates)
+  Display.ApplyMissingConditions(native, data, gates)
 end
 
 -- Draws the display's idle look on the static sample in the Missing clip.
-function Display.StyleMissingIcon(native, data)
+-- gates: the region's condition gates (SecretAuraConditions.lua).
+function Display.StyleMissingIcon(native, data, gates)
   if native.icon then native.icon:SetDesaturated(data.desaturate == true) end
   -- A removed "Aura Missing" alpha condition restores the full sample.
   native.conditionAlpha = nil
   Display.SetMissingVisible(native, native.visibleAlpha or 1)
   -- Highlights describe a present aura, except those of Aura Missing conditions.
   for _, entry in ipairs(native.conditionPreview or {}) do entry.texture:SetShown(entry.kind == "faAuraMissing") end
-  Display.ApplyMissingConditions(native, data)
+  Display.ApplyMissingConditions(native, data, gates)
   if native.cooldown then native.cooldown:Hide() end
   -- Dispel indicators describe the live aura's type, which an absent aura has not.
   for index, element in ipairs(data.subRegions or {}) do
@@ -409,7 +410,7 @@ local function StyleMissing(missing, region, data)
   local id = Display.GetSpellIDs(trigger, false)[1]
   local info = id and C_Spell.GetSpellInfo(id)
   Display.FillSampleBindings(native.button, Display.SingleIcon(data), info and info.name or "", data, false)
-  Display.StyleMissingIcon(native, data)
+  Display.StyleMissingIcon(native, data, region.secretAuraGates)
 end
 
 local function Warn(data, message)
@@ -633,6 +634,22 @@ local function ApplyMissingSource(region, missing, data, source)
   if data.regionType == "icon" then ApplyIconSource(region, missing, data, source)
   else ApplyTimerSource(region, missing, data, source) end
   Display.SetMissingVisible(missing.native, (not missing.foundMode or missing.following) and 1 or 0)
+end
+
+-- Paints the Missing samples again after a condition gate changed
+-- (Display.SetConditionGate); the samples are the addon's own frames.
+function Display.RestyleMissing(region)
+  local native = region.blizzardAuraDisplay
+  if not native or not native.active then return end
+  local data = native.data
+  for _, instance in ipairs(native.instances or {}) do
+    local missing = instance.single and instance.single.missing
+    if missing and missing.active and missing.native then
+      StyleMissing(missing, region, data)
+      local source = Display.MissingSource(data)
+      if source or missing.foundMode then ApplyMissingSource(region, missing, data, source) end
+    end
+  end
 end
 
 function Display.UpdateMissingSource(region)
@@ -900,11 +917,20 @@ end
 
 local function Units(value) return math.floor((tonumber(value) or 0) * TEXCOORD_UNITS + 0.5) end
 
--- Inline texture markup: path, height, width, offsets, texture size and crop.
--- The tint and opacity come from the duration text's colour curve.
-local function TextureMarkup(texture, width, height, left, right, top, bottom)
-  return ("|T%s:%d:%d:0:0:%d:%d:%d:%d:%d:%d|t"):format(tostring(texture), height, width,
-    TEXCOORD_UNITS, TEXCOORD_UNITS, Units(left), Units(right), Units(top), Units(bottom))
+-- Inline texture markup: path, height, width, offsets, texture size, crop and
+-- vertex colour. Opacity comes from the duration text's colour curve; its RGB
+-- never tints inline textures, so the colour is written into the markup.
+-- Markup wants the path without its extension, which SetTexture accepts.
+local function TextureMarkup(texture, width, height, left, right, top, bottom, color)
+  local path = tostring(texture):gsub("%.[tT][gG][aA]$", ""):gsub("%.[bB][lL][pP]$", "")
+  local r, g, b = 255, 255, 255
+  if type(color) == "table" then
+    r = math.floor(math.max(0, math.min(1, color[1] or 1)) * 255 + 0.5)
+    g = math.floor(math.max(0, math.min(1, color[2] or 1)) * 255 + 0.5)
+    b = math.floor(math.max(0, math.min(1, color[3] or 1)) * 255 + 0.5)
+  end
+  return ("|T%s:%d:%d:0:0:%d:%d:%d:%d:%d:%d:%d:%d:%d|t"):format(path, height, width,
+    TEXCOORD_UNITS, TEXCOORD_UNITS, Units(left), Units(right), Units(top), Units(bottom), r, g, b)
 end
 
 -- One aura slot on the list's own container. It picks the first matching aura
@@ -1021,7 +1047,7 @@ local function EnsureRemaining(single, instance, region, data, trigger, op, x)
   icon.button:ClearDurationText()
   -- A refused binding would leave the display empty: report it on the aura.
   local okIcon, iconErr = pcall(icon.button.SetDurationText, icon.button, icon.text, {
-    textFormat = {formatString = TextureMarkup(Display.SingleIcon(data), width, height, left, right, top, bottom), components = {}},
+    textFormat = {formatString = TextureMarkup(Display.SingleIcon(data), width, height, left, right, top, bottom, color), components = {}},
     textColor = {curve = RemainingCurve(op, x, color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1),
       property = Enum.DurationTextBindingProperty.RemainingDuration},
   })
@@ -1033,6 +1059,12 @@ local function EnsureRemaining(single, instance, region, data, trigger, op, x)
   instance.container:SetAuraSlotEnabled(SLOT_ICON, true)
   local level = icon.button:GetFrameLevel()
   if data.cooldown ~= false then StyleRemainingSwipe(single, instance, region, data, trigger, level) end
+  -- Elements listed before the Background draw below the icon, as they do on
+  -- an ordinary Icon; the rest draw above it in list order.
+  local backgroundIndex
+  for index, element in ipairs(data.subRegions or {}) do
+    if element.type == "subbackground" then backgroundIndex = index; break end
+  end
   for index, element in ipairs(data.subRegions or {}) do
     if element.type == "subtexture" and element.textureVisible ~= false and element.textureTexture
       and not Display.IsDetachedElement(data, element) then
@@ -1052,7 +1084,8 @@ local function EnsureRemaining(single, instance, region, data, trigger, op, x)
         slot.button:ClearAllPoints()
         slot.button:SetSize(w, h)
         slot.button:SetPoint(point, Display.ContentAnchor(region), relative, ox, oy)
-        pcall(slot.button.SetFrameLevel, slot.button, level + index)
+        local below = backgroundIndex and index < backgroundIndex
+        pcall(slot.button.SetFrameLevel, slot.button, below and math.max(0, level - 1) or level + index)
         slot.text = slot.text or slot.button:CreateFontString(nil, "ARTWORK")
         slot.text:SetWordWrap(false)
         slot.text:SetFont(STANDARD_TEXT_FONT, 12, "")
@@ -1061,7 +1094,7 @@ local function EnsureRemaining(single, instance, region, data, trigger, op, x)
         slot.button:ClearDurationText()
         local tint = element.textureColor or {1, 1, 1, 1}
         local ok = pcall(slot.button.SetDurationText, slot.button, slot.text, {
-          textFormat = {formatString = TextureMarkup(element.textureTexture, w, h, 0, 1, 0, 1), components = {}},
+          textFormat = {formatString = TextureMarkup(element.textureTexture, w, h, 0, 1, 0, 1, tint), components = {}},
           textColor = {curve = RemainingCurve(op, x, tint[1] or 1, tint[2] or 1, tint[3] or 1, (tint[4] or 1) * (element.texture_alpha or 1)),
             property = Enum.DurationTextBindingProperty.RemainingDuration},
         })

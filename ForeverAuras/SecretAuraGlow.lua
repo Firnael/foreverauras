@@ -68,7 +68,7 @@ local function ResetTexture(texture, layer)
   texture:Hide()
   texture:ClearAllPoints()
   texture:SetDrawLayer(layer or "OVERLAY")
-  texture:SetBlendMode("ADD")
+  texture:SetBlendMode("BLEND")
   texture:SetDesaturated(false)
   texture:SetVertexColor(1, 1, 1, 1)
   texture:SetRotation(0)
@@ -113,8 +113,10 @@ local function NewTexture(glow, parent, layer)
     ResetTexture(texture, layer)
   else
     texture = parent:CreateTexture(nil, layer or "OVERLAY")
-    texture:SetBlendMode("ADD")
   end
+  -- Plain blending, as the Glow element's library draws these same textures;
+  -- additive blending washed the ants and border out to near white.
+  texture:SetBlendMode("BLEND")
   texture:Show()
   glow.textures[#glow.textures + 1] = texture
   return texture
@@ -289,7 +291,6 @@ function Display.StyleElementGlow(entry, button, parent, anchor, element, w, h)
         edges[index] = edge
         if element.glowBorder then
           local border = NewTexture(glow, edge, "BACKGROUND")
-          border:SetBlendMode("BLEND")
           border:SetAllPoints(edge)
           border:SetColorTexture(0.1, 0.1, 0.1, 0.8)
         end
