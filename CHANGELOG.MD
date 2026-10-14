@@ -27,7 +27,7 @@ Fixed
 ### Interface
 Changed
 - **Minimap icon:** redrawn from the logo master for the size the minimap button actually uses: the FA letters on the logo’s blue disc, no gold ring, soft edge, 32 px texture so it filters cleanly instead of aliasing (0.84.9).
-- **Options portrait centred:** the logo in the classic-style options window sat two pixels low because Blizzard's portrait mask is inset at the bottom; the portrait texture is now laid out to match that mask (0.84.5)
+- **Options portrait centered:** the logo in the classic-style options window sat two pixels low because Blizzard's portrait mask is inset at the bottom; the portrait texture is now laid out to match that mask (0.84.5)
 
 ## 0.82.3
 - Fix Glow Elements OOC leading to Game Crashes
