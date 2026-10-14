@@ -140,6 +140,8 @@ function Private.ExecEnv.WatchAmmo()
   ammoFrame:RegisterEvent("BAG_UPDATE_DELAYED")
   ammoFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
   ammoFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+  -- The ammo slot (equipping other ammo, or the last stack running out).
+  ammoFrame:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
   ammoFrame:SetScript("OnEvent", function(_, event, itemID)
     if event == "GET_ITEM_INFO_RECEIVED" and not requestedAmmoInfo[itemID] then return end
     if event ~= "GET_ITEM_INFO_RECEIVED" then wipe(requestedAmmoInfo) end
@@ -179,13 +181,40 @@ local function ReadCarriedAmmo()
   return snapshot
 end
 
-function Private.ExecEnv.GetAmmoCount(input)
+-- The equipped ammo (slot 0) and how many of it are loaded, nil without any.
+local function EquippedAmmo()
+  local slot = INVSLOT_AMMO or 0
+  local itemID = GetInventoryItemID("player", slot)
+  if not itemID or issecretvalue(itemID) then return end
+  local loaded = GetInventoryItemCount("player", slot)
+  if issecretvalue(loaded) or type(loaded) ~= "number" then loaded = 0 end
+  return itemID, loaded
+end
+
+-- mode, with the Item IDs field blank: "equipped" counts the equipped ammo
+-- (loaded stack plus the bags) and shows its icon; "all" counts every kind
+-- carried. Explicit IDs count those items.
+function Private.ExecEnv.GetAmmoCount(input, mode)
   local selected = ParseAmmoItemIDs(input)
   if not selected then return end
   if not ammoSnapshot then ammoSnapshot = ReadCarriedAmmo() end
   if not ammoSnapshot then return end
   local all = next(selected) == nil
+  local equippedID, loaded = EquippedAmmo()
+  if all and mode ~= "all" and equippedID then
+    local count = (ammoSnapshot.counts[equippedID] or 0) + loaded
+    local name, icon = "Ammo", 132382
+    local itemName, itemIcon = C_Item.GetItemNameByID(equippedID), C_Item.GetItemIconByID(equippedID)
+    if not issecretvalue(itemName) and itemName then name = itemName end
+    if not issecretvalue(itemIcon) and itemIcon then icon = itemIcon end
+    return count, name, icon
+  end
   local count, itemID, kinds = 0, nil, 0
+  -- The loaded stack counts with the bags.
+  if equippedID and (all or selected[equippedID]) then
+    count = loaded
+    if not ammoSnapshot.counts[equippedID] then itemID = equippedID; kinds = kinds + 1 end
+  end
   for id, quantity in pairs(ammoSnapshot.counts) do
     if all or selected[id] then
       count = count + quantity

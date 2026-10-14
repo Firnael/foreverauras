@@ -11,7 +11,8 @@ local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAur
 local Display = Private.BlizzardAuraDisplay
 
 local standTypes = {icon = true, text = true}
-local mirrorTypes = {subtext = true, subborder = true}
+-- Glow elements are mirrored by building the glow on the copy (MirrorGlow).
+local mirrorTypes = {subtext = true, subborder = true, subglow = true}
 
 local FRAME = {"ClearAllPoints", "SetPoint", "SetAllPoints", "SetSize", "SetWidth", "SetHeight", "Show", "Hide", "SetShown", "SetAlpha"}
 local TEXTURE = {"ClearAllPoints", "SetPoint", "SetAllPoints", "Show", "Hide", "SetShown", "SetAlpha", "SetTexture", "SetAtlas",
@@ -166,6 +167,25 @@ local function CopyCooldown(stand, source, copy, data)
   end
 end
 
+-- A Glow element's glow on its copy. The glow library re-parents pooled
+-- frames, which the chain frame refuses (UntrustedLayoutScriptExecution), so
+-- the glow is built in place from the element's settings by SecretAuraGlow.lua,
+-- as on Aura (Modern) icons; the copy itself plays the animations.
+local player = {
+  AddAuraShownAnimation = function(_, animation) animation:Play() end,
+  RemoveAuraShownAnimation = function(_, animation) animation:Stop() end,
+}
+local function MirrorGlow(copy)
+  local sub = copy.faGlowSource
+  copy.faGlowEntry = copy.faGlowEntry or {}
+  local width, height = copy:GetSize()
+  if not sub or not sub.glow or not (width and width >= 1 and height and height >= 1) then
+    Display.ClearElementGlow(copy.faGlowEntry)
+    return
+  end
+  Display.StyleElementGlow(copy.faGlowEntry, player, copy, copy, sub, width, height)
+end
+
 local function Link(stand, source, copy, methods, owner)
   stand.copies[source] = copy
   stand.sources[#stand.sources + 1] = source
@@ -200,6 +220,8 @@ local function Unlink(stand)
   for _, source in ipairs(kept) do stand.sources[#stand.sources + 1] = source end
   for _, copy in pairs(stand.pool) do
     if not (keep and copy.faSecure) then copy:Hide() end
+    -- A released glow copy stops glowing.
+    if copy.faGlowSource then copy.faGlowSource = nil; MirrorGlow(copy) end
   end
 end
 
@@ -288,6 +310,27 @@ function Display.EnsureStand(region, normal)
         for _, method in ipairs(BORDER) do methods[#methods + 1] = method end
       end
       Link(stand, sub, copy, methods, sub)
+      -- The glow is started and stopped by SetVisible, a plain function on the
+      -- element, so it is hooked once; the copy restarts its glow when resized
+      -- (the lines of a Pixel Glow are laid out for a size).
+      if sub.type == "subglow" then
+        copy.faGlowSource = sub
+        if not sub.faStandGlowHooked then
+          sub.faStandGlowHooked = true
+          hooksecurefunc(sub, "SetVisible", function(self)
+            local link = self.faStand
+            local glowCopy = link and link.stand.active and link.stand.copies[self]
+            if glowCopy and glowCopy.faGlowSource == self then MirrorGlow(glowCopy) end
+          end)
+        end
+        if not copy.faGlowSizeHooked then
+          copy.faGlowSizeHooked = true
+          copy:SetScript("OnSizeChanged", function(self)
+            local source = self.faGlowSource
+            if source and source.faStand and source.faStand.stand.copies[source] == self then MirrorGlow(self) end
+          end)
+        end
+      end
       if sub.text then
         local text = Pooled(stand, "subtextText" .. index, function() return copy:CreateFontString(nil, "OVERLAY") end)
         Link(stand, sub.text, text, FONT, sub)
@@ -326,6 +369,11 @@ function Display.EnsureStand(region, normal)
     end
   end
   if region.cooldown then CopyCooldown(stand, region.cooldown, stand.copies[region.cooldown], normal.data) end
+  -- Glows are replayed once the copies are placed and sized.
+  for _, source in ipairs(stand.sources) do
+    local copy = stand.copies[source]
+    if copy and copy.faGlowSource == source then MirrorGlow(copy) end
+  end
 end
 
 local pending = {}

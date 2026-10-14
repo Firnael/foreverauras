@@ -891,7 +891,7 @@ end
 
 local function Style(native, data, region)
   Display.StyleAppearance(native, Display.PrepareConditionAppearance(data), ElementFrame, StyleText, StyleGlow)
-  Display.ApplyPresentConditions(native, data)
+  Display.ApplyPresentConditions(native, data, region and region.secretAuraGates)
   Display.ApplyConditionAppearance(native, region, data)
   if Display.StyleEraser then Display.StyleEraser(native, data) end
 end

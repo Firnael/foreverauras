@@ -86,6 +86,36 @@ function Display.ContainsNativeCondition(data, check)
   end
   return false
 end
+
+-- An All of / Any of whose direct children are one "Aura Active" check and
+-- otherwise ordinary checks. The ordinary part is evaluated by the addon and
+-- gates the Aura Active look (All of) or applies the changes outright (Any
+-- of, while true), since the aura state itself is never known to Lua.
+-- Returns the Aura Active child, its kind and the operator, or nil.
+function Display.CombinationNative(data, check)
+  if not check or (check.variable ~= "AND" and check.variable ~= "OR") then return nil end
+  local native, kind
+  for _, child in ipairs(check.checks or {}) do
+    local childKind = Display.NativeConditionKind(data, child)
+    if childKind then
+      if native or (childKind ~= "faAuraPresent" and childKind ~= "faAuraMissing") then return nil end
+      native, kind = child, childKind
+    elseif Display.ContainsNativeCondition(data, child) then
+      return nil
+    end
+  end
+  if not native then return nil end
+  return native, kind, check.variable
+end
+
+-- The declared kind of a condition: its own check, or the Aura Active child
+-- of a supported combination.
+function Display.ConditionKind(data, condition)
+  local kind = Display.NativeConditionKind(data, condition.check)
+  if kind then return kind end
+  local _, combinationKind = Display.CombinationNative(data, condition.check)
+  return combinationKind
+end
 function Display.SupportsDurationColorCondition()
   return C_CurveUtil and C_CurveUtil.CreateColorCurve and CreateColor
     and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Step ~= nil
@@ -161,6 +191,15 @@ function Display.ResetPandemicGlows(native)
 end
 
 function Display.NativeConditionAllowsProperty(data, check, property)
+  local native, _, operator = Display.CombinationNative(data, check)
+  if native then
+    -- Highlights live in game-shown frames the addon cannot gate; Any of
+    -- applies changes outright while its ordinary part is true, which the
+    -- icon swap (bound to the live aura) cannot follow.
+    if indicatorProperties[property] then return false end
+    if operator == "OR" and property == "displayIcon" then return false end
+    return Display.NativeConditionAllowsProperty(data, native, property)
+  end
   local kind = Display.NativeConditionKind(data, check)
   if kind == "faAuraRemaining" and IsGlowProperty(data, property) then return true end
   -- Blizzard shows and hides a frame for the pandemic window, so a Glow can
@@ -195,7 +234,7 @@ end
 -- while the aura is missing.
 function Display.MissingDesaturated(data)
   for _, condition in ipairs(data.conditions or {}) do
-    if Display.NativeConditionKind(data, condition.check) == "faAuraMissing" then
+    if Display.ConditionKind(data, condition) == "faAuraMissing" then
       for _, change in ipairs(condition.changes or {}) do
         if change.property == "desaturate" and change.value == true then return true end
       end
@@ -515,8 +554,14 @@ function Display.ValidateConditions(data)
   for index, condition in ipairs(data.conditions or {}) do
     if Display.ContainsNativeCondition(data, condition.check) then
       local kind = Display.NativeConditionKind(data, condition.check)
-      if not kind or condition.linked or (data.conditions[index + 1] and data.conditions[index + 1].linked) then
-        return "Aura (Modern) conditions cannot use AND, OR, or Else If."
+      local combination = not kind and Display.CombinationNative(data, condition.check)
+      if combination then
+        kind = select(2, Display.CombinationNative(data, condition.check))
+      elseif not kind then
+        return "Only Aura Active can be combined with All of / Any of, once, with ordinary checks."
+      end
+      if condition.linked or (data.conditions[index + 1] and data.conditions[index + 1].linked) then
+        return "Aura (Modern) conditions cannot use Else If."
       end
       if durationVariables[kind] and condition.check.op and condition.check.op ~= "<" and condition.check.op ~= ">=" then
         return "Aura (Modern) time conditions support < and >=."
@@ -652,10 +697,12 @@ end
 -- colour, desaturation, zoom, glows and texts. Called when it is styled and
 -- after other conditions changed the same properties. Highlights are drawn by
 -- StyleNativeConditionIndicators and shown by StyleMissingIcon.
-local function ApplyKindConditions(native, data, wanted, setup)
+-- gates: region.secretAuraGates, condition index -> false while the ordinary
+-- part of that condition's All of is false (Display.SetConditionGate).
+local function ApplyKindConditions(native, data, wanted, setup, gates)
   local values = {}
-  for _, condition in ipairs(data.conditions or {}) do
-    if Display.NativeConditionKind(data, condition.check) == wanted then
+  for index, condition in ipairs(data.conditions or {}) do
+    if Display.ConditionKind(data, condition) == wanted and not (gates and gates[index] == false) then
       for _, change in ipairs(condition.changes or {}) do
         if change.property and not indicatorProperties[change.property] and change.value ~= nil
           and Display.NativeConditionAllowsProperty(data, condition.check, change.property) then
@@ -667,16 +714,45 @@ local function ApplyKindConditions(native, data, wanted, setup)
   for property, value in pairs(values) do ApplyProperty(native, data, property, value, values, setup) end
 end
 
-function Display.ApplyMissingConditions(native, data)
-  ApplyKindConditions(native, data, "faAuraMissing")
+function Display.ApplyMissingConditions(native, data, gates)
+  ApplyKindConditions(native, data, "faAuraMissing", nil, gates)
 end
 
 -- "Aura Active = True" conditions are part of the live buttons' set-up look:
 -- a button only exists while its aura is shown, so they are applied once when
 -- it is styled, never on the samples (the Missing look and the preview).
-function Display.ApplyPresentConditions(native, data)
+function Display.ApplyPresentConditions(native, data, gates)
   if native.preview then return end
-  ApplyKindConditions(native, data, "faAuraPresent", true)
+  ApplyKindConditions(native, data, "faAuraPresent", true, gates)
+end
+
+-- The ordinary part of an All of / Any of with an Aura Active check changed:
+-- the looks that depend on it are painted again. The Missing sample is the
+-- addon's own and repaints at once; live buttons repaint when access allows
+-- (RefreshConditionAppearance after combat).
+function Display.SetConditionGate(region, index, on)
+  region.secretAuraGates = region.secretAuraGates or {}
+  if region.secretAuraGates[index] == on then return end
+  region.secretAuraGates[index] = on
+  local native = region.blizzardAuraDisplay
+  if not native or not native.active then return end
+  if Display.RestyleMissing then Display.RestyleMissing(region) end
+  if InCombatLockdown() or C_Secrets.ShouldAurasBeSecret() then
+    region.secretAuraPresentDirty = true
+  else
+    Display.RestyleButtons(region)
+  end
+end
+
+function Display.RestyleButtons(region)
+  local native = region.blizzardAuraDisplay
+  if not native or not native.active then return end
+  region.secretAuraPresentDirty = nil
+  for _, instance in ipairs(native.instances) do
+    for _, button in ipairs(instance.buttons) do
+      Display.StyleNative(button, native.data, region)
+    end
+  end
 end
 
 function Display.ApplyConditionAppearance(button, region, data)
@@ -709,7 +785,7 @@ function Display.SetConditionProperty(region, property, ...)
     local missing = instance.single and instance.single.missing
     if missing and missing.native then
       ApplyProperty(missing.native, native.data, property, value, region.secretAuraConditionValues)
-      Display.KeepMissingDesaturated(missing.native, native.data)
+      Display.KeepMissingDesaturated(missing.native, native.data, region.secretAuraGates)
     end
   end
 end
@@ -720,8 +796,10 @@ end
 -- property applied re-lays out text or textures on all of the display's buttons.
 function Display.RefreshConditionAppearance(region)
   local native = region.blizzardAuraDisplay
-  if not native or not native.active or not region.secretAuraConditionValues then return end
-  if not region.secretAuraConditionDirty then return end
+  if not native or not native.active then return end
+  -- A gate that changed while access was denied: the buttons' set-up look.
+  if region.secretAuraPresentDirty then Display.RestyleButtons(region) end
+  if not region.secretAuraConditionValues or not region.secretAuraConditionDirty then return end
   region.secretAuraConditionDirty = nil
   for _, instance in ipairs(native.instances) do
     for _, button in ipairs(instance.buttons) do
@@ -731,7 +809,7 @@ function Display.RefreshConditionAppearance(region)
     local missing = instance.single and instance.single.missing
     if missing and missing.native then
       Display.ApplyConditionAppearance(missing.native, region, native.data)
-      Display.KeepMissingDesaturated(missing.native, native.data)
+      Display.KeepMissingDesaturated(missing.native, native.data, region.secretAuraGates)
     end
   end
 end

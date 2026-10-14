@@ -2048,10 +2048,15 @@ local function addControlsForIfLine(args, order, data, conditionVariable, totalA
   end
 
   if indentDepth > 0 then
+    -- Aura (Modern) checks are declared to the game, not evaluated, so they
+    -- cannot be combined; the exception is one Aura Active directly inside an
+    -- All of / Any of (BlizzardAuraDisplay.CombinationNative).
     valuesForIf = CopyTable(valuesForIf)
     for index in pairs(valuesForIf) do
+      local variable = conditionTemplatesToUse.indexToVariable[index]
       if OptionsPrivate.Private.BlizzardAuraDisplay.NativeConditionKind(data, {
-          trigger = conditionTemplatesToUse.indexToTrigger[index], variable = conditionTemplatesToUse.indexToVariable[index]}) then
+          trigger = conditionTemplatesToUse.indexToTrigger[index], variable = variable})
+        and not (indentDepth == 1 and variable == "faAuraActive") then
         valuesForIf[index] = nil
       end
     end
@@ -2156,13 +2161,17 @@ local function addControlsForIfLine(args, order, data, conditionVariable, totalA
         end
         check.variable = variable;
         check.trigger = trigger;
-        if indentDepth == 0 then
+        do
+          -- Properties the (possibly combined) check cannot apply are dropped.
           local display = OptionsPrivate.Private.BlizzardAuraDisplay
           for _, change in ipairs(conditions[i].changes or {}) do
-            if change.property and not display.NativeConditionAllowsProperty(data, check, change.property) then
+            if change.property and not display.NativeConditionAllowsProperty(data, conditions[i].check, change.property) then
               change.property, change.value = nil, nil
             end
           end
+        end
+        if indentDepth == 0 then
+          local display = OptionsPrivate.Private.BlizzardAuraDisplay
           if display.NativeConditionKind(data, check) then
             conditions[i].linked = false
             if conditions[i + 1] then conditions[i + 1].linked = false end
