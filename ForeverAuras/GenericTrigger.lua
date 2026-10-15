@@ -4424,29 +4424,22 @@ end
 
 -- Weapon Enchants
 do
-  local isCata = false
-
+  -- One record per hand and enchant kind: "imbue" (Firestone, the mage imbue
+  -- scrolls), "temporary" (oils, stones, poisons) and "any", which is the
+  -- imbue when both are present, else whichever is there. Forever lets one
+  -- weapon carry an imbue and an oil at once, so each kind is tracked on its own.
   local mh = GetInventorySlotInfo("MainHandSlot")
   local oh = GetInventorySlotInfo("SecondaryHandSlot")
-
-  local mh_name, mh_shortenedName, mh_exp, mh_dur, mh_charges, mh_EnchantID;
-  ---@type string?
-  local mh_icon = GetInventoryItemTexture("player", mh) or "Interface\\Icons\\INV_Misc_QuestionMark"
-
-  local oh_name, oh_shortenedName, oh_exp, oh_dur, oh_charges, oh_EnchantID;
-  ---@type string?
-  local oh_icon = GetInventoryItemTexture("player", oh) or "Interface\\Icons\\INV_Misc_QuestionMark"
-
-  local rw, rw_icon, rw_exp, rw_dur, rw_name, rw_shortenedName, rw_charges, rw_EnchantID;
-  ---@type string?
-  if isCata then
-    rw = GetInventorySlotInfo("RANGEDSLOT")
-    rw_icon = GetInventoryItemTexture("player", rw) or "Interface\\Icons\\INV_Misc_QuestionMark"
-  end
+  local slots = {main = mh, off = oh}
+  local hands = {main = {}, off = {}}
+  local weaponIcons = {}
 
   local tenchFrame = nil
   Private.frames["Temporary Enchant Handler"] = tenchFrame;
-  local tenchTip;
+
+  local function WeaponIcon(hand)
+    return weaponIcons[hand] or GetInventoryItemTexture("player", slots[hand]) or "Interface\\Icons\\INV_Misc_QuestionMark"
+  end
 
   ---@private
   function WeakAuras.TenchInit()
@@ -4459,26 +4452,47 @@ do
       tenchFrame:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
       -- Swapping a weapon must invalidate enchant art and timing together.
       tenchFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-      
-      local getTenchName
-      do
-        getTenchName = function(id)
-          local tooltipData = C_TooltipInfo.GetInventoryItem("player", id)
-          if tooltipData and tooltipData.lines then
-            for _, line in ipairs(tooltipData.lines) do
-              if line.leftText and not issecretvalue(line.leftText) then
-                -- Format based on ITEM_ENCHANT_TIME_LEFT_MIN, ITEM_ENCHANT_TIME_LEFT_SEC
-                local _, _, name, shortenedName = line.leftText:find("^((.-) ?+?[VI%d]*) ?%(%d+%D.+%)$");
-                if(name and name ~= "") then
-                  return name, shortenedName;
-                end
-                _, _, name, shortenedName = line.leftText:find("^((.-) ?+?[VI%d]*)%（%d+%D.+%）$");
-                if(name and name ~= "") then
-                  return name, shortenedName;
-                end
+
+      -- Every enchant line of the weapon's tooltip: name, name without rank,
+      -- and the time it shows, so a line can be paired with the API entry
+      -- whose remaining time it matches (a weapon may list two).
+      local unitSeconds = {s = 1, m = 60, h = 3600, d = 86400}
+      local function TenchLines(id)
+        local lines = {}
+        local tooltipData = C_TooltipInfo.GetInventoryItem("player", id)
+        if tooltipData and tooltipData.lines then
+          for _, line in ipairs(tooltipData.lines) do
+            if line.leftText and not issecretvalue(line.leftText) then
+              -- Format based on ITEM_ENCHANT_TIME_LEFT_MIN, ITEM_ENCHANT_TIME_LEFT_SEC
+              local _, _, name, shortenedName, time = line.leftText:find("^((.-) ?+?[VI%d]*) ?%((%d+%D.+)%)$");
+              if not (name and name ~= "") then
+                _, _, name, shortenedName, time = line.leftText:find("^((.-) ?+?[VI%d]*)%（(%d+%D.+)%）$");
+              end
+              if name and name ~= "" then
+                -- The rank pattern leaves a trailing space on unranked names.
+                name = name:gsub("%s+$", "")
+                local amount, unit = time:match("^(%d+)%s*(%a)")
+                local seconds = amount and unitSeconds[(unit or ""):lower()] and tonumber(amount) * unitSeconds[unit:lower()]
+                lines[#lines + 1] = {name = name, shortenedName = shortenedName, seconds = seconds}
               end
             end
           end
+        end
+        return lines
+      end
+
+      -- The tooltip line closest in time to the entry; with one line, that line.
+      local function NameFor(lines, used, remaining)
+        local best, bestDistance
+        for index, line in ipairs(lines) do
+          if not used[index] then
+            local distance = (line.seconds and remaining) and math.abs(line.seconds - remaining / 1000) or math.huge
+            if not best or distance < bestDistance then best, bestDistance = index, distance end
+          end
+        end
+        if best then
+          used[best] = true
+          return lines[best].name, lines[best].shortenedName
         end
       end
 
@@ -4500,57 +4514,52 @@ do
       local function tenchUpdate()
         if expiryTimer then expiryTimer:Cancel(); expiryTimer = nil end
         Private.StartProfileSystem("generictrigger temporary enchant");
-        local _, mh_rem, oh_rem, rw_rem
-        local oldMHEnchantID, oldOHEnchantID = mh_EnchantID, oh_EnchantID
-        local values = {Private.ExecEnv.GetTemporaryWeaponEnchants()}
+        local entries = Private.ExecEnv.GetWeaponEnchantEntries()
         -- Do not perform arithmetic or overwrite a readable snapshot with secrets.
-        if values[13] == false or hasanysecretvalues(unpack(values, 1, 12)) then
+        if not entries.readable then
           Private.StopProfileSystem("generictrigger temporary enchant")
           return
         end
-        _, mh_rem, mh_charges, mh_EnchantID, _, oh_rem, oh_charges, oh_EnchantID, _, rw_rem, rw_charges, rw_EnchantID = unpack(values, 1, 12)
-        local mainEnchantIcon, offEnchantIcon = values[14], values[15]
-        mh_icon = mainEnchantIcon and mainEnchantIcon > 0 and mainEnchantIcon or GetInventoryItemTexture("player", mh)
-        oh_icon = offEnchantIcon and offEnchantIcon > 0 and offEnchantIcon or GetInventoryItemTexture("player", oh)
         local time = GetTime();
-        local mh_exp_new = mh_rem and (time + (mh_rem / 1000));
-        local oh_exp_new = oh_rem and (time + (oh_rem / 1000));
-        local rw_exp_new = rw_rem and (time + (rw_rem / 1000));
-        if oldMHEnchantID ~= mh_EnchantID or math.abs((mh_exp or 0) - (mh_exp_new or 0)) > 1 then
-          mh_exp = mh_exp_new;
-          mh_dur = ObserveEnchantDuration(mh_EnchantID, mh_rem);
-          if mh_exp then
-            mh_name, mh_shortenedName = getTenchName(mh)
-          else
-            mh_name, mh_shortenedName = "None", "None"
-          end
-        end
-        if oldOHEnchantID ~= oh_EnchantID or math.abs((oh_exp or 0) - (oh_exp_new or 0)) > 1 then
-          oh_exp = oh_exp_new;
-          oh_dur = ObserveEnchantDuration(oh_EnchantID, oh_rem);
-          if oh_exp then
-            oh_name, oh_shortenedName = getTenchName(oh)
-          else
-            oh_name, oh_shortenedName = "None", "None"
-          end
-        end
-        if isCata then
-          if(math.abs((rw_exp or 0) - (rw_exp_new or 0)) > 1) then
-            rw_exp = rw_exp_new;
-            rw_dur = rw_rem and rw_rem / 1000;
-            if rw_exp then
-              rw_name, rw_shortenedName = getTenchName(rw)
+        local nextExpiry
+        for hand, slot in pairs(slots) do
+          weaponIcons[hand] = GetInventoryItemTexture("player", slot)
+          local lines, used = nil, {}
+          local records = hands[hand]
+          -- Longer-lived enchants are named first: with one line left the
+          -- pairing falls back to it, so the better-known entry picks first.
+          local kinds = {"imbue", "temporary"}
+          local imbue, temporary = entries[hand].imbue, entries[hand].temporary
+          if imbue and temporary and (temporary.timeLeft or 0) > (imbue.timeLeft or 0) then kinds = {"temporary", "imbue"} end
+          for _, kind in ipairs(kinds) do
+            local entry = entries[hand][kind]
+            local old = records[kind]
+            local exp = entry and entry.timeLeft and (time + entry.timeLeft / 1000)
+            if not entry then
+              records[kind] = nil
+            elseif not old or old.enchantID ~= entry.enchantID or math.abs((old.exp or 0) - (exp or 0)) > 1 then
+              lines = lines or TenchLines(slot)
+              local name, shortenedName = NameFor(lines, used, entry.timeLeft)
+              records[kind] = {
+                exp = exp, dur = ObserveEnchantDuration(entry.enchantID, entry.timeLeft),
+                name = name or "None", shortenedName = shortenedName or "None",
+                icon = entry.enchantIconID and entry.enchantIconID > 0 and entry.enchantIconID or nil,
+                charges = entry.charges, enchantID = entry.enchantID,
+              }
             else
-              rw_name, rw_shortenedName = "None", "None"
+              -- Unchanged: keep the name, but its line is taken for the other kind.
+              lines = lines or TenchLines(slot)
+              for index, line in ipairs(lines) do
+                if line.name == old.name then used[index] = true break end
+              end
             end
-            rw_icon = GetInventoryItemTexture("player", rw)
+            if entry and entry.timeLeft and entry.timeLeft > 0 then
+              nextExpiry = math.min(nextExpiry or math.huge, entry.timeLeft / 1000)
+            end
           end
+          records.any = records.imbue or records.temporary
         end
         -- Re-read once at the earliest expiry, including when no inventory event fires.
-        local nextExpiry
-        for _, remaining in pairs({mh_rem, oh_rem, rw_rem}) do
-          if remaining > 0 then nextExpiry = math.min(nextExpiry or math.huge, remaining / 1000) end
-        end
         if nextExpiry then expiryTimer = C_Timer.NewTimer(nextExpiry + 0.1, tenchUpdate) end
         Private.ScanEvents("TENCH_UPDATE");
         Private.StopProfileSystem("generictrigger temporary enchant");
@@ -4571,16 +4580,44 @@ do
     end
   end
 
-  function WeakAuras.GetMHTenchInfo()
-    return mh_exp, mh_dur, mh_name, mh_shortenedName, mh_icon, mh_charges, mh_EnchantID;
+  -- A record matches a trigger name when it is the enchant's name, its name
+  -- without rank, or its enchant ID.
+  local function Matches(record, triggerName)
+    if not triggerName or triggerName == "" then return true end
+    if not record then return false end
+    return triggerName == record.name or triggerName == record.shortenedName
+      or (tonumber(triggerName) ~= nil and record.enchantID == tonumber(triggerName))
   end
 
-  function WeakAuras.GetOHTenchInfo()
-    return oh_exp, oh_dur, oh_name, oh_shortenedName, oh_icon, oh_charges, oh_EnchantID;
+  -- The enchant to show for a hand: kind "imbue", "temporary" or "any". With
+  -- "any" and a name, whichever of the two carries that name.
+  local function TenchInfo(hand, kind, triggerName)
+    local records = hands[hand]
+    local record
+    if (kind or "any") == "any" then
+      record = records.any
+      if triggerName and triggerName ~= "" then
+        if Matches(records.imbue, triggerName) then record = records.imbue
+        elseif Matches(records.temporary, triggerName) then record = records.temporary end
+      end
+    else
+      record = records[kind]
+    end
+    if not record then return nil, nil, "None", "None", WeaponIcon(hand), nil, nil end
+    return record.exp, record.dur, record.name, record.shortenedName, record.icon or WeaponIcon(hand), record.charges, record.enchantID
   end
+
+  function WeakAuras.GetMHTenchInfo(kind, triggerName)
+    return TenchInfo("main", kind, triggerName)
+  end
+
+  function WeakAuras.GetOHTenchInfo(kind, triggerName)
+    return TenchInfo("off", kind, triggerName)
+  end
+  ForeverAuras.GetWeaponEnchantInfo = TenchInfo
 
   function WeakAuras.GetRangeTenchInfo()
-    return rw_exp, rw_dur, rw_name, rw_shortenedName, rw_icon, rw_charges, rw_EnchantID;
+    return nil, nil, nil, nil, "Interface\\Icons\\INV_Misc_QuestionMark", nil, nil
   end
 end
 

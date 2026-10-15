@@ -1,5 +1,20 @@
 # Changelog
 ## VERSIONS
+## 0.87.6
+New
+- Weapon Enchant trigger: an Enchant Type option (Any / Imbue / Oil, Stone or Poison). Forever lets a weapon carry an imbue and an oil at the same time, and the trigger now tracks both, each with its own timer, charges, icon and name. Any keeps the old behaviour, and a typed enchant name is now found on either enchant
+- Weapon Enchant trigger: `%charges` is available in texts alongside `%s`
+- Aura (Modern): more than one Border sub element can be added
+
+Changes
+- Spell Cast Succeeded: the Caster Unit is Player or Pet. Other units cast events are hidden by the client on Forever, so those options could never fire
+- Hardened the custom code sandbox against a few more game functions that pasted auras should never call
+
+Fixes
+- Weapon Enchant: the enchant name no longer carries a trailing space on unranked enchants, so exact name matching works
+- Progress Texture with an Aura (Modern) trigger: the background now follows Mirror, Crop and Texture Rotation like the fill does. It was styled before it was shown, so those settings never reached it.
+- Aura (Modern) with Show On Missing: the On Show sound now plays when the aura is lost and the On Hide sound when it is gained, in combat too. They were the other way round.
+
 ## 0.85.1
 New
 - Load Flag, a new load condition. A display loads while an aura has set the named flag with ForeverAuras.SetLoadFlag(name, true) (or several with SetLoadFlags). Flags are session state, set again on each login by the aura that owns them; a change rescans only the displays that use a flag, once per frame

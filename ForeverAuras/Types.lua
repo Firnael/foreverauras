@@ -1382,6 +1382,15 @@ Private.actual_unit_types_cast = Mixin({
   member = L["Specific Unit"],
 }, target_unit_types)
 
+-- Spell Cast Succeeded: cast events for any unit but the player and their
+-- pet carry secret values on this client (SecretWhenUnitSpellCastRestricted),
+-- so only those two can be matched.
+---@type table<string, string>
+Private.actual_unit_types_own_cast = {
+  player = L["Player"],
+  pet = L["Pet"],
+}
+
 ---@type string
 Private.actual_unit_types_cast_tooltip = L["• |cff00ff00Player|r, |cff00ff00Target|r, |cff00ff00Focus|r, and |cff00ff00Pet|r correspond directly to those individual unitIDs.\n• |cff00ff00Specific Unit|r lets you provide a specific valid unitID to watch.\n|cffff0000Note|r: The game will not fire events for all valid unitIDs, making some untrackable by this trigger.\n• |cffffff00Party|r, |cffffff00Raid|r, |cffffff00Boss|r, |cffffff00Arena|r, and |cffffff00Nameplate|r can match multiple corresponding unitIDs.\n• |cffffff00Smart Group|r adjusts to your current group type, matching just the \"player\" when solo, \"party\" units (including \"player\") in a party or \"raid\" units in a raid.\n\n|cffffff00*|r Yellow Unit settings will create clones for each matching unit while this trigger is providing Dynamic Info to the Aura."]
 
@@ -4163,6 +4172,14 @@ Private.bossmods_timerTypes = {
 }
 
 ---@type table<string, string>
+-- Weapon Enchant trigger: which enchant on the hand to read. "any" prefers
+-- an imbue when both kinds are present, as the trigger always did.
+Private.weapon_enchant_kinds = {
+  any = L["Any"],
+  imbue = L["Imbue (Firestone, Scrolls)"],
+  temporary = L["Oil, Stone or Poison"],
+}
+
 Private.weapon_enchant_types = {
   showOnActive = L["Enchant Found"],
   showOnMissing = L["Enchant Missing"],

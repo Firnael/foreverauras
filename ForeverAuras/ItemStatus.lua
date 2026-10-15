@@ -59,6 +59,39 @@ local function ReadModernWeaponEnchant(slot)
   return chosen, true
 end
 
+-- Both enchant kinds per hand, for games that let an imbue (Firestone, the
+-- mage imbue scrolls) and a temporary enchant (oil, stone, poison) share one
+-- weapon. {readable = bool, main = {imbue = entry, temporary = entry}, off = {...}};
+-- entries are the API's own tables (timeLeft, charges, enchantID, enchantIconID).
+-- Without the modern API only the legacy single enchant is known, under "temporary".
+function Private.ExecEnv.GetWeaponEnchantEntries()
+  local result = {readable = true, main = {}, off = {}}
+  local types = Enum and Enum.ItemEnchantType
+  if C_Item and C_Item.GetWeaponEnchantInfo and types and Enum.WeaponSlot then
+    for hand, slot in pairs({main = Enum.WeaponSlot.MainHand, off = Enum.WeaponSlot.OffHand}) do
+      local list = C_Item.GetWeaponEnchantInfo(slot)
+      if issecretvalue(list) then result.readable = false return result end
+      for _, entry in ipairs(list or {}) do
+        if issecretvalue(entry) or hasanysecretvalues(entry.hasEnchant, entry.enchantType, entry.timeLeft, entry.charges, entry.enchantID, entry.enchantIconID) then
+          result.readable = false
+          return result
+        end
+        if entry.hasEnchant and entry.enchantType == types.Imbue then
+          result[hand].imbue = result[hand].imbue or entry
+        elseif entry.hasEnchant and entry.enchantType == types.Temporary then
+          result[hand].temporary = result[hand].temporary or entry
+        end
+      end
+    end
+    return result
+  end
+  local hasMain, mainTime, mainCharges, mainID, hasOff, offTime, offCharges, offID = Private.ExecEnv.GetTemporaryWeaponEnchants()
+  if hasanysecretvalues(hasMain, mainTime, mainCharges, mainID, hasOff, offTime, offCharges, offID) then result.readable = false return result end
+  if hasMain then result.main.temporary = {timeLeft = mainTime, charges = mainCharges, enchantID = mainID} end
+  if hasOff then result.off.temporary = {timeLeft = offTime, charges = offCharges, enchantID = offID} end
+  return result
+end
+
 -- Extra return values are internal metadata; the first twelve retain the old API.
 function Private.ExecEnv.GetTemporaryWeaponEnchants()
   if C_Item and C_Item.GetWeaponEnchantInfo and Enum and Enum.ItemEnchantType and Enum.WeaponSlot then

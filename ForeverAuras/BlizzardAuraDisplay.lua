@@ -598,6 +598,7 @@ local function SyncSounds(region)
         tostring(action.sound_fojji), tostring(action.sound_channel)}, ",")
     end
     parts[#parts + 1] = table.concat(UnitTokens(trigger), ",")
+    parts[#parts + 1] = tostring(Display.RawShowOn(trigger))
     parts[#parts + 1] = table.concat(Display.GetSpellIDs(trigger, true), ",")
     parts[#parts + 1] = table.concat(trigger.excludedAuraSpellIDs or {}, ",")
     signature = table.concat(parts, "|")
@@ -634,8 +635,12 @@ local function SyncSounds(region)
   end
   local failure
   local units = UnitTokens(trigger)
+  -- On Show / On Hide follow the display: with Show On Missing the display
+  -- appears when the aura is removed, so the sounds swap over.
+  local showOnMissing = Display.RawShowOn(trigger) == "showOnMissing"
   for _, event in ipairs({"Added", "Removed"}) do
-    local action = actions[event == "Added" and "start" or "finish"] or {}
+    local onShow = (event == "Added") ~= showOnMissing
+    local action = actions[onShow and "start" or "finish"] or {}
     if action.do_sound then
       local file, message
       if action.sound == " Fojji" then

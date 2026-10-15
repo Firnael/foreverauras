@@ -7231,12 +7231,13 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
         local triggerStack = %s
         local triggerRemaining = %s
         local triggerShowOn = %q
+        local triggerEnchantKind = %q
         local _, expirationTime, duration, name, icon, stacks, enchantID
 
         if triggerWeaponType == "main" then
-          expirationTime, duration, name, shortenedName, icon, stacks, enchantID = WeakAuras.GetMHTenchInfo()
+          expirationTime, duration, name, shortenedName, icon, stacks, enchantID = WeakAuras.GetMHTenchInfo(triggerEnchantKind, triggerName)
         elseif triggerWeaponType == "off" then
-          expirationTime, duration, name, shortenedName, icon, stacks, enchantID = WeakAuras.GetOHTenchInfo()
+          expirationTime, duration, name, shortenedName, icon, stacks, enchantID = WeakAuras.GetOHTenchInfo(triggerEnchantKind, triggerName)
         end
 
         local remaining = expirationTime and expirationTime - GetTime()
@@ -7265,6 +7266,7 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
       trigger.showOn ~= "showOnMissing" and trigger.use_stacks and tonumber(trigger.stacks or 0) or "nil",
       showOnActive and trigger.use_remaining and tonumber(trigger.remaining or 0) or "nil",
       trigger.showOn or "showOnActive",
+      trigger.enchantKind or "any",
       trigger.stacks_operator or "<",
       trigger.remaining_operator or "<")
     end,
@@ -7276,6 +7278,16 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
         values = "weapon_types",
         test = "true",
         default = "main",
+        required = true
+      },
+      {
+        -- Forever allows an imbue and an oil/stone/poison on one weapon at once.
+        name = "enchantKind",
+        display = L["Enchant Type"],
+        type = "select",
+        values = "weapon_enchant_kinds",
+        test = "true",
+        default = "any",
         required = true
       },
       {
@@ -7306,6 +7318,17 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
           return trigger.showOn ~= "showOnMissing"
         end,
         store = true
+      },
+      {
+        -- The same number under its own name, so texts can use %charges as
+        -- well as %s (which stays for the stacks slot every trigger has).
+        name = "charges",
+        display = L["Charges"],
+        hidden = true,
+        init = "stacks",
+        test = "true",
+        store = true,
+        noProgressSource = true
       },
       {
         name = "duration",
@@ -7540,16 +7563,14 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
     statesParameter = "unit",
     args = {
       {
-        name = "castSucceededNote", type = "description", display = "",
-        text = function() return "Tracks successful casts only when the spell ID is readable. Your own casts are normally readable; other units may be restricted." end,
-      },
-      {
         name = "unit",
         init = "arg",
         display = L["Caster Unit"],
         type = "unit",
         test = "true",
-        values = "actual_unit_types_cast",
+        -- Player and pet only: other units' cast events are secret here.
+        values = "actual_unit_types_own_cast",
+        default = "player",
         store = true,
         conditionType = "select",
         conditionTest = function(state, needle, op)

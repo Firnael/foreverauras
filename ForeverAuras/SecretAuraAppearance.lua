@@ -144,11 +144,8 @@ function Display.CanAddElement(data, kind)
   if kind == "subcdmdispel" or kind == "subcdmdispelborder" then return Display.Enabled(data) or Private.CDMAuraProgress.IsConfigured(data) end
   if not Display.Enabled(data) then return true end
   if not Display.supportedElements[kind] then return false end
-  if kind == "subborder" then
-    for _, element in ipairs(data.subRegions or {}) do
-      if element.type == "subborder" then return false end
-    end
-  end
+  -- Any number of Border elements: each draws its own frame (StyleBorder), so
+  -- an outer and an inner border, or two colours, can be stacked.
   return true
 end
 
@@ -496,7 +493,6 @@ function Display.StyleAppearance(native, data, ElementFrame, StyleText, StyleGlo
     TextLayout(native.mainText, data.automaticWidth, data.fixedWidth, data.wordWrap)
     BindText(button, native.mainText, data.displayText, data, "displayText_format_", data, data.color, "color")
   end
-  local borderSeen
   for index, element in ipairs(data.subRegions or {}) do
     if not Display.IsDetachedElement(data, element) then
       local frame = ElementFrame(native, "shared" .. index)
@@ -522,11 +518,11 @@ function Display.StyleAppearance(native, data, ElementFrame, StyleText, StyleGlo
         entry.text:Show()
         BindText(button, entry.text, element.text_text, element, "text_text_format_", data, element.text_color, "sub." .. index .. ".text_color")
       elseif element.type == "subborder" then
-        if not borderSeen and element.border_visible ~= false then
+        -- Every Border element is drawn (one frame per element), not only the first.
+        if element.border_visible ~= false then
           local target, borderWidth, borderHeight = Area(native, data, element.anchor_area)
           StyleBorder(entry, frame, target, borderWidth, borderHeight, element, Display.FlowGroup(data) ~= nil)
         end
-        borderSeen = true
       elseif element.type == "subglow" then
         entry.glowAnchor, entry.glowWidth, entry.glowHeight = Area(native, data, element.anchor_area)
         -- All four glow types, played by Blizzard (SecretAuraGlow.lua).
