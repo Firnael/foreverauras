@@ -5,7 +5,7 @@ New
 - Load Flag, a new load condition. A display loads while an aura has set the named flag with ForeverAuras.SetLoadFlag(name, true) (or several with SetLoadFlags). Flags are session state, set again on each login by the aura that owns them; a change rescans only the displays that use a flag, once per frame
 - Spell Lists for Aura (Modern) triggers. A trigger whose saved data names a list (secretSpellList) takes its spell IDs, name, icon, %l label text and Remaining Time seconds from a list another aura publishes with ForeverAuras.SetAuraSpellList(key, {spellIDs, name, icon, label, remaining})
 - Same-name spell IDs for Aura (Modern) triggers. Selected spell IDs now also match every other ID with the same name, taken from the client’s own spell data
-Frame names accept ForeverAuras:<id> as well as WeakAuras:<id> for anchoring to another aura, glow frames, the frame chooser, renames and import
+Frame names accept ForeverAuras:`<id>` as well as WeakAuras:`<id>` for anchoring to another aura, glow frames, the frame chooser, renames and import
 
 Fixed
 - Ammo: the equipped ammo’s count is no longer doubled
