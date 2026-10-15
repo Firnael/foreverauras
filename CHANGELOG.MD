@@ -13,6 +13,7 @@ Fixed
 
 Notes
 - New API is defined as ForeverAuras.; WeakAuras. remains the same table, so both names work everywhere, inside auras included
+
 ## 0.84.9
 ### Aura (Modern) conditions
 New
