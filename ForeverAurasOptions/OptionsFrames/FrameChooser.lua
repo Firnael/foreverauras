@@ -102,7 +102,7 @@ function OptionsPrivate.StartFrameChooser(data, path)
         end
 
         -- Keep only names that resolve back to the hovered object at runtime.
-        if focusName and focusName:sub(1, 10) ~= "WeakAuras:"
+        if focusName and not OptionsPrivate.Private.AuraFrameTarget(focusName)
           and OptionsPrivate.Private.GetSanitizedFrame(focusName, requireFrame) ~= focus then
           focusName = nil
         end

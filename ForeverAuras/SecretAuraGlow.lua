@@ -273,7 +273,7 @@ function Display.StyleElementGlow(entry, button, parent, anchor, element, w, h)
     -- Pixel Glow and Autocast Shine: pieces travelling around the rectangle.
     local pixel = kind == "Pixel"
     local count = math.floor(Number(element.glowLines, pixel and 8 or 4, 1, 32))
-    local duration = frequency == 0 and 4 or math.max(0.1, math.abs(1 / frequency))
+    local duration = frequency == 0 and (pixel and 4 or 8) or math.max(0.1, math.abs(1 / frequency))
     local reverse = frequency < 0
     if pixel then
       -- A line that turns corners: a rotated square travelling the perimeter,
@@ -306,23 +306,20 @@ function Display.StyleElementGlow(entry, button, parent, anchor, element, w, h)
         end
       end
     else
-      local size = 8 * Number(element.glowScale, 1, 0.25, 4)
-      for sparkle = 1, count do
-        local texture = NewTexture(glow, holder)
-        texture:SetTexture(SPARKLE)
-        texture:SetTexCoord(unpack(SPARKLE_TC))
-        texture:SetSize(size, size)
-        Tint(texture, element)
-        Perimeter(glow, texture, holder, gw, gh, duration, (sparkle - 1) / count, reverse)
-        -- The shine's twinkle: fade in, then out, alongside one lap of movement.
-        local group = GroupFor(glow, texture, "twinkle", function(g) return {g:CreateAnimation("Alpha"), g:CreateAnimation("Alpha")} end)
-        for half = 1, 2 do
-          local alpha = group.faAnimations[half]
-          alpha:SetOrder(1)
-          alpha:SetStartDelay(half == 1 and 0 or duration / 2)
-          alpha:SetDuration(duration / 2)
-          alpha:SetFromAlpha(half == 1 and 0.2 or 1)
-          alpha:SetToAlpha(half == 1 and 1 or 0.2)
+      -- Autocast Shine as LibCustomGlow draws it: four rings of N sparkles,
+      -- sizes 7, 6, 5 and 4 times the scale, ring k taking k laps' time per
+      -- lap, all in the same direction and at constant alpha. The rings start
+      -- in step and drift apart, which gives the layered, dense look.
+      local scale = Number(element.glowScale, 1, 0.25, 4)
+      for ring, base in ipairs({7, 6, 5, 4}) do
+        local size = base * scale
+        for sparkle = 1, count do
+          local texture = NewTexture(glow, holder)
+          texture:SetTexture(SPARKLE)
+          texture:SetTexCoord(unpack(SPARKLE_TC))
+          texture:SetSize(size, size)
+          Tint(texture, element)
+          Perimeter(glow, texture, holder, gw, gh, duration * ring, sparkle / count, reverse)
         end
       end
     end

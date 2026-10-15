@@ -192,8 +192,8 @@ local function EquippedAmmo()
 end
 
 -- mode, with the Item IDs field blank: "equipped" counts the equipped ammo
--- (loaded stack plus the bags) and shows its icon; "all" counts every kind
--- carried. Explicit IDs count those items.
+-- and shows its icon; "all" counts every kind carried. Explicit IDs count
+-- those items. The ammo slot never adds to the bag count.
 function Private.ExecEnv.GetAmmoCount(input, mode)
   local selected = ParseAmmoItemIDs(input)
   if not selected then return end
@@ -202,7 +202,10 @@ function Private.ExecEnv.GetAmmoCount(input, mode)
   local all = next(selected) == nil
   local equippedID, loaded = EquippedAmmo()
   if all and mode ~= "all" and equippedID then
-    local count = (ammoSnapshot.counts[equippedID] or 0) + loaded
+    -- On this client the ammo slot holds no stack of its own: slot 0's count
+    -- is already the carried total of the equipped ammo, which the bag scan
+    -- counts too. Take the larger of the two, never their sum.
+    local count = math.max(ammoSnapshot.counts[equippedID] or 0, loaded)
     local name, icon = "Ammo", 132382
     local itemName, itemIcon = C_Item.GetItemNameByID(equippedID), C_Item.GetItemIconByID(equippedID)
     if not issecretvalue(itemName) and itemName then name = itemName end
@@ -210,10 +213,12 @@ function Private.ExecEnv.GetAmmoCount(input, mode)
     return count, name, icon
   end
   local count, itemID, kinds = 0, nil, 0
-  -- The loaded stack counts with the bags.
-  if equippedID and (all or selected[equippedID]) then
+  -- The equipped ammo is one of the bag stacks; its slot count only stands in
+  -- when the bag scan did not see it.
+  if equippedID and (all or selected[equippedID]) and not ammoSnapshot.counts[equippedID] then
     count = loaded
-    if not ammoSnapshot.counts[equippedID] then itemID = equippedID; kinds = kinds + 1 end
+    itemID = equippedID
+    kinds = kinds + 1
   end
   for id, quantity in pairs(ammoSnapshot.counts) do
     if all or selected[id] then

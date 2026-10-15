@@ -168,7 +168,21 @@ Display.processingOptions = {
   {"ignoreDispelDebuffs", "Ignore dispel classification"},
 }
 
+-- Spell Lists: a trigger can take its spell IDs (and a name, icon and label)
+-- from a list another aura sets at run time with
+-- ForeverAuras.SetAuraSpellList(key, list) (SecretAuraTrigger.lua), so a few
+-- displays can stand in for many: a backend assigns one item per display from
+-- its own options. An unset or empty list matches nothing.
+Display.spellLists = {}
+function Display.UsesSpellList(trigger)
+  return type(trigger) == "table" and type(trigger.secretSpellList) == "string" and trigger.secretSpellList ~= ""
+end
+function Display.SpellList(trigger)
+  return Display.UsesSpellList(trigger) and Display.spellLists[trigger.secretSpellList] or nil
+end
+
 function Display.UsesSpellIDs(trigger)
+  if Display.UsesSpellList(trigger) then return true end
   return trigger.secretUseSpellIDs ~= false and (#(trigger.auraspellids or {}) > 0 or trigger.secretUseSpellIDs == true)
 end
 
@@ -199,7 +213,27 @@ function Display.GetSpellIDs(trigger, expandRanks)
   if Display.UsesSpellIDs(trigger) then
     for _, value in ipairs(trigger.auraspellids or {}) do Add(value) end
   end
+  local list = Display.SpellList(trigger)
+  if list then
+    for _, value in ipairs(list.spellIDs) do Add(value) end
+  end
+  -- Same name: every spell ID with the same name as a selected one
+  -- (hidden ranks and server variants missing from the rank data), from the
+  -- client's own spell data (Private.SameNameSpellIDs, SecretAuraRanks.lua).
+  if expandRanks and Display.UsesNames(trigger) and Private.SameNameSpellIDs then
+    local selected = {}
+    for index, id in ipairs(ids) do selected[index] = id end
+    for _, id in ipairs(selected) do
+      for _, same in ipairs(Private.SameNameSpellIDs(id) or {}) do Add(same) end
+    end
+  end
   return ids
+end
+
+-- Same-name matching always applies to selected spell IDs, as Aura (Legacy)
+-- matches by name.
+function Display.UsesNames(trigger)
+  return type(trigger) == "table" and (Display.UsesSpellIDs(trigger) or Display.UsesRankSpellIDs(trigger))
 end
 
 function Display.UsesExcludedSpellIDs(trigger)
@@ -394,7 +428,7 @@ function Display.Validate(data)
   local appearanceProblem = Display.ValidateAppearance(Display.PrepareConditionAppearance(data))
   if appearanceProblem then return appearanceProblem end
   local trigger = Display.GetTrigger(data, true)
-  if Display.UsesSpellIDs(trigger) and #(trigger.auraspellids or {}) == 0 then return "Enter an exact spell ID, or untick Exact Spell IDs to show all matching auras." end
+  if Display.UsesSpellIDs(trigger) and #(trigger.auraspellids or {}) == 0 and not Display.UsesSpellList(trigger) then return "Enter an exact spell ID, or untick Exact Spell IDs to show all matching auras." end
   if Display.UsesRankSpellIDs(trigger) and #(trigger.auraRankSpellIDs or {}) == 0 then return "Enter a spell ID, or untick Spell ID(s) (All Ranks)." end
   if Display.UsesExcludedSpellIDs(trigger) and #(trigger.excludedAuraSpellIDs or {}) == 0 then return "Enter an ignored spell ID, or untick Ignored Exact Spell IDs." end
   if not Display.units[trigger.unit] or (trigger.debuffType ~= "HELPFUL" and trigger.debuffType ~= "HARMFUL") then

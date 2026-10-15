@@ -1545,6 +1545,21 @@ Private.load_prototype = {
       enable = false,
       hidden = true,
     },
+    -- ForeverAuras: Load Flag. The display loads while another aura (usually a
+    -- group's backend) has set the named flag with
+    -- ForeverAuras.SetLoadFlag(name, true). Flags last for the session, so the
+    -- backend sets them on every login; see ForeverAuras.SetLoadFlag in
+    -- ForeverAuras.lua. "FA_LOAD_FLAG" is not a game event: SetLoadFlag
+    -- rescans the displays recorded under it itself.
+    {
+      name = "loadFlag",
+      display = WeakAuras.newFeatureString .. L["Load Flag"],
+      type = "string",
+      width = WeakAuras.doubleWidth,
+      test = "ForeverAuras.LoadFlag(%q)",
+      events = {"FA_LOAD_FLAG"},
+      desc = L["Loads while an aura has set this flag with ForeverAuras.SetLoadFlag(name, true), for example a group's backend choosing which children to load from its custom options."],
+    },
     {
       name ="playerTitle",
       display = L["Player"],

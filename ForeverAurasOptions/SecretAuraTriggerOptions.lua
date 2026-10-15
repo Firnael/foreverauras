@@ -223,6 +223,14 @@ local function GetOptions(data, triggernum)
   }
   SpellIDs("useSpellIDs", "spellid", "auraspellids", "Exact Spell ID(s)", "Exact Spell ID", 6,
     display.UsesSpellIDs, "secretUseSpellIDs")
+  -- Spell Lists (Display.SpellList) are set by importing a pack, not here: a
+  -- trigger with secretSpellList shows a one-line note so the empty ID fields
+  -- make sense, and keeps working as data.
+  options.spellListNote = {
+    type = "description", order = 6.9, width = WeakAuras.doubleWidth, fontSize = "small",
+    hidden = function() return not display.UsesSpellList(trigger) end,
+    name = function() return "Spell IDs come from the Spell List |cffffd100" .. tostring(trigger.secretSpellList) .. "|r, set by this pack's backend aura." end,
+  }
   SpellIDs("useExcludedSpellIDs", "ignorespellid", "excludedAuraSpellIDs", "Ignored Exact Spell ID(s)", "Ignored Spell ID", 7,
     display.UsesExcludedSpellIDs, "secretUseExcludedSpellIDs")
   local function TriState(key, title, order, description, GetValue, SetValue)

@@ -368,8 +368,8 @@ local function BuildUidMap(data, children, type)
     if data.anchorFrameType == "SELECTFRAME"
      and data.anchorFrameFrame
     then
-      if data.anchorFrameFrame:sub(1, 10) == "WeakAuras:" then
-        local target = data.anchorFrameFrame:sub(11)
+      local target = OptionsPrivate.Private.AuraFrameTarget(data.anchorFrameFrame)
+      if target then
         if idToUid[target] then
           uidMap.map[data.uid].anchorFrameFrame = idToUid[target]
         end
