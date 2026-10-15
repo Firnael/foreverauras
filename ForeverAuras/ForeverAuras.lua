@@ -1961,6 +1961,38 @@ function Private.ScanForLoads(toCheck, event, arg1, ...)
   if not ok then geterrorhandler()(err) end
 end
 
+-- ForeverAuras: Load Flags (the "Load Flag" load condition, Prototypes.lua).
+-- New API is named ForeverAuras.*; WeakAuras.* stays as the same table.
+-- An aura sets a flag with ForeverAuras.SetLoadFlag(name, true) and clears it
+-- with false; displays whose Load tab names that flag load while it is set.
+-- Flags are session state, never saved, so a backend sets them again on every
+-- login and whenever its custom options change. Changes are coalesced and
+-- rescan only the displays that use a Load Flag, once per frame.
+local loadFlags = {}
+local loadFlagScanQueued = false
+function ForeverAuras.LoadFlag(name)
+  return loadFlags[name] == true
+end
+function ForeverAuras.SetLoadFlag(name, value)
+  if type(name) ~= "string" or name == "" then return end
+  local set = value and true or nil
+  if loadFlags[name] == set then return end
+  loadFlags[name] = set
+  if loadFlagScanQueued then return end
+  loadFlagScanQueued = true
+  C_Timer.After(0, function()
+    loadFlagScanQueued = false
+    if loadEvents.FA_LOAD_FLAG then
+      Private.ScanForLoads(loadEvents.FA_LOAD_FLAG, "FA_LOAD_FLAG")
+    end
+  end)
+end
+-- Several flags at once: {name = true/false, ...}; one rescan for all of them.
+function ForeverAuras.SetLoadFlags(flags)
+  if type(flags) ~= "table" then return end
+  for name, value in pairs(flags) do ForeverAuras.SetLoadFlag(name, value) end
+end
+
 local loadFrame = CreateFrame("Frame");
 Private.frames["Display Load Handling"] = loadFrame;
 
@@ -2848,6 +2880,16 @@ end
 ---@type fun(data: auraData)
 local pAdd
 
+-- ForeverAuras: a frame name that targets another aura, "WeakAuras:<id>" or
+-- "ForeverAuras:<id>" (both spellings work everywhere a frame is chosen).
+-- Returns the aura id, or nil for any other frame name.
+function Private.AuraFrameTarget(name)
+  if type(name) ~= "string" then return nil end
+  if name:sub(1, 10) == "WeakAuras:" then return name:sub(11) end
+  if name:sub(1, 13) == "ForeverAuras:" then return name:sub(14) end
+  return nil
+end
+
 function Private.CheckForAnchorCycle(source)
   local cycle = {}
   while source do
@@ -2856,9 +2898,7 @@ function Private.CheckForAnchorCycle(source)
     local target
     if data then
       if data.anchorFrameType == "SELECTFRAME" and data.anchorFrameFrame then
-        if data.anchorFrameFrame:sub(1, 10) == "WeakAuras:" then
-          target = data.anchorFrameFrame:sub(11)
-        end
+        target = Private.AuraFrameTarget(data.anchorFrameFrame)
       else
         target = data.parent
       end
@@ -2888,9 +2928,8 @@ function Private.AddMany(tbl, takeSnapshots)
     end
     idtable[data.id] = data;
     if data.anchorFrameType == "SELECTFRAME" and data.anchorFrameFrame then
-      if data.anchorFrameFrame:sub(1, 10) == "WeakAuras:"then
-        anchorTargets[data.anchorFrameFrame:sub(11)] = data.id
-      end
+      local target = Private.AuraFrameTarget(data.anchorFrameFrame)
+      if target then anchorTargets[target] = data.id end
     end
   end
 
@@ -3395,7 +3434,7 @@ end
 
 local function cycleCheck(data)
   local id = data.id
-  if data.anchorFrameType == "SELECTFRAME" and data.anchorFrameFrame and data.anchorFrameFrame:sub(1, 10) == "WeakAuras:" then
+  if data.anchorFrameType == "SELECTFRAME" and Private.AuraFrameTarget(data.anchorFrameFrame) then
     if Private.CheckForAnchorCycle(id) then
       WeakAuras.prettyPrint(L["Warning: Anchoring in aura '%s' is imposssible, due to an anchoring cycle"]:format(id))
       db.displays[id].anchorFrameType = "UIPARENT"
@@ -4114,8 +4153,8 @@ function Private.HandleGlowAction(actions, region)
   then
     local glow_frame, should_glow_frame
     if actions.glow_frame_type == "FRAMESELECTOR" then
-      if actions.glow_frame:sub(1, 10) == "WeakAuras:" then
-        local frame_name = actions.glow_frame:sub(11)
+      local frame_name = Private.AuraFrameTarget(actions.glow_frame)
+      if frame_name then
         if WeakAuras.GetData(frame_name) then
           Private.EnsureRegion(frame_name)
         end
@@ -6479,8 +6518,8 @@ local function GetAnchorFrame(data, region, parent)
   end
 
   if (anchorFrameType == "SELECTFRAME" and anchorFrameFrame) then
-    if(anchorFrameFrame:sub(1, 10) == "WeakAuras:") then
-      local frame_name = anchorFrameFrame:sub(11);
+    local frame_name = Private.AuraFrameTarget(anchorFrameFrame)
+    if frame_name then
       if (frame_name == id) then
         return parent;
       end

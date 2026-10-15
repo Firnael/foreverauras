@@ -223,6 +223,8 @@ function Display.TextKind(value)
   if value == "%p" then return "duration" end
   if value == "%s" then return "stack" end
   if value == "%n" then return "name" end
+  -- %l: the label of the trigger's Spell List (Display.SpellList), fixed text.
+  if value == "%l" then return "label" end
   if not (value or ""):gsub("%%%%", ""):find("%%") then return "literal" end
 end
 
@@ -231,7 +233,7 @@ function Display.ValidateAppearance(data)
   local function CheckText(value, visible)
     if visible == false then return end
     local kind = Display.TextKind(value)
-    if not kind then return "You can only use %p, %s, %n or hardcoded text. Put each code in its own text element. Custom text (%c) is not supported." end
+    if not kind then return "You can only use %p, %s, %n, %l or hardcoded text. Put each code in its own text element. Custom text (%c) is not supported." end
     if kind ~= "literal" and used[kind] then return "Secret auras support one text element for each of %p, %s and %n. Remove the duplicate or turn off Show Text." end
     used[kind] = true
   end
@@ -296,6 +298,9 @@ local function BindText(button, text, value, config, prefix, data, baseColor, pr
     if formatter and pcall(button.SetApplicationCount, button, text, {formatter = formatter}) then return end
     button:SetApplicationCount(text)
   elseif kind == "name" then button:SetSpellName(text)
+  elseif kind == "label" then
+    local list = Display.SpellList(Display.GetTrigger(data))
+    text:SetText(list and list.label or "")
   else text:SetText((value or ""):gsub("%%%%", "%%")) end
 end
 

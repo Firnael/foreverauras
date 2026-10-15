@@ -238,7 +238,119 @@ function Trigger.GetNameAndIcon(data, triggernum)
   -- Preview metadata follows the configured selections, without expanding ranks.
   local id = Display.GetSpellIDs(trigger, false)[1]
   local info = id and C_Spell.GetSpellInfo(id)
-  return info and info.name or "Secret Auras", info and info.iconID or 134400
+  local name, icon = info and info.name or "Secret Auras", info and info.iconID or 134400
+  -- A Spell List may name and picture the display itself.
+  local list = Display.SpellList(trigger)
+  if list then
+    if list.name then name = list.name end
+    if list.icon then icon = list.icon end
+  end
+  return name, icon
+end
+
+-- Spell Lists (Display.SpellList): set by any aura, applied to the loaded
+-- displays that use the key. A changed list re-applies those displays once
+-- per frame, out of combat; in combat the change waits for combat to end.
+local pendingListKeys, listApplyQueued = {}, false
+local pendingListDisplays = {}
+-- Applies again every loaded display whose saved trigger satisfies matches,
+-- now or, in combat, when combat ends.
+local function ReapplyLoaded(matches)
+  for id in pairs(loaded) do
+    local data = displays[id]
+    local trigger = data and Display.GetSavedTrigger(data)
+    if trigger and matches(trigger) then
+      if InCombatLockdown() then
+        pendingListDisplays[id] = true
+      elseif WeakAuras.GetData(id) == data then
+        local entry = Private.regions[id]
+        if entry and entry.region then Display.Apply(entry.region, data) end
+        for index, item in ipairs(data.triggers) do
+          if item.trigger.type == "secretAura" then Trigger.CreateFakeStates(id, index) end
+        end
+        Private.UpdatedTriggerState(id)
+      end
+    end
+  end
+end
+local function ApplySpellListDisplays(keys)
+  ReapplyLoaded(function(trigger) return trigger.secretSpellList and keys[trigger.secretSpellList] end)
+end
+local listFrame = CreateFrame("Frame")
+listFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+listFrame:SetScript("OnEvent", function()
+  if not next(pendingListDisplays) then return end
+  local ids = pendingListDisplays
+  pendingListDisplays = {}
+  for id in pairs(ids) do
+    local data = displays[id]
+    if data and loaded[id] and WeakAuras.GetData(id) == data then
+      local entry = Private.regions[id]
+      if entry and entry.region then Display.Apply(entry.region, data) end
+      for index, item in ipairs(data.triggers) do
+        if item.trigger.type == "secretAura" then Trigger.CreateFakeStates(id, index) end
+      end
+      Private.UpdatedTriggerState(id)
+    end
+  end
+end)
+-- Same-name IDs: a finished name scan re-applies the displays that selected
+-- a spell of that name (SecretAuraRanks.lua).
+if Private.OnSameNameScanned then
+  Private.OnSameNameScanned(function(names)
+    ReapplyLoaded(function(trigger)
+      if not Display.UsesNames(trigger) then return false end
+      for _, id in ipairs(Display.GetSpellIDs(trigger, false)) do
+        local name = Private.SpellNameOf(id)
+        if name and names[name] then return true end
+      end
+      return false
+    end)
+  end)
+end
+-- list: {spellIDs = {...}, name = "...", icon = fileID, label = "...",
+-- remaining = seconds} or a plain array of spell IDs; remaining replaces the
+-- trigger's Remaining Time seconds; nil clears the list (its displays match
+-- nothing).
+function ForeverAuras.SetAuraSpellList(key, list)
+  if type(key) ~= "string" or key == "" or (list ~= nil and type(list) ~= "table") then return end
+  local stored
+  if list then
+    stored = {spellIDs = {}}
+    for _, value in ipairs(list.spellIDs or list) do
+      local id = tonumber(value)
+      if id and id > 0 and id == math.floor(id) then stored.spellIDs[#stored.spellIDs + 1] = id end
+    end
+    if type(list.name) == "string" then stored.name = list.name end
+    if type(list.label) == "string" then stored.label = list.label end
+    local icon = tonumber(list.icon) or (type(list.icon) == "string" and list.icon) or nil
+    if icon then stored.icon = icon end
+    local remaining = tonumber(list.remaining)
+    if remaining and remaining >= 0 and remaining ~= math.huge then stored.remaining = remaining end
+  end
+  local old = Display.spellLists[key]
+  if old and stored and old.name == stored.name and old.label == stored.label and old.icon == stored.icon
+    and old.remaining == stored.remaining and #old.spellIDs == #stored.spellIDs then
+    local same = true
+    for index, id in ipairs(old.spellIDs) do if stored.spellIDs[index] ~= id then same = false; break end end
+    if same then return end
+  elseif old == nil and stored == nil then
+    return
+  end
+  Display.spellLists[key] = stored
+  pendingListKeys[key] = true
+  if listApplyQueued then return end
+  listApplyQueued = true
+  C_Timer.After(0, function()
+    listApplyQueued = false
+    local keys = pendingListKeys
+    pendingListKeys = {}
+    ApplySpellListDisplays(keys)
+  end)
+end
+function ForeverAuras.SetAuraSpellLists(lists)
+  if type(lists) ~= "table" then return end
+  for key, list in pairs(lists) do ForeverAuras.SetAuraSpellList(key, list or nil) end
 end
 
 -- The hover summary uses unwrapped double-column rows. Bound each ID list here

@@ -42,7 +42,9 @@ local function OnRename(_, uid, oldId, newId)
     for attached in pairs(targetToAttached[oldId]) do
       local data = WeakAuras.GetData(attached)
       if data then
-        data.anchorFrameFrame = "WeakAuras:" .. newId
+        -- Keep the spelling the author used.
+        local prefix = data.anchorFrameFrame:sub(1, 13) == "ForeverAuras:" and "ForeverAuras:" or "WeakAuras:"
+        data.anchorFrameFrame = prefix .. newId
         WeakAuras.Add(data, true)
       end
 
@@ -60,11 +62,8 @@ local function OnAdd(_, uid, id, data, simpleChange)
     return
   end
   OnDelete(nil, uid, id)
-  if data.anchorFrameType == "SELECTFRAME"
-     and data.anchorFrameFrame and
-     data.anchorFrameFrame:sub(1, 10) == "WeakAuras:"
-  then
-    local target = data.anchorFrameFrame:match(":(.+)")
+  local target = data.anchorFrameType == "SELECTFRAME" and Private.AuraFrameTarget(data.anchorFrameFrame)
+  if target then
     attachedToTarget[data.id] = target
     targetToAttached[target] = targetToAttached[target] or {}
     targetToAttached[target][data.id] = true

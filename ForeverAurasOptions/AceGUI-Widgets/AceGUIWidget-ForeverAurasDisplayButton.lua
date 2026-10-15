@@ -848,7 +848,11 @@ local methods = {
         self:PriorityHide(2)
       else
         for child in OptionsPrivate.Private.TraverseAllChildren(self.data) do
-          OptionsPrivate.GetDisplayButton(child.id):PriorityShow(2);
+          -- ForeverAuras: the group's eye shows what a player sees; a child a
+          -- backend loads through a Load Flag joins only while it is loaded.
+          -- Its own eye still shows it on its own.
+          local flagged = child.load and child.load.use_loadFlag and OptionsPrivate.Private.loaded[child.id] ~= true
+          if not flagged then OptionsPrivate.GetDisplayButton(child.id):PriorityShow(2) end
         end
         self:PriorityShow(2)
       end
@@ -1639,7 +1643,11 @@ local methods = {
     if (not WeakAuras.IsOptionsOpen()) then
       return;
     end
-    if self.view.visibility >= 1 then
+    -- ForeverAuras: a child a backend loads through a Load Flag is only
+    -- previewed while that flag is set (the picked group shows what a
+    -- player sees), unless the child itself is shown with the eye icon.
+    local flagged = self.data.load and self.data.load.use_loadFlag and OptionsPrivate.Private.loaded[self.data.id] ~= true
+    if self.view.visibility >= 1 and not (flagged and self.view.visibility < 2) then
       if not OptionsPrivate.Private.IsGroupType(self.data) then
         OptionsPrivate.Private.FakeStatesFor(self.data.id, true)
       end

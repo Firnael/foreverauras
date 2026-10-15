@@ -559,3 +559,109 @@ end
 function Private.GetAuraSpellRanks(id)
   return byID[id] or {id}
 end
+
+---------------------------------------------------------------------------- same-name IDs from the client
+-- The bundled families cover spellbook ranks. The aura a spell applies can be
+-- another ID with the same name (hidden ranks, server variants). The bundled
+-- SpellNameData.lua lists every such group read from the client's spell data.
+-- For a name not in the bundle (new spells after a patch, or a name with a
+-- single ID), the client's whole spell ID range is scanned for that name in
+-- small slices (a few ms per frame, a few seconds in all), and the result is
+-- kept in ForeverAurasSaved.spellNames for this client build (a new build
+-- starts a fresh cache). Nothing is observed from auras; no server traffic.
+local MAX_SPELL_ID = 1500000
+local SLICE_MS = 5
+local nameCache = {}
+local queue, queued = {}, {}
+local scanning
+local listeners = {}
+
+local function NameStore()
+  if type(ForeverAurasSaved) ~= "table" then return end
+  local version, build = GetBuildInfo()
+  local key = tostring(version) .. ":" .. tostring(build)
+  local store = ForeverAurasSaved.spellNames
+  if type(store) ~= "table" or store.build ~= key or type(store.names) ~= "table" then
+    store = {build = key, names = {}}
+    ForeverAurasSaved.spellNames = store
+  end
+  return store.names
+end
+
+function Private.SpellNameOf(id)
+  local name = nameCache[id]
+  if name ~= nil then return name or nil end
+  name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+  if type(name) ~= "string" or name == "" or (issecretvalue and issecretvalue(name)) then name = false end
+  nameCache[id] = name
+  return name or nil
+end
+
+local scanFrame = CreateFrame("Frame")
+scanFrame:Hide()
+local function FinishScan()
+  local pass = scanning
+  scanning = nil
+  scanFrame:Hide()
+  local names = NameStore()
+  if names then
+    for name in pairs(pass.wanted) do names[name] = pass.found[name] or {} end
+  end
+  for _, listener in ipairs(listeners) do pcall(listener, pass.wanted) end
+  if #queue > 0 then Private.StartSameNameScan() end
+end
+scanFrame:SetScript("OnUpdate", function()
+  local pass = scanning
+  if not pass then scanFrame:Hide(); return end
+  local GetSpellName = C_Spell.GetSpellName
+  local started = debugprofilestop()
+  local id, wanted, found = pass.id, pass.wanted, pass.found
+  while id <= MAX_SPELL_ID do
+    local name = GetSpellName(id)
+    if name and wanted[name] then
+      found[name] = found[name] or {}
+      table.insert(found[name], id)
+    end
+    id = id + 1
+    if id % 2000 == 0 and debugprofilestop() - started > SLICE_MS then break end
+  end
+  pass.id = id
+  if id > MAX_SPELL_ID then FinishScan() end
+end)
+
+function Private.StartSameNameScan()
+  if scanning or #queue == 0 or not (C_Spell and C_Spell.GetSpellName) then return end
+  local wanted = {}
+  for _, name in ipairs(queue) do wanted[name] = true; queued[name] = nil end
+  queue = {}
+  scanning = {wanted = wanted, found = {}, id = 1}
+  scanFrame:Show()
+end
+
+-- Every spell ID sharing the name of id: from the bundled SpellNameData.lua
+-- first, else from a scan of this client (nil while that scan is pending; it
+-- is queued here). Names with a single ID are not in the bundle, so a name
+-- not listed there is scanned once per build to be sure.
+function Private.SameNameSpellIDs(id)
+  local name = Private.SpellNameOf(id)
+  if not name then return end
+  local bundled = Private.spellNameData and Private.spellNameData[name]
+  if bundled then return bundled end
+  -- On the build the bundle was read from, a name missing there has one ID.
+  if Private.spellNameDataBuild and tostring(select(2, GetBuildInfo())) == Private.spellNameDataBuild then return end
+  local names = NameStore()
+  if not names then return end
+  local ids = names[name]
+  if ids then return ids end
+  if not queued[name] and not (scanning and scanning.wanted[name]) then
+    queued[name] = true
+    queue[#queue + 1] = name
+    Private.StartSameNameScan()
+  end
+end
+
+-- Called with the set of names whose scan just finished.
+function Private.OnSameNameScanned(listener)
+  listeners[#listeners + 1] = listener
+end
+

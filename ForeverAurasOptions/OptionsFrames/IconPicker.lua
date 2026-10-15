@@ -77,6 +77,22 @@ local function ConstructIconPicker(frame)
     end
 
     local library = OptionsPrivate.IconLibrary
+    -- ForeverAuras: the library is a static list (addons cannot read folders),
+    -- so a file deleted from its addon is still named here. Each file is
+    -- probed once per session with a hidden texture: SetTexture reports
+    -- whether the file exists, and missing ones are left out of the picker.
+    local function FileExists(path)
+      local known = OptionsPrivate.iconFilesSeen
+      if not known then known = {}; OptionsPrivate.iconFilesSeen = known end
+      local seen = known[path]
+      if seen ~= nil then return seen end
+      local probe = OptionsPrivate.iconFileProbe
+      if not probe then probe = UIParent:CreateTexture(); probe:Hide(); OptionsPrivate.iconFileProbe = probe end
+      local ok = probe:SetTexture(path) == true
+      probe:SetTexture(nil)
+      known[path] = ok
+      return ok
+    end
     local function AddLibrary(filter, onlyFolder)
       if not library then return end
       for index, folder in ipairs(library.folders) do
@@ -85,8 +101,11 @@ local function ConstructIconPicker(frame)
           for _, file in ipairs(folder.files) do
             local name = file:gsub("%.%a+$", ""):gsub("^.*\\", "")
             if not filter or name:lower():find(filter, 1, true) or folder.name:lower():find(filter, 1, true) then
-              AddButton(name, (folder.root or library.root) .. folder.path .. file)
-              if num >= limit then return end
+              local path = (folder.root or library.root) .. folder.path .. file
+              if FileExists(path) then
+                AddButton(name, path)
+                if num >= limit then return end
+              end
             end
           end
           if folder.game then

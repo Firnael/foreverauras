@@ -68,6 +68,9 @@ end
 function Display.RemainingWindow(trigger)
   if not UsesRemaining(trigger) then return end
   local op, x = trigger.secretRemOperator or "<", tonumber(trigger.secretRem)
+  -- A Spell List may set the seconds (a backend's slider), keeping the operator.
+  local list = Display.SpellList(trigger)
+  if list and list.remaining then x = list.remaining end
   if not Display.remOperators[op] or not x or x ~= x or x < 0 or x == math.huge then return end
   return op, x
 end
@@ -142,6 +145,9 @@ end
 -- manual icon, else the first selected spell's icon. Plain spell data only.
 function Display.SingleIcon(data)
   if data.iconSource == 0 and data.displayIcon and data.displayIcon ~= "" then return data.displayIcon end
+  -- A Spell List may picture the display itself.
+  local list = Display.SpellList(Display.GetTrigger(data))
+  if list and list.icon then return list.icon end
   local id = Display.GetSpellIDs(Display.GetTrigger(data) or {}, false)[1]
   local texture = id and C_Spell.GetSpellTexture(id)
   if texture and not issecretvalue(texture) then return texture end
@@ -409,7 +415,8 @@ local function StyleMissing(missing, region, data)
   local trigger = Display.GetTrigger(data)
   local id = Display.GetSpellIDs(trigger, false)[1]
   local info = id and C_Spell.GetSpellInfo(id)
-  Display.FillSampleBindings(native.button, Display.SingleIcon(data), info and info.name or "", data, false)
+  local list = Display.SpellList(trigger)
+  Display.FillSampleBindings(native.button, Display.SingleIcon(data), list and list.name or info and info.name or "", data, false)
   Display.StyleMissingIcon(native, data, region.secretAuraGates)
 end
 
