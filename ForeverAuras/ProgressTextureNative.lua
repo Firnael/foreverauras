@@ -227,6 +227,9 @@ function Native.StyleAura(native, data, parent)
     native.progressBackgrounds[key] = background
   end
   native.progressBackground = background
+  -- Shown first: a hidden base texture skips its coordinate update, so the
+  -- crop, mirror and rotation set below were never applied to the background.
+  background:Show()
   backgroundBase.modify(background, {
     crop_x = settings.crop_x,
     crop_y = settings.crop_y,
@@ -253,7 +256,6 @@ function Native.StyleAura(native, data, parent)
     background:SetValue(0, 1)
   end
   background:SetColor(unpack(data.backgroundColor))
-  background:Show()
   native.bar = progress.bar
   native.button:SetDurationBar(progress.bar, {direction = data.inverse and Enum.StatusBarTimerDirection.ElapsedTime or Enum.StatusBarTimerDirection.RemainingTime})
   progress.bar:Show()

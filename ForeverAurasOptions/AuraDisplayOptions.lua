@@ -177,7 +177,7 @@ function OptionsPrivate.PrepareSecretDisplayOptions(data, groups)
       if group.text_text then group.text_text.desc = "Hardcoded text. Use Conditions from other triggers to show, hide or change this message." end
       if group.text_text_pChoose then group.text_text_pChoose.disabled = true end
     end
-    if groupKey:match("%.subborder$") then group.__duplicate = nil end
+    -- Borders can be duplicated like any other element (several are drawn).
     if not detached and groupKey ~= "secretAura" and groupKey ~= "position" then
       for key, option in pairs(group) do
         if type(option) == "table" and option.type then
