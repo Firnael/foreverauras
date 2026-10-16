@@ -1,10 +1,15 @@
 # Changelog
 ## VERSIONS
+## 0.90.21
+- Modern auras: a standalone Icon set to Show On: Always no longer draws one pixel away from its preview when the display sits between pixels (for example an odd-sized icon centered on the screen). Its frame-buffer stage is now placed on whole pixels.
+- Fix lua error
+- Fix Specialization and Class loading
+
 ## 0.90.0
 Modern Aura Groups
 - Spacing is now exact at every group scale: each gap is a whole number of screen pixels, so icons and pixel-perfect borders line up like a Dynamic Group
 - Show On Missing and Remaining Time displays no longer take one unit too much or too little space in the row
-- Centred rows and the Limit option start on the same pixel live as in the options preview; the preview no longer shifts when the editor closes
+- Centered rows and the Limit option start on the same pixel live as in the options preview; the preview no longer shifts when the editor closes
 - The Limit cut ends at the last icon’s edge, so the next icon’s border no longer peeks through in the preview
 - Mixed groups (normal icons alongside Modern auras) keep the same spacing rules
 
