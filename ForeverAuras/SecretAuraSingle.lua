@@ -416,6 +416,59 @@ function Display.StyleMissingIcon(native, data, gates)
   end
 end
 
+-- The countdown text of a plain list timer, in the display's %p settings
+-- (minutes:seconds from a minute up, whole seconds below, decimals under the
+-- dynamic threshold). The client's formatter objects only serve bound
+-- aura text, so the text is composed here.
+local function ListTimerText(remaining, element)
+  if remaining <= 0 then return "" end
+  if remaining >= 60 then return ("%d:%02d"):format(math.floor(remaining / 60), math.floor(remaining % 60)) end
+  local threshold = element and tonumber(element.text_text_format_p_time_dynamic_threshold) or 0
+  if threshold > 0 and remaining < threshold then
+    return ("%." .. (element and tonumber(element.text_text_format_p_time_precision) or 1) .. "f"):format(remaining)
+  end
+  if element and element.text_text_format_p_time_legacy_floor then return tostring(math.floor(remaining)) end
+  return tostring(math.ceil(remaining))
+end
+
+-- A spell list may carry a plain timer (SetAuraSpellList: expirationTime and
+-- duration, ordinary numbers the aura read itself, e.g. a weapon enchant's
+-- time left, which no aura provides). The Missing look of a Show On Always or
+-- Missing icon then draws its swipe and its %p text from that timer; both
+-- clear when it runs out.
+local function ApplyListTimer(missing, data)
+  local native = missing.native
+  local button = native.button
+  local list = Display.SpellList(Display.GetTrigger(data))
+  local expires, duration = list and list.expirationTime, list and list.duration
+  if not (expires and duration and data.regionType == "icon") then
+    button:SetScript("OnUpdate", nil)
+    return
+  end
+  local element
+  for _, sub in ipairs(data.subRegions or {}) do
+    if sub.type == "subtext" and sub.text_visible ~= false and Display.TextKind(sub.text_text) == "duration" then element = sub; break end
+  end
+  local cooldown = data.cooldown ~= false and native.cooldown or nil
+  if cooldown then
+    cooldown:SetCooldown(expires - duration, duration)
+    cooldown:Show()
+  end
+  local function Tick(self, elapsed)
+    self.listElapsed = (self.listElapsed or 0) + (elapsed or 1)
+    if self.listElapsed < 0.05 then return end
+    self.listElapsed = 0
+    local remaining = expires - GetTime()
+    for _, entry in ipairs(self.bindings.DurationText or {}) do entry.widget:SetText(ListTimerText(remaining, element)) end
+    if remaining <= 0 then
+      if cooldown then cooldown:Clear(); cooldown:Hide() end
+      self:SetScript("OnUpdate", nil)
+    end
+  end
+  button:SetScript("OnUpdate", Tick)
+  Tick(button, 1)
+end
+
 local function StyleMissing(missing, region, data)
   local native = missing.native
   Display.StyleNative(native, data, region)
@@ -944,7 +997,8 @@ local function EnsureMissing(single, region, data, trigger, instance)
   missing.container:SetFrameLevel(region:GetFrameLevel() + 1)
   StyleMissing(missing, region, data)
   missing.active = true
-  missing.native.button:SetScript("OnUpdate", nil)
+  -- A plain list timer runs the look's countdown; otherwise it has none.
+  ApplyListTimer(missing, data)
   if missing.following then ClearFollowBars(missing.native) end
   missing.following = nil
   missing.foundMode = single.foundMode == true

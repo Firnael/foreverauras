@@ -309,9 +309,10 @@ if Private.OnSameNameScanned then
   end)
 end
 -- list: {spellIDs = {...}, name = "...", icon = fileID, label = "...",
--- remaining = seconds} or a plain array of spell IDs; remaining replaces the
--- trigger's Remaining Time seconds; nil clears the list (its displays match
--- nothing).
+-- remaining = seconds, expirationTime = GetTime() value, duration = seconds}
+-- or a plain array of spell IDs; remaining replaces the trigger's Remaining
+-- Time seconds; expirationTime and duration give Show On Always/Missing icons
+-- a plain countdown; nil clears the list (its displays match nothing).
 function ForeverAuras.SetAuraSpellList(key, list)
   if type(key) ~= "string" or key == "" or (list ~= nil and type(list) ~= "table") then return end
   local stored
@@ -327,10 +328,18 @@ function ForeverAuras.SetAuraSpellList(key, list)
     if icon then stored.icon = icon end
     local remaining = tonumber(list.remaining)
     if remaining and remaining >= 0 and remaining ~= math.huge then stored.remaining = remaining end
+    -- A plain timer (ordinary numbers the aura read itself, such as a weapon
+    -- enchant's time left): Show On Always and Missing icons draw a swipe and
+    -- countdown from it (SecretAuraSingle.lua, ApplyListTimer).
+    local expires, duration = tonumber(list.expirationTime), tonumber(list.duration)
+    if expires and duration and duration > 0 and expires ~= math.huge then
+      stored.expirationTime, stored.duration = expires, duration
+    end
   end
   local old = Display.spellLists[key]
   if old and stored and old.name == stored.name and old.label == stored.label and old.icon == stored.icon
-    and old.remaining == stored.remaining and #old.spellIDs == #stored.spellIDs then
+    and old.remaining == stored.remaining and old.expirationTime == stored.expirationTime
+    and old.duration == stored.duration and #old.spellIDs == #stored.spellIDs then
     local same = true
     for index, id in ipairs(old.spellIDs) do if stored.spellIDs[index] ~= id then same = false; break end end
     if same then return end
