@@ -403,6 +403,9 @@ local function StyleBorder(entry, parent, target, width, height, element, snapRo
   frame:SetAlpha(element.border_alpha or 1)
   frame:Show()
 end
+-- Shared with the Remaining Time display (SecretAuraSingle.lua), so its
+-- border is drawn exactly as a native button's.
+Display.StyleBorderFrame = StyleBorder
 
 function Display.StyleAppearance(native, data, ElementFrame, StyleText, StyleGlow)
   local button = native.button

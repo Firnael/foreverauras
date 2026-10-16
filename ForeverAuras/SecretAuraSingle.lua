@@ -35,13 +35,22 @@ Display.remOperators = {["<"] = "<", ["<="] = "<=", [">"] = ">", [">="] = ">="}
 -- Keys of the extra native parts, unique within their containers.
 local MISSING_GROUP = "FAMissing"
 local SLOT_ICON = "FARemainIcon"
-local SLOT_SWIPE = "FARemainSwipe"
 local SLOT_TEXTURE = "FARemainTexture"
 -- A Step curve point rules from its own value upwards; <= and > move the edge
 -- just past the entered number.
 local REMAIN_EPS = 0.001
 -- Inline texture coordinates are integers of this texture size.
 local TEXCOORD_UNITS = 1024
+
+-- Screen pixels per UI unit where a frame is drawn, or nil when unknown
+-- (as in SecretAuraFlow.lua).
+local function PixelsPerUnit(frame)
+  local factor = PixelUtil and PixelUtil.GetPixelToUIUnitFactor and PixelUtil.GetPixelToUIUnitFactor()
+  local scale = frame and frame.GetEffectiveScale and frame:GetEffectiveScale()
+  if type(factor) ~= "number" or factor <= 0 or type(scale) ~= "number" or issecretvalue(scale) or scale <= 0 then return nil end
+  return scale / factor
+end
+
 
 function Display.RawShowOn(trigger)
   local value = type(trigger) == "table" and trigger.secretShowOn
@@ -865,9 +874,31 @@ local function EnsureMissing(single, region, data, trigger, instance)
       stage:SetIsFrameBuffer(true)
       single.stage = stage
     end
-    stage:ClearAllPoints()
-    stage:SetPoint("TOPLEFT", region, "TOPLEFT", -margin, margin)
-    stage:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", margin, -margin)
+    -- The stage is a frame buffer: drawn at a fraction of a pixel, it moves
+    -- everything in it off the grid. Its corners are a whole number of
+    -- pixels from the display, and snapped by the display's own fraction
+    -- (a 49-unit icon centred on the screen starts at half a pixel); at
+    -- login, with no place yet, the snap is repeated a frame later.
+    local px = PixelsPerUnit(region)
+    local stageMargin = px and math.ceil(margin * px) / px or margin
+    local function AnchorStage(attempt)
+      if attempt > 0 and not missing.active then return end
+      local snapX, snapY, placed = 0, 0, true
+      if px then
+        local ok, left, top = pcall(function() return region:GetLeft(), region:GetTop() end)
+        if ok and type(left) == "number" and type(top) == "number" and not issecretvalue(left) and not issecretvalue(top) then
+          snapX = (math.floor(left * px + 0.5) - left * px) / px
+          snapY = (math.floor(top * px + 0.5) - top * px) / px
+        elseif ok and left == nil then
+          placed = false
+        end
+      end
+      stage:ClearAllPoints()
+      stage:SetPoint("TOPLEFT", region, "TOPLEFT", -stageMargin + snapX, stageMargin + snapY)
+      stage:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", stageMargin + snapX, -stageMargin + snapY)
+      if not placed and attempt < 5 then C_Timer.After(0, function() AnchorStage(attempt + 1) end) end
+    end
+    AnchorStage(0)
     stage:SetFrameLevel(region:GetFrameLevel())
     stage:Show()
     if clip:GetParent() ~= stage then clip:SetParent(stage) end
@@ -877,8 +908,36 @@ local function EnsureMissing(single, region, data, trigger, instance)
   else
     if single.stage then single.stage:Hide() end
     if clip:GetParent() ~= region then clip:SetParent(region) end
-    clip:SetPoint("TOPLEFT", missing.container, "TOPRIGHT", -1 - margin, margin)
-    clip:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", margin, -margin)
+    -- The clip's corners a whole number of pixels from the icon's box, so its
+    -- origin is on the pixel grid: what a clip holds is rounded against the
+    -- clip, and a clip at a fraction of a pixel drew the icon a pixel off.
+    local px = PixelsPerUnit(anchor)
+    local clipMargin = px and math.ceil(margin * px) / px or margin
+    -- A display on its own can sit between pixels (a 49-unit icon centred
+    -- on the screen starts at half a pixel); the clip's corner is then moved
+    -- by that fraction onto a whole pixel. In a group the anchor is already
+    -- on the grid, and its place may be secret: then no correction. At
+    -- login the display has no place yet; the anchoring is then repeated a
+    -- frame later, when it has.
+    local function AnchorClip(attempt)
+      if not missing.active and attempt > 0 then return end
+      local snapX, snapY, placed = 0, 0, true
+      if px then
+        local ok, left, top = pcall(function() return anchor:GetLeft(), anchor:GetTop() end)
+        if ok and type(left) == "number" and type(top) == "number" and not issecretvalue(left) and not issecretvalue(top) then
+          snapX = (math.floor(left * px + 0.5) - left * px) / px
+          snapY = (math.floor(top * px + 0.5) - top * px) / px
+        elseif ok and left == nil then
+          placed = false
+        end
+      end
+      if Locked(clip) then return end
+      clip:ClearAllPoints()
+      clip:SetPoint("TOPLEFT", missing.container, "TOPRIGHT", -1 - clipMargin + snapX, clipMargin + snapY)
+      clip:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", clipMargin + snapX, -clipMargin + snapY)
+      if not placed and attempt < 5 then C_Timer.After(0, function() AnchorClip(attempt + 1) end) end
+    end
+    AnchorClip(0)
     clip:SetFrameLevel(region:GetFrameLevel() + 1)
   end
   EnsurePresence(missing, region, data, filter, candidates, perUnit)
@@ -988,86 +1047,229 @@ local function FirstElement(data, matches)
   end
 end
 
--- The swipe inside the Remaining Time window: a clip sized by a hidden
--- countdown text that is the icon's size inside the window and empty outside.
-local swipeCurve
-local function StyleRemainingSwipe(single, instance, region, data, trigger, level)
-  local swipe = EnsureSlot(single, instance, region, SLOT_SWIPE, trigger, data, function(button, slot)
-    slot.clip = CreateFrame("Frame", nil, button, "DisableUntrustedLayoutScriptsTemplate")
-    Display.ClipChildren(slot.clip)
-    slot.cooldown = CreateFrame("Cooldown", nil, slot.clip, "CooldownFrameTemplate")
-    slot.cooldown:SetDrawBling(false)
-    slot.gate = button:CreateFontString(nil, "BACKGROUND")
-  end)
-  if not (swipe and swipe.clip) then return end
-  if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter and Enum.DurationTextBindingProperty) then swipe.used = false; return end
-  local lower, upper = Display.RemainingRange(trigger)
-  local width, height = Display.Dimensions(data)
-  local size, fill, margin = Display.GateFill(width, height)
-  local formatter = lower and Display.GateFormatter(lower, upper, fill)
-  if not formatter then swipe.used = false; return end
-  if not swipeCurve then
-    swipeCurve = C_CurveUtil.CreateColorCurve()
-    swipeCurve:SetType(Enum.LuaCurveType.Step)
-    swipeCurve:AddPoint(0, CreateColor(0, 0, 0, 0))
+-- The artwork of a Remaining Time display is drawn as texture markup inside a
+-- text, so it is sized and placed in units of that text. The text lives in a
+-- frame scaled so that one of its units is one screen pixel: the artwork then
+-- has whole-pixel sizes and lands on the pixel grid, as a native icon does.
+local function PixelFrame(slot, region, corner)
+  local px = PixelsPerUnit(Display.ContentAnchor(region))
+  if not slot.pixel then
+    slot.pixel = CreateFrame("Frame", nil, slot.button)
+    slot.pixel:EnableMouse(false)
   end
-  local gate, clip, cooldown, button = swipe.gate, swipe.clip, swipe.cooldown, swipe.button
-  gate:SetFont(STANDARD_TEXT_FONT, size, "")
-  gate:SetWordWrap(false)
-  gate:SetWidth(0)
-  Display.PlaceGateText(gate, button, margin)
-  local property = Enum.DurationTextBindingProperty.RemainingDuration
-  button:ClearDurationText()
-  if not pcall(button.SetDurationText, button, gate, {
-    textFormat = {formatString = "{}", components = {{property = property, formatter = formatter}}},
-    textColor = {curve = swipeCurve, property = property},
-  }) then swipe.used = false; return end
-  gate:Show()
-  clip:ClearAllPoints()
-  clip:SetPoint("TOPLEFT", gate, "TOPLEFT")
-  clip:SetPoint("BOTTOMRIGHT", gate, "BOTTOMRIGHT")
-  cooldown:ClearAllPoints()
-  cooldown:SetAllPoints(button)
-  cooldown:SetDrawSwipe(data.cooldownSwipe ~= false)
-  cooldown:SetDrawEdge(data.cooldownEdge == true)
-  cooldown:SetReverse(data.inverse == true)
-  cooldown:SetHideCountdownNumbers(true)
-  cooldown:SetSwipeColor(unpack(data.blizzardAuraDisplay and data.blizzardAuraDisplay.swipeColor or {0, 0, 0, 0.8}))
-  pcall(button.SetFrameLevel, button, level + 1)
-  button:SetDurationCooldown(cooldown)
-  instance.container:SetAuraSlotEnabled(SLOT_SWIPE, true)
+  slot.pixel:SetScale(px and 1 / px or 1)
+  slot.pixel:ClearAllPoints()
+  -- From the button's corner on the pixel grid; centred, a 43-pixel icon in
+  -- a 43.2-pixel button would start a fraction of a pixel in.
+  slot.pixel:SetPoint(corner or "TOPLEFT", slot.button, corner or "TOPLEFT")
+  slot.pixel:SetSize(1, 1)
+  return slot.pixel, px or 1
+end
+
+-- A texture in a text does not render at its stated size (the game scales it
+-- with the font), so the markup is chosen by measuring: the sizes whose
+-- rendered width and height, in a plain invisible copy of the text, come
+-- closest to the pixels wanted. Returns the markup and its rendered height.
+local function FitMarkup(slot, frame, texture, w, h, left, right, top, bottom, color)
+  if not slot.probe then
+    slot.probe = frame:CreateFontString(nil, "ARTWORK")
+    slot.probe:SetAlpha(0)
+  end
+  local probe = slot.probe
+  probe:SetFont(STANDARD_TEXT_FONT, 12, "")
+  probe:SetWordWrap(false)
+  probe:ClearAllPoints()
+  probe:SetPoint("TOPLEFT", frame, "TOPLEFT")
+  local function Measure(n, m)
+    probe:SetText(TextureMarkup(texture, n, m, left, right, top, bottom, color))
+    local pw, ph = probe:GetStringWidth(), probe:GetStringHeight()
+    if type(pw) ~= "number" or type(ph) ~= "number" or issecretvalue(pw) or issecretvalue(ph) then return end
+    return pw, ph
+  end
+  local bestW, bestH, errW, errH = w, h, math.huge, math.huge
+  for n = math.max(1, w - 3), w + 3 do
+    local pw = Measure(n, h)
+    if pw and math.abs(pw - w) < errW then bestW, errW = n, math.abs(pw - w) end
+  end
+  for m = math.max(1, h - 3), h + 3 do
+    local _, ph = Measure(bestW, m)
+    if ph and math.abs(ph - h) < errH then bestH, errH = m, math.abs(ph - h) end
+  end
+  local _, renderedH = Measure(bestW, bestH)
+  probe:SetText("")
+  return TextureMarkup(texture, bestW, bestH, left, right, top, bottom, color), renderedH or h
+end
+
+-- The text's line is taller than a thin texture and centres the texture in
+-- it, so the text is anchored by its vertical middle at the artwork's middle
+-- (half the artwork's pixel height from the corner it hangs off). It always
+-- starts at its left, a whole pixel in from a right corner, since a texture
+-- renders a little narrower than asked and would straddle a pixel if its
+-- right end were pinned instead.
+local function AnchorArtwork(text, frame, corner, w, h)
+  local down = corner:find("TOP") and -1 or 1
+  local x = corner:find("RIGHT") and -w or 0
+  text:ClearAllPoints()
+  text:SetPoint("LEFT", frame, corner, x, down * h / 2)
 end
 
 -- Remaining Time: the list keeps drawing the aura (its countdown and glow are
 -- limited to the range by Blizzard, see StyleRemainingList); this slot adds the
 -- display's icon as inline artwork whose opacity follows the same range.
+local remainingGateCurve
 local function EnsureRemaining(single, instance, region, data, trigger, op, x)
   local icon = EnsureSlot(single, instance, region, SLOT_ICON, trigger, data)
   if not icon then return false end
   local width, height = Display.Dimensions(data)
   local color = data.color or {1, 1, 1, 1}
   local left, right, top, bottom = Display.IconTexCoords(data)
-  -- Created at configuration time on the slot button.
-  icon.text = icon.text or icon.button:CreateFontString(nil, "ARTWORK")
-  icon.text:SetWordWrap(false)
-  icon.text:SetFont(STANDARD_TEXT_FONT, 12, "")
-  icon.text:ClearAllPoints()
-  icon.text:SetPoint("CENTER", icon.button, "CENTER")
+  -- The icon and its Border elements are real frames, drawn exactly as on a
+  -- native button (the same border code, rounded to pixels), inside a clip
+  -- that Blizzard's timer opens: a hidden text that is a large block of
+  -- letters inside the Remaining Time window and empty outside it sizes the
+  -- clip (as the swipe's and the gates' clips are). Nothing is drawn as
+  -- texture markup, whose placement in a text is not exact to the pixel.
+  if not icon.clip then
+    icon.clip = CreateFrame("Frame", nil, icon.button, "DisableUntrustedLayoutScriptsTemplate")
+    Display.ClipChildren(icon.clip)
+    icon.art = CreateFrame("Frame", nil, icon.clip, "DisableUntrustedLayoutScriptsTemplate")
+    icon.art:EnableMouse(false)
+    if icon.art.SetRoundLayoutToNearestPixel then icon.art:SetRoundLayoutToNearestPixel(true) end
+    icon.tex = icon.art:CreateTexture(nil, "ARTWORK")
+    icon.tex:SetAllPoints(icon.art)
+    -- The swipe lives on the icon's frame, under the borders (made after it),
+    -- as an Icon's cooldown is under its border.
+    icon.cooldown = CreateFrame("Cooldown", nil, icon.art, "CooldownFrameTemplate")
+    icon.cooldown:SetAllPoints(icon.art)
+    icon.cooldown:SetDrawBling(false)
+    icon.cooldown:SetHideCountdownNumbers(true)
+    icon.gate = icon.button:CreateFontString(nil, "BACKGROUND")
+    icon.borders = {}
+  end
+  if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter and Enum.DurationTextBindingProperty) then return false end
+  local lower, upper = Display.RemainingRange(trigger)
+  local size, fill, margin = Display.GateFill(width, height)
+  local formatter = lower and Display.GateFormatter(lower, upper, fill)
+  if not formatter then return false end
+  if not remainingGateCurve then
+    remainingGateCurve = C_CurveUtil.CreateColorCurve()
+    remainingGateCurve:SetType(Enum.LuaCurveType.Step)
+    remainingGateCurve:AddPoint(0, CreateColor(0, 0, 0, 0))
+  end
+  local gate, clip, art = icon.gate, icon.clip, icon.art
+  gate:SetFont(STANDARD_TEXT_FONT, size, "")
+  gate:SetWordWrap(false)
+  gate:SetWidth(0)
+  -- The clip's origin stays on the button's pixel grid: its left, top and
+  -- bottom are the button's with a whole-pixel margin, and only its right
+  -- edge follows the hidden text (empty, the clip ends before the button;
+  -- filled, well past it). A clip hung on a vertically centred text sits
+  -- at a fraction of a pixel, and what it holds was drawn a pixel off.
+  local gatePx = PixelsPerUnit(icon.button)
+  local gateMargin = gatePx and math.ceil(margin * gatePx) / gatePx or margin
+  -- A display on its own can sit between pixels; the clip's corner is moved
+  -- by that fraction onto a whole pixel (as the Missing clip is).
+  local function GateSnap()
+    local snapX, snapY, placed = 0, 0, true
+    if gatePx then
+      local anchorFrame = Display.ContentAnchor(region)
+      local ok, left, top = pcall(function() return anchorFrame:GetLeft(), anchorFrame:GetTop() end)
+      if ok and type(left) == "number" and type(top) == "number" and not issecretvalue(left) and not issecretvalue(top) then
+        snapX = (math.floor(left * gatePx + 0.5) - left * gatePx) / gatePx
+        snapY = (math.floor(top * gatePx + 0.5) - top * gatePx) / gatePx
+      elseif ok and left == nil then
+        placed = false
+      end
+    end
+    return snapX, snapY, placed
+  end
+  local snapX, snapY, placed = GateSnap()
+  gate:ClearAllPoints()
+  gate:SetJustifyH("LEFT")
+  gate:SetPoint("TOPLEFT", icon.button, "TOPLEFT", -gateMargin + snapX, gateMargin + snapY)
   icon.button:ClearDurationText()
   -- A refused binding would leave the display empty: report it on the aura.
-  local okIcon, iconErr = pcall(icon.button.SetDurationText, icon.button, icon.text, {
-    textFormat = {formatString = TextureMarkup(Display.SingleIcon(data), width, height, left, right, top, bottom, color), components = {}},
-    textColor = {curve = RemainingCurve(op, x, color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1),
-      property = Enum.DurationTextBindingProperty.RemainingDuration},
+  local okIcon, iconErr = pcall(icon.button.SetDurationText, icon.button, gate, {
+    textFormat = {formatString = "{}", components = {{property = Enum.DurationTextBindingProperty.RemainingDuration, formatter = formatter}}},
+    textColor = {curve = remainingGateCurve, property = Enum.DurationTextBindingProperty.RemainingDuration},
   })
   if not okIcon then
     Warn(data, "Blizzard refused the Remaining Time icon: " .. tostring(iconErr))
     return false
   end
-  icon.text:Show()
+  gate:Show()
+  clip:ClearAllPoints()
+  local function AnchorGateClip(sx, sy)
+    gate:ClearAllPoints()
+    gate:SetPoint("TOPLEFT", icon.button, "TOPLEFT", -gateMargin + sx, gateMargin + sy)
+    clip:ClearAllPoints()
+    clip:SetPoint("TOPLEFT", icon.button, "TOPLEFT", -gateMargin + sx, gateMargin + sy)
+    clip:SetPoint("BOTTOMLEFT", icon.button, "BOTTOMLEFT", -gateMargin + sx, -gateMargin + sy)
+    clip:SetPoint("RIGHT", gate, "RIGHT")
+  end
+  AnchorGateClip(snapX, snapY)
+  -- At login the display has no place yet: snapped again a frame later.
+  if not placed then
+    local tries = 0
+    local function Retry()
+      tries = tries + 1
+      if not icon.used then return end
+      local sx, sy, ok = GateSnap()
+      AnchorGateClip(sx, sy)
+      if not ok and tries < 5 then C_Timer.After(0, Retry) end
+    end
+    C_Timer.After(0, Retry)
+  end
+  -- The slot button is the box: on the row's start frame, rounded to pixels
+  -- like a native button (BuildButton), sized in whole pixels (36 units on a
+  -- 1.2 group is 43.2 pixels: 43). The icon fills it.
+  local px = PixelsPerUnit(icon.button)
+  if icon.button.SetRoundLayoutToNearestPixel then pcall(icon.button.SetRoundLayoutToNearestPixel, icon.button, true) end
+  icon.button:ClearAllPoints()
+  icon.button:SetPoint("TOPLEFT", Display.ContentAnchor(region), "TOPLEFT")
+  if px then
+    icon.button:SetSize(math.max(1, math.floor(width * px + 0.5)) / px, math.max(1, math.floor(height * px + 0.5)) / px)
+  else
+    icon.button:SetSize(width, height)
+  end
+  art:ClearAllPoints()
+  art:SetAllPoints(icon.button)
+  icon.tex:SetSnapToPixelGrid(false)
+  icon.tex:SetTexelSnappingBias(0)
+  icon.tex:SetTexture(Display.SingleIcon(data))
+  icon.tex:SetTexCoord(left, right, top, bottom)
+  icon.tex:SetVertexColor(color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1)
+  icon.tex:SetDesaturated(data.desaturate == true)
+  art:Show()
+  -- The swipe: Blizzard fills it from the aura's duration.
+  local cooldown = icon.cooldown
+  pcall(icon.button.ClearDurationCooldown, icon.button)
+  if data.cooldown ~= false then
+    cooldown:SetDrawSwipe(data.cooldownSwipe ~= false)
+    cooldown:SetDrawEdge(data.cooldownEdge == true)
+    cooldown:SetReverse(data.inverse == true)
+    cooldown:SetSwipeColor(unpack(data.blizzardAuraDisplay and data.blizzardAuraDisplay.swipeColor or {0, 0, 0, 0.8}))
+    cooldown:Show()
+    pcall(icon.button.SetDurationCooldown, icon.button, cooldown)
+  else
+    cooldown:Hide()
+  end
+  -- Border elements, with the native buttons' own border code.
+  for _, entry in pairs(icon.borders) do if entry.border then entry.border:Hide() end end
+  for index, element in ipairs(data.subRegions or {}) do
+    if element.type == "subborder" and element.border_visible ~= false and not Display.IsDetachedElement(data, element) then
+      icon.borders[index] = icon.borders[index] or {}
+      Display.StyleBorderFrame(icon.borders[index], art, art, width, height, element, Display.FlowGroup(data) ~= nil)
+      icon.borders[index].border:SetAlpha(element.border_alpha or 1)
+      -- Above the swipe, as an Icon's border is above its cooldown.
+      pcall(icon.borders[index].border.SetFrameLevel, icon.borders[index].border, cooldown:GetFrameLevel() + 1)
+      icon.borders[index].border:Show()
+    end
+  end
   instance.container:SetAuraSlotEnabled(SLOT_ICON, true)
   local level = icon.button:GetFrameLevel()
-  if data.cooldown ~= false then StyleRemainingSwipe(single, instance, region, data, trigger, level) end
+  -- The swipe is drawn on the icon's frame above; the separate swipe slot
+  -- of earlier versions is left unused, which turns it off.
   -- Elements listed before the Background draw below the icon, as they do on
   -- an ordinary Icon; the rest draw above it in list order.
   local backgroundIndex
@@ -1079,19 +1281,24 @@ local function EnsureRemaining(single, instance, region, data, trigger, op, x)
   local function Artwork(key, index, texture, w, h, point, relative, ox, oy, tint, alpha, below)
     local slot = EnsureSlot(single, instance, region, key, trigger, data)
     if not slot then return end
-    w, h = math.max(1, math.floor(w + 0.5)), math.max(1, math.floor(h + 0.5))
+    -- The slot button is placed in units; the artwork inside it in pixels,
+    -- from the corner the button is anchored by (a corner of the display's
+    -- box, which is on the pixel grid), or the top-left one.
+    local corner = (point:find("TOP") or point:find("BOTTOM")) and (point:find("LEFT") or point:find("RIGHT")) and point or "TOPLEFT"
+    local frame, scale = PixelFrame(slot, region, corner)
+    w, h = math.max(1, math.floor(w * scale + 0.5)), math.max(1, math.floor(h * scale + 0.5))
     slot.button:ClearAllPoints()
-    slot.button:SetSize(w, h)
+    slot.button:SetSize(w / scale, h / scale)
     slot.button:SetPoint(point, Display.ContentAnchor(region), relative, ox, oy)
     pcall(slot.button.SetFrameLevel, slot.button, below and math.max(0, level - 1) or level + index)
-    slot.text = slot.text or slot.button:CreateFontString(nil, "ARTWORK")
+    slot.text = slot.text or frame:CreateFontString(nil, "ARTWORK")
     slot.text:SetWordWrap(false)
     slot.text:SetFont(STANDARD_TEXT_FONT, 12, "")
-    slot.text:ClearAllPoints()
-    slot.text:SetPoint("CENTER", slot.button, "CENTER")
     slot.button:ClearDurationText()
+    local markup, rendered = FitMarkup(slot, frame, texture, w, h, 0, 1, 0, 1, tint)
+    AnchorArtwork(slot.text, frame, corner, w, h)
     local ok = pcall(slot.button.SetDurationText, slot.button, slot.text, {
-      textFormat = {formatString = TextureMarkup(texture, w, h, 0, 1, 0, 1, tint), components = {}},
+      textFormat = {formatString = markup, components = {}},
       textColor = {curve = RemainingCurve(op, x, tint[1] or 1, tint[2] or 1, tint[3] or 1, (tint[4] or 1) * alpha),
         property = Enum.DurationTextBindingProperty.RemainingDuration},
     })
@@ -1116,18 +1323,6 @@ local function EnsureRemaining(single, instance, region, data, trigger, op, x)
       end
       Artwork(SLOT_TEXTURE .. index, index, element.textureTexture, w, h, point, relative, ox, oy,
         element.textureColor or {1, 1, 1, 1}, element.texture_alpha or 1, backgroundIndex and index < backgroundIndex)
-    elseif element.type == "subborder" and element.border_visible ~= false then
-      -- A Border element: four square edges (the edge style is not drawn here),
-      -- the element's thickness inside its offset, as on an ordinary Icon.
-      local thickness = math.max(1, tonumber(element.border_size) or 1)
-      local offset = tonumber(element.border_offset) or 0
-      local tint, alpha = element.border_color or {1, 1, 1, 1}, element.border_alpha or 1
-      local outerW, outerH = width + 2 * offset, height + 2 * offset
-      local white = "Interface\\Buttons\\WHITE8X8"
-      Artwork(SLOT_TEXTURE .. index .. "t", index, white, outerW, thickness, "TOP", "TOP", 0, offset, tint, alpha, false)
-      Artwork(SLOT_TEXTURE .. index .. "b", index, white, outerW, thickness, "BOTTOM", "BOTTOM", 0, -offset, tint, alpha, false)
-      Artwork(SLOT_TEXTURE .. index .. "l", index, white, thickness, outerH, "LEFT", "LEFT", -offset, 0, tint, alpha, false)
-      Artwork(SLOT_TEXTURE .. index .. "r", index, white, thickness, outerH, "RIGHT", "RIGHT", offset, 0, tint, alpha, false)
     end
   end
   return true

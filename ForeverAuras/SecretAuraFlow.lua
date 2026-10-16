@@ -152,9 +152,12 @@ local function SnapOffset(frame, point)
   local px = PixelsPerUnit(frame)
   if not px or not frame or not frame.GetLeft then return 0, 0 end
   local left, right, top, bottom = frame:GetLeft(), frame:GetRight(), frame:GetTop(), frame:GetBottom()
-  for _, value in ipairs({left, right, top, bottom}) do
+  -- Each checked by name: a frame not laid out yet returns nil, and a nil
+  -- ends ipairs before the values after it are seen.
+  for _, value in pairs({left = left, right = right, top = top, bottom = bottom}) do
     if type(value) ~= "number" or issecretvalue(value) then return 0, 0 end
   end
+  if left == nil or right == nil or top == nil or bottom == nil then return 0, 0 end
   point = point or "TOPLEFT"
   local x = point:find("LEFT") and left or point:find("RIGHT") and right or (left + right) / 2
   local y = point:find("TOP") and top or point:find("BOTTOM") and bottom or (top + bottom) / 2
@@ -337,10 +340,11 @@ function Display.SetFlowEnd(region, data, presence)
   local width, height = Display.Dimensions(data)
   local showOn = Display.ShowOn(trigger)
   if flow.remain then
-    -- The text is one pixel longer than its fill (one pixel wide when empty),
-    -- so the next display starts one pixel before its end, in its own units.
+    -- The measured pixels back from the text's end (MeasureText), in the
+    -- next display's units.
     local px = PixelsPerUnit(flow.start) or 1
-    flow.endFrame, flow.endPoint, flow.x, flow.y = flow.remain, g.far, -g.sign[1] / px, -g.sign[2] / px
+    local back = (flow.remainBack or 1) / px
+    flow.endFrame, flow.endPoint, flow.x, flow.y = flow.remain, g.far, -g.sign[1] * back, -g.sign[2] * back
   elseif showOn == "showOnMissing" and presence then
     flow.endFrame, flow.endPoint, flow.x, flow.y = presence, g.start, 0, 0
   -- A gate (Total Duration or Stack Count) keeps the candidates on one spot.
@@ -679,7 +683,13 @@ local function MeasureText(instance, key, data, trigger, g, startFrame, length, 
     entry.holder = CreateFrame("Frame", nil, entry.button, "DisableUntrustedLayoutScriptsTemplate")
     entry.holder:EnableMouse(false)
     entry.holder:SetSize(1, 1)
+    -- The fill is a plain texture that the text colour cannot hide; the holder
+    -- is invisible (its size still measures), as the slot button is.
+    entry.holder:SetAlpha(0)
     entry.text = entry.holder:CreateFontString(nil, "ARTWORK")
+    -- A plain copy of the text, to measure how wide the fill really renders.
+    entry.probe = entry.holder:CreateFontString(nil, "ARTWORK")
+    entry.probe:SetAlpha(0)
     store[key] = entry
   end
   container:SetAuraSlotEnabled(key, false)
@@ -698,11 +708,42 @@ local function MeasureText(instance, key, data, trigger, g, startFrame, length, 
   text:SetFont(STANDARD_TEXT_FONT, 12, "")
   text:SetWordWrap(false)
   text:SetJustifyH(g.sign[1] < 0 and "RIGHT" or "LEFT")
+  -- Invisible: the fill texture ignores the text colour (seen as a dark line).
+  text:SetAlpha(0)
   text:ClearAllPoints()
+  -- Anchors see the text as exactly its fill, and as nothing when empty
+  -- (GetRight reports a one-pixel minimum that anchors do not use), so the
+  -- fill is the step in whole pixels and the text starts at the display.
   text:SetPoint(g.start, holder, g.start)
   local along = g.sign[1] ~= 0
-  length = math.max(1, math.floor(length * (px or 1) + 0.5))
-  local fill = ("|TInterface\\Buttons\\WHITE8X8:%d:%d|t"):format(along and 1 or length, along and length or 1)
+  -- A texture in a text does not render at its stated size (a 44 pixel fill
+  -- measured 43.27 on a scaled group), and an empty text is one pixel long.
+  -- So the fill is chosen by measuring: the size whose rendered length is
+  -- closest to the step plus one pixel; the next display then starts one
+  -- pixel back from the text's end, filled or empty (SetFlowEnd), and any
+  -- remainder of the match is folded into that offset.
+  local target = math.max(1, math.floor(length * (px or 1) + 0.5)) + 1
+  local probe = entry.probe
+  probe:SetFont(STANDARD_TEXT_FONT, 12, "")
+  probe:SetWordWrap(false)
+  probe:ClearAllPoints()
+  probe:SetPoint(g.start, holder, g.start)
+  local function Markup(n) return ("|TInterface\\Buttons\\WHITE8X8:%d:%d|t"):format(along and 1 or n, along and n or 1) end
+  local best, bestLength
+  for n = math.max(1, target - 3), target + 3 do
+    probe:SetText(Markup(n))
+    local rendered = along and probe:GetStringWidth() or probe:GetStringHeight()
+    if type(rendered) == "number" and not issecretvalue(rendered) and rendered > 0
+      and (not best or math.abs(rendered - target) < math.abs(bestLength - target)) then
+      best, bestLength = n, rendered
+    end
+  end
+  probe:SetText("")
+  if not best then best, bestLength = target, target end
+  -- Pixels back from the text's end to the next display: one for the empty
+  -- text, plus whatever the fill renders over the target.
+  entry.back = 1 + (bestLength - target)
+  local fill = Markup(best)
   local formatter = Display.GateFormatter(lower, upper, fill)
   if not formatter then return end
   if not measureCurve then
@@ -768,11 +809,13 @@ function Display.EnsureFlowRemaining(region, data)
   local size = ((g.sign[1] ~= 0) and width or height) + spacing
   local main = MeasureText(instance, FLOW_REMAIN, data, trigger, g, flow.start, size, lower, upper, property)
   flow.remain = main and main.text
+  flow.remainBack = main and main.back
   local shadow = main and g.shadow and flow.shadowStart
     and MeasureText(instance, FLOW_REMAIN_SHADOW, data, trigger, g.shadow, flow.shadowStart, Display.FlowHalf(region, size), lower, upper, property)
   if shadow then
     HideShadow(instance, "flowShadow")
     flow.shadowKind, flow.shadowList, flow.shadowRemain = "remain", nil, shadow.text
+    flow.shadowRemainBack = shadow.back
   else
     DisableMeasure(instance, FLOW_REMAIN_SHADOW)
   end
@@ -816,9 +859,10 @@ local function ChainShadows(flow)
     end
     return {flow.shadowList[#flow.shadowList], sh.listEnd, sh.pixel[1], sh.pixel[2]}
   elseif flow.shadowKind == "remain" then
-    -- The same one pixel of text padding as the main measure (see SetFlowEnd).
+    -- The shadow measure's own pixels back (see SetFlowEnd).
     local px = PixelsPerUnit(flow.shadowStart) or 1
-    return {flow.shadowRemain, sh.far, -sh.sign[1] / px, -sh.sign[2] / px}
+    local back = (flow.shadowRemainBack or 1) / px
+    return {flow.shadowRemain, sh.far, -sh.sign[1] * back, -sh.sign[2] * back}
   elseif flow.shadowKind == "missing" then
     local single = flow.region.blizzardAuraDisplay.instances[1].single.missing
     return {single.flowShadow, sh.start, 0, 0}
