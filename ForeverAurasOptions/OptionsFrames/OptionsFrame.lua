@@ -191,6 +191,12 @@ function OptionsPrivate.CreateFrame()
   frame:Hide()
 
   frame:SetScript("OnHide", function()
+    -- Tell auras that drive load flags the editor has closed before their
+    -- displays are reloaded, so a preview can be withdrawn without first
+    -- flashing its content on screen. The frame is already hidden here, so
+    -- WeakAuras.IsOptionsOpen() reports false inside the handlers.
+    OptionsPrivate.Private.ScanEvents("FA_OPTIONS_CLOSED")
+
     local suspended = OptionsPrivate.Private.PauseAllDynamicGroups()
 
     OptionsPrivate.Private.ClearFakeStates()

@@ -1,5 +1,9 @@
 # Changelog
 ## VERSIONS
+## 0.90.23
+- Fix %p showing on weapon enchant scrolls
+- A tweak to previews flickering on options hiding.
+
 ## 0.90.21
 - Modern auras: a standalone Icon set to Show On: Always no longer draws one pixel away from its preview when the display sits between pixels (for example an odd-sized icon centered on the screen). Its frame-buffer stage is now placed on whole pixels.
 - Fix lua error
