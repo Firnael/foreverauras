@@ -842,6 +842,8 @@ local function EnsureMissing(single, region, data, trigger, instance)
     if not slot then
       slot = CreateFrame("Frame", nil, region, "DisableUntrustedLayoutScriptsTemplate")
       slot:EnableMouse(false)
+      -- On the pixel grid, like a display's start frame (SecretAuraFlow.lua).
+      if slot.SetRoundLayoutToNearestPixel then slot:SetRoundLayoutToNearestPixel(true) end
       instance.missingSlot = slot
     end
     slot:SetSize(width, height)
@@ -1072,46 +1074,60 @@ local function EnsureRemaining(single, instance, region, data, trigger, op, x)
   for index, element in ipairs(data.subRegions or {}) do
     if element.type == "subbackground" then backgroundIndex = index; break end
   end
+  -- One piece of artwork drawn by Blizzard's timer like the icon: a texture
+  -- element, or one edge of a Border element.
+  local function Artwork(key, index, texture, w, h, point, relative, ox, oy, tint, alpha, below)
+    local slot = EnsureSlot(single, instance, region, key, trigger, data)
+    if not slot then return end
+    w, h = math.max(1, math.floor(w + 0.5)), math.max(1, math.floor(h + 0.5))
+    slot.button:ClearAllPoints()
+    slot.button:SetSize(w, h)
+    slot.button:SetPoint(point, Display.ContentAnchor(region), relative, ox, oy)
+    pcall(slot.button.SetFrameLevel, slot.button, below and math.max(0, level - 1) or level + index)
+    slot.text = slot.text or slot.button:CreateFontString(nil, "ARTWORK")
+    slot.text:SetWordWrap(false)
+    slot.text:SetFont(STANDARD_TEXT_FONT, 12, "")
+    slot.text:ClearAllPoints()
+    slot.text:SetPoint("CENTER", slot.button, "CENTER")
+    slot.button:ClearDurationText()
+    local ok = pcall(slot.button.SetDurationText, slot.button, slot.text, {
+      textFormat = {formatString = TextureMarkup(texture, w, h, 0, 1, 0, 1, tint), components = {}},
+      textColor = {curve = RemainingCurve(op, x, tint[1] or 1, tint[2] or 1, tint[3] or 1, (tint[4] or 1) * alpha),
+        property = Enum.DurationTextBindingProperty.RemainingDuration},
+    })
+    if ok then
+      slot.text:Show()
+      instance.container:SetAuraSlotEnabled(key, true)
+    else
+      slot.used = false
+    end
+  end
   for index, element in ipairs(data.subRegions or {}) do
     if element.type == "subtexture" and element.textureVisible ~= false and element.textureTexture
       and not Display.IsDetachedElement(data, element) then
-      local key = SLOT_TEXTURE .. index
-      local slot = EnsureSlot(single, instance, region, key, trigger, data)
-      if slot then
-        local w, h, point, relative, ox, oy
-        if element.anchor_mode == "point" then
-          w, h = element.width or 32, element.height or 32
-          point, relative = element.self_point or "CENTER", (element.anchor_point or "CENTER"):gsub("^INNER_", ""):gsub("^OUTER_", "")
-          ox, oy = element.xOffset or 0, element.yOffset or 0
-        else
-          w, h = width + (element.xOffset or 0), height + (element.yOffset or 0)
-          point, relative, ox, oy = "CENTER", "CENTER", 0, 0
-        end
-        w, h = math.max(1, math.floor(w + 0.5)), math.max(1, math.floor(h + 0.5))
-        slot.button:ClearAllPoints()
-        slot.button:SetSize(w, h)
-        slot.button:SetPoint(point, Display.ContentAnchor(region), relative, ox, oy)
-        local below = backgroundIndex and index < backgroundIndex
-        pcall(slot.button.SetFrameLevel, slot.button, below and math.max(0, level - 1) or level + index)
-        slot.text = slot.text or slot.button:CreateFontString(nil, "ARTWORK")
-        slot.text:SetWordWrap(false)
-        slot.text:SetFont(STANDARD_TEXT_FONT, 12, "")
-        slot.text:ClearAllPoints()
-        slot.text:SetPoint("CENTER", slot.button, "CENTER")
-        slot.button:ClearDurationText()
-        local tint = element.textureColor or {1, 1, 1, 1}
-        local ok = pcall(slot.button.SetDurationText, slot.button, slot.text, {
-          textFormat = {formatString = TextureMarkup(element.textureTexture, w, h, 0, 1, 0, 1, tint), components = {}},
-          textColor = {curve = RemainingCurve(op, x, tint[1] or 1, tint[2] or 1, tint[3] or 1, (tint[4] or 1) * (element.texture_alpha or 1)),
-            property = Enum.DurationTextBindingProperty.RemainingDuration},
-        })
-        if ok then
-          slot.text:Show()
-          instance.container:SetAuraSlotEnabled(key, true)
-        else
-          slot.used = false
-        end
+      local w, h, point, relative, ox, oy
+      if element.anchor_mode == "point" then
+        w, h = element.width or 32, element.height or 32
+        point, relative = element.self_point or "CENTER", (element.anchor_point or "CENTER"):gsub("^INNER_", ""):gsub("^OUTER_", "")
+        ox, oy = element.xOffset or 0, element.yOffset or 0
+      else
+        w, h = width + (element.xOffset or 0), height + (element.yOffset or 0)
+        point, relative, ox, oy = "CENTER", "CENTER", 0, 0
       end
+      Artwork(SLOT_TEXTURE .. index, index, element.textureTexture, w, h, point, relative, ox, oy,
+        element.textureColor or {1, 1, 1, 1}, element.texture_alpha or 1, backgroundIndex and index < backgroundIndex)
+    elseif element.type == "subborder" and element.border_visible ~= false then
+      -- A Border element: four square edges (the edge style is not drawn here),
+      -- the element's thickness inside its offset, as on an ordinary Icon.
+      local thickness = math.max(1, tonumber(element.border_size) or 1)
+      local offset = tonumber(element.border_offset) or 0
+      local tint, alpha = element.border_color or {1, 1, 1, 1}, element.border_alpha or 1
+      local outerW, outerH = width + 2 * offset, height + 2 * offset
+      local white = "Interface\\Buttons\\WHITE8X8"
+      Artwork(SLOT_TEXTURE .. index .. "t", index, white, outerW, thickness, "TOP", "TOP", 0, offset, tint, alpha, false)
+      Artwork(SLOT_TEXTURE .. index .. "b", index, white, outerW, thickness, "BOTTOM", "BOTTOM", 0, -offset, tint, alpha, false)
+      Artwork(SLOT_TEXTURE .. index .. "l", index, white, thickness, outerH, "LEFT", "LEFT", -offset, 0, tint, alpha, false)
+      Artwork(SLOT_TEXTURE .. index .. "r", index, white, thickness, outerH, "RIGHT", "RIGHT", offset, 0, tint, alpha, false)
     end
   end
   return true

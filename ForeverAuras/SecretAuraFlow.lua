@@ -45,11 +45,21 @@ end
 -- to access forbidden object"), so it is left where it is, drawing nothing,
 -- and a fresh frame takes its place in the chain. Its size is kept on the
 -- flow (sizeKey), since a forbidden frame cannot be measured either.
+-- A start frame is where a display draws from. On a scaled group a step along
+-- the row is a fraction of a pixel, so the engine rounds each start to the
+-- pixel grid: every icon and its pixel-perfect border then land on whole
+-- pixels, and the gaps vary by a pixel instead, as in a Dynamic Group.
+local function OnPixels(frame)
+  if frame.SetRoundLayoutToNearestPixel then frame:SetRoundLayoutToNearestPixel(true) end
+  return frame
+end
+
 local function FreshFrame(flow, key, sizeKey, region)
   local frame = flow[key]
   if not frame or not Locked(frame) then return frame end
   frame = CreateFrame("Frame", nil, region, "DisableUntrustedLayoutScriptsTemplate")
   frame:EnableMouse(false)
+  if key == "start" then OnPixels(frame) end
   local size = flow[sizeKey]
   frame:SetSize(size and size[1] or 1, size and size[2] or 1)
   if flow.endFrame == flow[key] then flow.endFrame = frame end
@@ -106,10 +116,60 @@ local function GrowthKey(group)
 end
 Display.FlowGrowthKey = GrowthKey
 
+-- Screen pixels per UI unit where a region is drawn, or nil when unknown.
+local function PixelsPerUnit(region)
+  local factor = PixelUtil and PixelUtil.GetPixelToUIUnitFactor and PixelUtil.GetPixelToUIUnitFactor()
+  local scale = region and region.GetEffectiveScale and region:GetEffectiveScale()
+  if type(factor) ~= "number" or factor <= 0 or type(scale) ~= "number" or issecretvalue(scale) or scale <= 0 then return nil end
+  return scale / factor
+end
+
+-- The spacing the row uses after a display of the given size along it: the
+-- group's spacing, made a whole number of screen pixels on top of a whole
+-- pixel icon (the icon boxes round to pixels). On a scaled group a step of
+-- 37 units is 44.4 pixels, which would round to 44 or 45 depending on where
+-- the row sits; this way every gap comes out the same, as in a Dynamic Group.
+function Display.FlowSpacing(group, region, size)
+  local spacing = tonumber(group.blizzardFlowSpacing) or 2
+  local px = PixelsPerUnit(region)
+  if not px or type(size) ~= "number" then return spacing end
+  local icon = math.floor(size * px + 0.5)
+  local gap = math.floor(spacing * px + 0.5)
+  return (icon + gap) / px - size
+end
+
+-- Half a step, in whole pixels where the scale is known.
+function Display.FlowHalf(region, step)
+  local px = PixelsPerUnit(region)
+  if not px then return math.floor(step / 2) end
+  return math.floor(step * px / 2 + 0.0001) / px
+end
+
+-- The offset that puts a frame's start corner on a whole screen pixel. The
+-- row's origin is a display's own frame, whose place is readable; every step
+-- after it is a whole number of pixels, so this one nudge grids the whole row.
+local function SnapOffset(frame, point)
+  local px = PixelsPerUnit(frame)
+  if not px or not frame or not frame.GetLeft then return 0, 0 end
+  local left, right, top, bottom = frame:GetLeft(), frame:GetRight(), frame:GetTop(), frame:GetBottom()
+  for _, value in ipairs({left, right, top, bottom}) do
+    if type(value) ~= "number" or issecretvalue(value) then return 0, 0 end
+  end
+  point = point or "TOPLEFT"
+  local x = point:find("LEFT") and left or point:find("RIGHT") and right or (left + right) / 2
+  local y = point:find("TOP") and top or point:find("BOTTOM") and bottom or (top + bottom) / 2
+  x, y = x * px, y * px
+  return (math.floor(x + 0.5) - x) / px, (math.floor(y + 0.5) - y) / px
+end
+
 function Display.FlowGrowth(data)
   local group = Display.FlowGroup(data)
   if not group then return end
-  return GrowthKey(group), tonumber(group.blizzardFlowSpacing) or 2
+  local g = GROWTH[GrowthKey(group)]
+  local width, height = Display.Dimensions(data)
+  local entry = Private.regions[data.id]
+  local region = entry and entry.region
+  return GrowthKey(group), Display.FlowSpacing(group, region, (g.sign[1] ~= 0) and width or height)
 end
 
 Display.flowFrameModes = {SCREEN = "Screen", UNITFRAME = "Unit Frames", NAMEPLATE = "Nameplates"}
@@ -250,7 +310,7 @@ function Display.EnsureFlowStart(region, data)
   native.flow = flow
   if not flow.start then
     -- Anchored to other displays' aura containers, whose size is secret.
-    flow.start = CreateFrame("Frame", nil, region, "DisableUntrustedLayoutScriptsTemplate")
+    flow.start = OnPixels(CreateFrame("Frame", nil, region, "DisableUntrustedLayoutScriptsTemplate"))
     flow.start:EnableMouse(false)
   end
   local width, height = Display.Dimensions(data)
@@ -277,7 +337,10 @@ function Display.SetFlowEnd(region, data, presence)
   local width, height = Display.Dimensions(data)
   local showOn = Display.ShowOn(trigger)
   if flow.remain then
-    flow.endFrame, flow.endPoint, flow.x, flow.y = flow.remain, g.far, 0, 0
+    -- The text is one pixel longer than its fill (one pixel wide when empty),
+    -- so the next display starts one pixel before its end, in its own units.
+    local px = PixelsPerUnit(flow.start) or 1
+    flow.endFrame, flow.endPoint, flow.x, flow.y = flow.remain, g.far, -g.sign[1] / px, -g.sign[2] / px
   elseif showOn == "showOnMissing" and presence then
     flow.endFrame, flow.endPoint, flow.x, flow.y = presence, g.start, 0, 0
   -- A gate (Total Duration or Stack Count) keeps the candidates on one spot.
@@ -325,6 +388,9 @@ function Display.AnchorFlowPresence(region, data, container)
   if not flow then return false end
   local layout = Display.FlowPresenceSize(data)
   local along = flow.growth.sign[1] ~= 0
+  -- The empty container is one unit wide (measured), so anchoring its far
+  -- edge icon + spacing + 1 on puts its near edge, where the next display
+  -- starts, at exactly icon + spacing.
   return AnchorBackwards(container, flow.growth, flow.start, along and layout.elementWidth or layout.elementHeight, region)
 end
 
@@ -551,7 +617,10 @@ function Display.EnsureFlowShadows(region, data)
   local _, spacing = Display.FlowGrowth(data)
   local width, height = Display.Dimensions(data)
   local along = sh.sign[1] ~= 0
-  flow.half = ((along and width or height) + spacing) / 2
+  -- Whole units only: a half-unit shadow puts every icon after it between
+  -- two pixels, where 1 px borders draw 2 px wide. The row may sit up to half
+  -- a unit per display off centre instead, which nothing can see.
+  flow.half = Display.FlowHalf(region, (along and width or height) + spacing)
   local size = flow.half + 1
   local layout = along and {elementWidth = size, elementHeight = height, elementSpacing = -1}
     or {elementWidth = width, elementHeight = size, elementSpacing = -1}
@@ -603,7 +672,14 @@ local function MeasureText(instance, key, data, trigger, g, startFrame, length, 
       end,
     })
     if not ok or not entry.button then return end
-    entry.text = entry.button:CreateFontString(nil, "ARTWORK")
+    -- The text sits in a frame scaled so that one of its units is one screen
+    -- pixel: the fill is then a whole number of pixels, and the one unit the
+    -- text adds around it is exactly one pixel, so the next display's start
+    -- needs no rounding (see SetFlowEnd).
+    entry.holder = CreateFrame("Frame", nil, entry.button, "DisableUntrustedLayoutScriptsTemplate")
+    entry.holder:EnableMouse(false)
+    entry.holder:SetSize(1, 1)
+    entry.text = entry.holder:CreateFontString(nil, "ARTWORK")
     store[key] = entry
   end
   container:SetAuraSlotEnabled(key, false)
@@ -612,14 +688,20 @@ local function MeasureText(instance, key, data, trigger, g, startFrame, length, 
   container:SetAuraSlotSortMethod(key, Display.SortOrder(data, trigger))
   entry.button:ClearAllPoints()
   Place(entry.button, g.start, startFrame, g.start)
-  local text = entry.text
+  local holder, text = entry.holder, entry.text
+  -- One holder unit is one screen pixel where the scale is known; the fill is
+  -- the step in whole pixels. Unknown scale: units, as the row's own frames.
+  local px = PixelsPerUnit(entry.button)
+  holder:SetScale(px and 1 / px or 1)
+  holder:ClearAllPoints()
+  if not Place(holder, g.start, startFrame, g.start) then return end
   text:SetFont(STANDARD_TEXT_FONT, 12, "")
   text:SetWordWrap(false)
   text:SetJustifyH(g.sign[1] < 0 and "RIGHT" or "LEFT")
   text:ClearAllPoints()
-  if not Place(text, g.start, startFrame, g.start) then return end
+  text:SetPoint(g.start, holder, g.start)
   local along = g.sign[1] ~= 0
-  length = math.max(1, math.floor(length + 0.5))
+  length = math.max(1, math.floor(length * (px or 1) + 0.5))
   local fill = ("|TInterface\\Buttons\\WHITE8X8:%d:%d|t"):format(along and 1 or length, along and length or 1)
   local formatter = Display.GateFormatter(lower, upper, fill)
   if not formatter then return end
@@ -687,7 +769,7 @@ function Display.EnsureFlowRemaining(region, data)
   local main = MeasureText(instance, FLOW_REMAIN, data, trigger, g, flow.start, size, lower, upper, property)
   flow.remain = main and main.text
   local shadow = main and g.shadow and flow.shadowStart
-    and MeasureText(instance, FLOW_REMAIN_SHADOW, data, trigger, g.shadow, flow.shadowStart, size / 2, lower, upper, property)
+    and MeasureText(instance, FLOW_REMAIN_SHADOW, data, trigger, g.shadow, flow.shadowStart, Display.FlowHalf(region, size), lower, upper, property)
   if shadow then
     HideShadow(instance, "flowShadow")
     flow.shadowKind, flow.shadowList, flow.shadowRemain = "remain", nil, shadow.text
@@ -734,7 +816,9 @@ local function ChainShadows(flow)
     end
     return {flow.shadowList[#flow.shadowList], sh.listEnd, sh.pixel[1], sh.pixel[2]}
   elseif flow.shadowKind == "remain" then
-    return {flow.shadowRemain, sh.far, 0, 0}
+    -- The same one pixel of text padding as the main measure (see SetFlowEnd).
+    local px = PixelsPerUnit(flow.shadowStart) or 1
+    return {flow.shadowRemain, sh.far, -sh.sign[1] / px, -sh.sign[2] / px}
   elseif flow.shadowKind == "missing" then
     local single = flow.region.blizzardAuraDisplay.instances[1].single.missing
     return {single.flowShadow, sh.start, 0, 0}
@@ -900,6 +984,7 @@ function Display.RelinkFlowUnits(group)
   local point, frameX, frameY = FramePosition(group)
   local start, listEnd, far = AlignedPoints(group, g)
   local spacing = tonumber(group.blizzardFlowSpacing) or 2
+  local halfSpacing = math.floor(spacing / 2)
   -- Centred: per unit, the shadows run backwards from the frame point first.
   local lastShadow = {}
   local sh = g.shadow
@@ -932,6 +1017,8 @@ function Display.RelinkFlowUnits(group)
       local missingOnly = Display.ShowOn(Display.GetTrigger(native.data) or {}) == "showOnMissing"
       local width, height = Display.Dimensions(native.data)
       local along = g.sign[1] ~= 0
+      local spacing = Display.FlowSpacing(group, entry.region, along and width or height)
+      halfSpacing = Display.FlowHalf(entry.region, spacing)
       for _, instance in ipairs(native.instances) do
         local unit = instance.visible and instance.boundUnit
         if unit and not Busy(instance.container) then
@@ -942,7 +1029,7 @@ function Display.RelinkFlowUnits(group)
           if not linked and lastShadow[unit] then
             -- Centred: start where the shadows end, half a spacing on.
             linked = Place(container, start, lastShadow[unit], shEnd,
-              sh.pixel[1] + g.sign[1] * spacing / 2, sh.pixel[2] + g.sign[2] * spacing / 2)
+              sh.pixel[1] + g.sign[1] * halfSpacing, sh.pixel[2] + g.sign[2] * halfSpacing)
           end
           if not linked then
             local frame = UnitAnchor(mode, unit)
@@ -1061,6 +1148,10 @@ function Display.ArrangeFlowPreview(group)
   local g = GROWTH[GrowthKey(group)]
   local spacing = tonumber(group.blizzardFlowSpacing) or 2
   local along = g.sign[1] ~= 0
+  -- The gap after a display of a size, in whole pixels as the live row has it
+  -- (Display.FlowSpacing), so the preview is spaced like the live row.
+  local groupEntry = Private.regions[group.id]
+  local function Spaced(size) return Display.FlowSpacing(group, groupEntry and groupEntry.region, size) end
   local point, frameX, frameY = FramePosition(group)
   for _, childID in ipairs(group.controlledChildren or {}) do
     local entry = Private.regions[childID]
@@ -1072,6 +1163,14 @@ function Display.ArrangeFlowPreview(group)
   -- Each row's length and depth, known here; centred rows start half back.
   local length, cross, firstKey, sampleStep, iconStep, anyStep = {}, {}, nil, nil, nil, nil
   local leadSteps = {}
+  -- The last display's spacing is not part of the row; the row's lengths
+  -- were summed with the pixel gaps, so the gap taken off is the same kind.
+  local lastSpacing = {}
+  -- Centred: the live row's shadows run back half a step per display, each
+  -- half a whole number of pixels (Display.FlowHalf); summed here the same way.
+  local halves = {}
+  local groupRegionForHalf = Private.regions[group.id] and Private.regions[group.id].region
+  local function Half(step) return Display.FlowHalf(groupRegionForHalf, step) end
   for _, childID in ipairs(group.controlledChildren or {}) do
     local entry = Private.regions[childID]
     local region = entry and entry.region
@@ -1082,30 +1181,44 @@ function Display.ArrangeFlowPreview(group)
           local key = Key(sample)
           firstKey = firstKey or key
           local width, height = button:GetWidth() or 0, button:GetHeight() or 0
-          sampleStep = sampleStep or (along and width or height) + spacing
-          length[key] = (length[key] or 0) + (along and width or height) + spacing
+          sampleStep = sampleStep or (along and width or height) + Spaced(along and width or height)
+          length[key] = (length[key] or 0) + (along and width or height) + Spaced(along and width or height)
+          lastSpacing[key] = Spaced(along and width or height)
+          halves[key] = (halves[key] or 0) + Half((along and width or height) + Spaced(along and width or height))
           cross[key] = math.max(cross[key] or 0, along and height or width)
         end
       end
     elseif region and region.flowNormal and region.flowNormal.active and region:IsShown()
       and (not g.shadow or region.flowNormal.stand) then
       local width, height = NormalSize(region, region.flowNormal.data)
-      local step = (along and width or height) + spacing
+      local step = (along and width or height) + Spaced(along and width or height)
       anyStep = anyStep or step
       if region.flowNormal.stand and region.flowNormal.data.regionType == "icon" then iconStep = iconStep or step end
       if not region.flowNormal.stand then leadSteps[#leadSteps + 1] = step end
-      length[""] = (length[""] or 0) + (along and width or height) + spacing
+      length[""] = (length[""] or 0) + (along and width or height) + Spaced(along and width or height)
+      lastSpacing[""] = Spaced(along and width or height)
+      halves[""] = (halves[""] or 0) + Half(step)
       cross[""] = math.max(cross[""] or 0, along and height or width)
     end
   end
   local limit = not framed and group.blizzardFlowUseLimit and math.max(1, math.floor(tonumber(group.blizzardFlowLimit) or 5))
   local firstStep = sampleStep or iconStep or anyStep
   local rowStart
+  -- How far back the row starts: the shadows' halves plus half a spacing, no
+  -- further than half the limit's window, exactly as the live row is placed
+  -- (see the shadow chain and CapRowStart), so the preview sits on the same pixel.
   local function Offset(key)
     if not g.shadow then return 0, 0 end
-    local total = length[key] or 0
-    if limit and firstStep then total = math.min(total, limit * firstStep) end
-    local half = math.max(0, total - spacing) / 2
+    local half = (halves[key] or 0) + Half(Display.FlowSpacing(group, groupRegionForHalf, 0))
+    if limit and firstStep then
+      local window = (limit * firstStep - (lastSpacing[key] or spacing)) / 2
+      local px = PixelsPerUnit(groupRegionForHalf)
+      -- Half a pixel comes out a hair under it in floating point (109.49999
+      -- for 109.5); the small addition rounds it up like the live cap.
+      if px then window = math.floor(window * px + 0.5 + 0.001) / px end
+      half = math.min(half, window)
+    end
+    half = math.max(0, half)
     return -g.sign[1] * half, -g.sign[2] * half
   end
   local previous = {}
@@ -1141,6 +1254,16 @@ function Display.ArrangeFlowPreview(group)
     end
     local width, height = region:GetWidth(), region:GetHeight()
     if issecretvalue(width) or issecretvalue(height) then width, height = region.width or 1, region.height or 1 end
+    -- The origin lives under UIParent, so it takes the display's scale (a
+    -- scaled group) to be the display's size: sized in UIParent units it was
+    -- smaller, and its corners, where the row starts, sat inside the display.
+    local scale, parentScale = region:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    if type(scale) == "number" and type(parentScale) == "number" and not issecretvalue(scale)
+      and not issecretvalue(parentScale) and parentScale > 0 then
+      origin:SetScale(scale / parentScale)
+    else
+      origin:SetScale(1)
+    end
     origin:SetSize(width, height)
     return origin
   end
@@ -1149,7 +1272,8 @@ function Display.ArrangeFlowPreview(group)
     local inRow = not g.shadow or normal.stand ~= nil
     if inRow and previous[""] then
       region:SetAnchor(g.start, previous[""], g.far)
-      region:SetOffset(g.sign[1] * spacing, g.sign[2] * spacing)
+      local gap = Spaced(along and previous[""]:GetWidth() or previous[""]:GetHeight())
+      region:SetOffset(g.sign[1] * gap, g.sign[2] * gap)
     elseif inRow and g.shadow then
       local ox, oy = Offset("")
       ox, oy = WholePixel(region, normal.home, g.centerPoint, ox, oy)
@@ -1180,7 +1304,8 @@ function Display.ArrangeFlowPreview(group)
         end
         button:ClearAllPoints()
         if previous[key] then
-          button:SetPoint(start, previous[key], far, g.sign[1] * spacing, g.sign[2] * spacing)
+          local gap = Spaced(along and previous[key]:GetWidth() or previous[key]:GetHeight())
+          button:SetPoint(start, previous[key], far, g.sign[1] * gap, g.sign[2] * gap)
         elseif frame then
           button:SetPoint(start, frame, point, frameX + ox, frameY + oy)
         elseif g.shadow then
@@ -1224,7 +1349,7 @@ function Display.ArrangeFlowPreview(group)
     local ox, oy = Offset(firstKey)
     local cx, cy = CrossOffset(group, g, cross[firstKey] or 0)
     ox, oy = ox + cx, oy + cy
-    SetGroupPreviewBounds(group, g, math.max(0, (length[firstKey] or 0) - spacing), cross[firstKey] or 0, ox, oy)
+    SetGroupPreviewBounds(group, g, math.max(0, (length[firstKey] or 0) - (lastSpacing[firstKey] or spacing)), cross[firstKey] or 0, ox, oy)
   else
     Display.RestoreGroupPreview(group)
   end
@@ -1397,7 +1522,7 @@ local function RowStep(group, g, flows)
   else
     width, height = Display.Dimensions(pick.region.blizzardAuraDisplay.data)
   end
-  local spacing = tonumber(group.blizzardFlowSpacing) or 2
+  local spacing = Display.FlowSpacing(group, pick.region, (g.sign[1] ~= 0) and width or height)
   return ((g.sign[1] ~= 0) and width or height) + spacing, spacing, width, height
 end
 
@@ -1425,7 +1550,7 @@ local function LeadSteps(flows)
 end
 
 -- Centred: where the visible row starts, no further back than the limit.
-local function CapRowStart(group, g, flows, previous, combat)
+local function CapRowStart(group, g, flows, previous, combat, snapX, snapY)
   if not previous or not ClipWanted(group) then return previous end
   local vertical = g.sign[1] == 0
   local rule = StretchRule(vertical)
@@ -1449,8 +1574,14 @@ local function CapRowStart(group, g, flows, previous, combat)
   local step, spacing = RowStep(group, g, flows)
   local origin = flows[1].home or flows[1].region
   local back = WindowLength(Limit(group), {}, step, spacing) / 2
+  -- A whole number of pixels, so the cap does not depend on engine rounding
+  -- (the options preview caps its row the same way).
+  local px = PixelsPerUnit(origin)
+  if px then back = math.floor(back * px + 0.5 + 0.001) / px end
   if not combat then cap.left:ClearAllPoints() end
-  Place(cap.left, "TOPLEFT", origin, g.centerPoint, vertical and 0 or -back, vertical and back or 0)
+  -- From the same whole-pixel centre the shadows start from (snapX, snapY),
+  -- so a capped row starts on the pixel the options preview puts it on.
+  Place(cap.left, "TOPLEFT", origin, g.centerPoint, (vertical and 0 or -back) + (snapX or 0), (vertical and back or 0) + (snapY or 0))
   if not combat then cap.joint:ClearAllPoints() end
   local function ToCap() return Place(cap.joint, rule.capPoint, cap.left, "TOPLEFT") end
   local function ToStart() return Place(cap.joint, rule.startPoint, previous.endFrame, previous.endPoint, previous.x, previous.y) end
@@ -1480,7 +1611,14 @@ local function PixelNudge(clip, anchor, point, offsetX, offsetY)
 end
 
 local function SetWindow(clip, g, point, anchor, length, width, height, spacing)
-  local after = length + math.max(0, spacing or 0) + CLIP_MARGIN
+  -- The cut ends at the last display's far edge, not after its spacing: a cut
+  -- that reaches the next display shows that display's first pixel column
+  -- (its border) when the edge falls between pixels. The length is rounded to
+  -- whole pixels so the edge is a pixel boundary (the start corner is nudged
+  -- onto one below), also in the options preview, whose spacing is unrounded.
+  local after = length + CLIP_MARGIN
+  local px = PixelsPerUnit(clip)
+  if px then after = math.floor(after * px + 0.5) / px end
   local horizontal = point:find("LEFT") and -1 or 1
   local vertical = point:find("TOP") and 1 or -1
   local nudgeX, nudgeY = PixelNudge(clip, anchor, point, horizontal * CLIP_MARGIN, vertical * CLIP_MARGIN)
@@ -1497,7 +1635,8 @@ end
 function Display.PreviewFlowClip(group, g, rowStart, leadSteps, step)
   local clip = clips[group.id]
   if not clip or not ClipWanted(group) or not rowStart or not step or Busy(clip) then return end
-  local spacing = tonumber(group.blizzardFlowSpacing) or 2
+  -- The same whole-pixel gap the samples are spaced by.
+  local spacing = Display.FlowSpacing(group, rowStart, (g.sign[1] ~= 0) and rowStart:GetWidth() or rowStart:GetHeight())
   SetWindow(clip, g, g.start, rowStart, WindowLength(Limit(group), leadSteps, step, spacing),
     rowStart:GetWidth() or 0, rowStart:GetHeight() or 0, spacing)
 end
@@ -1618,8 +1757,8 @@ end
 local function SizeFlowNormal(region, normal, g, group)
   local flow = normal.flow
   local width, height = NormalSize(region, normal.data)
-  local spacing = tonumber(group.blizzardFlowSpacing) or 2
   local along = g.sign[1] ~= 0
+  local spacing = Display.FlowSpacing(group, region, along and width or height)
   local size = (along and width or height) + spacing
   flow.growth, flow.endFrame, flow.endPoint = g, flow.start, g.start
   flow.x, flow.y = g.sign[1] * size, g.sign[2] * size
@@ -1635,7 +1774,7 @@ local function SizeFlowNormal(region, normal, g, group)
       flow.shadowStart:SetSize(1, 1)
     end
     SetShown(flow.shadowStart, true)
-    flow.shadowKind, flow.shadowList, flow.half = "fixed", nil, size / 2
+    flow.shadowKind, flow.shadowList, flow.half = "fixed", nil, Display.FlowHalf(region, size)
   else
     SetShown(flow.shadowStart, false)
     flow.shadowKind = nil
@@ -1690,7 +1829,7 @@ function Display.AnchorFlowNormal(data, region, anchorParent, anchorPoint)
     normal = {}
     normal.home = CreateFrame("Frame", nil, UIParent)
     normal.home:EnableMouse(false)
-    normal.flow = {start = CreateFrame("Frame", nil, region, "DisableUntrustedLayoutScriptsTemplate"), startSize = {1, 1}}
+    normal.flow = {start = OnPixels(CreateFrame("Frame", nil, region, "DisableUntrustedLayoutScriptsTemplate")), startSize = {1, 1}}
     normal.flow.start:EnableMouse(false)
     normal.flow.start:SetSize(1, 1)
     region.flowNormal = normal
@@ -1806,38 +1945,36 @@ function Display.RechainFlow(group)
   -- Centred: the shadows run backwards from the first display's centre point,
   -- and the visible row starts where they end, half a spacing on.
   local previous, shadowEnd
+  local snapX, snapY = SnapOffset(flows[1] and (flows[1].home or flows[1].region), g.shadow and g.centerPoint or g.start)
   if g.shadow and flows[1] then
-    local spacing = tonumber(group.blizzardFlowSpacing) or 2
+    local firstRegion = flows[1].region
+    local spacing = Display.FlowSpacing(group, firstRegion, 0) - 0
+    local halfSpacing = Display.FlowHalf(firstRegion, spacing)
     for _, flow in ipairs(flows) do
       if flow.shadowStart and flow.shadowKind then
         if not combat then FreshFrame(flow, "shadowStart", "shadowSize", flow.region) end
         local start = flow.shadowStart
         if combat then
           if shadowEnd then Place(start, g.shadow.start, shadowEnd[1], shadowEnd[2], shadowEnd[3], shadowEnd[4])
-          else Place(start, g.shadow.start, flows[1].home or flows[1].region, g.centerPoint) end
+          else Place(start, g.shadow.start, flows[1].home or flows[1].region, g.centerPoint, snapX, snapY) end
           local ok, chained = pcall(ChainShadows, flow)
           if ok then shadowEnd = chained end
         else
           start:ClearAllPoints()
           if not (shadowEnd and Place(start, g.shadow.start, shadowEnd[1], shadowEnd[2], shadowEnd[3], shadowEnd[4])) then
             start:ClearAllPoints()
-            start:SetPoint(g.shadow.start, flows[1].home or flows[1].region, g.centerPoint)
+            start:SetPoint(g.shadow.start, flows[1].home or flows[1].region, g.centerPoint, snapX, snapY)
           end
           shadowEnd = ChainShadows(flow)
         end
       end
     end
     if shadowEnd then
-      -- Half steps can put the row exactly between two pixels, where Blizzard's
-      -- icons and the copies round apart: a tenth of a pixel on breaks the tie.
-      local tie = 0
-      local factor = PixelUtil and PixelUtil.GetPixelToUIUnitFactor and PixelUtil.GetPixelToUIUnitFactor()
-      local origin = flows[1].home or flows[1].region
-      local scale = origin and origin.GetEffectiveScale and origin:GetEffectiveScale()
-      if factor and scale and scale > 0 then tie = 0.1 * factor / scale end
+      -- Whole units only (see the shadow sizes): the row starts a whole number
+      -- of units after the shadows, so every icon lands on the pixel grid.
       previous = {endFrame = shadowEnd[1], endPoint = shadowEnd[2],
-        x = shadowEnd[3] + g.sign[1] * spacing / 2 + tie, y = shadowEnd[4] + g.sign[2] * spacing / 2 - tie}
-      previous = CapRowStart(group, g, flows, previous, combat)
+        x = shadowEnd[3] + g.sign[1] * halfSpacing, y = shadowEnd[4] + g.sign[2] * halfSpacing}
+      previous = CapRowStart(group, g, flows, previous, combat, snapX, snapY)
     end
   end
   local origin, lead = nil, 0
@@ -1848,8 +1985,8 @@ function Display.RechainFlow(group)
       origin = origin or flow.home
       local x, y = g.sign[1] * lead, g.sign[2] * lead
       if not combat then flow.start:ClearAllPoints() end
-      Place(flow.start, g.start, origin, g.start, x, y)
-      PlaceNormalRegion(region, flow.normal, origin, x, y)
+      Place(flow.start, g.start, origin, g.start, x + snapX, y + snapY)
+      PlaceNormalRegion(region, flow.normal, origin, x + snapX, y + snapY)
       lead = lead + math.abs(flow.x) + math.abs(flow.y)
       previous = flow
     elseif combat and flow.stand and Display.StandLocked(flow.normal) then
@@ -1858,7 +1995,7 @@ function Display.RechainFlow(group)
       if previous then
         Place(flow.start, flow.growth.start, previous.endFrame, previous.endPoint, previous.x, previous.y)
       else
-        Place(flow.start, flow.growth.start, flow.home or region, flow.growth.start)
+        Place(flow.start, flow.growth.start, flow.home or region, flow.growth.start, snapX, snapY)
       end
       previous = flow
     else
@@ -1868,7 +2005,7 @@ function Display.RechainFlow(group)
       if not chained then
         -- First display, or Blizzard refused the anchor: start at the region.
         flow.start:ClearAllPoints()
-        flow.start:SetPoint(flow.growth.start, flow.home or region, flow.growth.start)
+        flow.start:SetPoint(flow.growth.start, flow.home or region, flow.growth.start, snapX, snapY)
       end
       previous = flow
     end

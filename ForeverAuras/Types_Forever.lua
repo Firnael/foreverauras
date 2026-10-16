@@ -88,8 +88,14 @@ Private.talentInfo = {}
 Private.talentInfoByNodeId = {}
 
 function Private.GetTalentConfigID()
-  local group = C_SpecializationInfo.GetActiveSpecGroup()
-  return C_SpecializationInfo.GetCombatConfigIDForSpecGroup(group)
+  -- Forever exposes the spec group's combat config; retail (testing only) has
+  -- the active class talent config instead. Neither present: no talent data.
+  if C_SpecializationInfo.GetCombatConfigIDForSpecGroup then
+    local group = C_SpecializationInfo.GetActiveSpecGroup()
+    return C_SpecializationInfo.GetCombatConfigIDForSpecGroup(group)
+  elseif C_ClassTalents and C_ClassTalents.GetActiveConfigID then
+    return C_ClassTalents.GetActiveConfigID()
+  end
 end
 
 local function ReadTalentConfig(configId)

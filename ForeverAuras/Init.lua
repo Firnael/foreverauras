@@ -387,7 +387,7 @@ WeakAuras.normalWidth = 1.3
 WeakAuras.halfWidth = WeakAuras.normalWidth / 2
 WeakAuras.doubleWidth = WeakAuras.normalWidth * 2
 local versionStringFromToc = C_AddOns.GetAddOnMetadata("ForeverAuras", "Version")
-local versionString = "0.87.6-BETA"
+local versionString = "0.90.0-BETA"
 local buildTime = "2026-10-15"
 
 -- Prerelease labels are case-insensitive; packages use the requested BETA spelling.
@@ -419,8 +419,12 @@ end
 
 local clientVersion = GetBuildInfo()
 local isForeverClient = type(clientVersion) == "string" and clientVersion:match("^1%.60%.") ~= nil and WeakAuras.BuildInfo >= 16000 and WeakAuras.BuildInfo < 16100
+-- Retail 12.x shares the Forever client's secret-value API, so it is allowed
+-- for testing while Forever is down. Forever stays the only supported game.
+local isRetailClient = type(WeakAuras.BuildInfo) == "number" and WeakAuras.BuildInfo >= 120000 and WeakAuras.BuildInfo < 130000
+WeakAuras.IsRetailClient = function() return isRetailClient end
 
-if not isForeverClient then
+if not isForeverClient and not isRetailClient then
   libsAreOk = false
   StaticPopupDialogs["WeakAuras_UNSUPPORTED_CLIENT"] = {
     text = "ForeverAuras supports World of Warcraft: Forever only.",

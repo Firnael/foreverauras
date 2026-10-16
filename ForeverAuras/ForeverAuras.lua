@@ -800,6 +800,12 @@ local function singleTest(arg, trigger, use, name, value, operator, use_exact, c
     if(use == false) then -- multi selection
       local any = false;
       if (value and value.multi) then
+        -- One test over the whole selection (positives and negatives together),
+        -- for arguments whose entries cannot be combined one by one.
+        if arg.multiSetTest then
+          local whole = arg.multiSetTest(value.multi, trigger)
+          if whole then return "(" .. whole .. ")" end
+        end
         local test = "(";
         for value, positive in pairs(value.multi) do
           local arg1 = tonumber(value) or ("[["..value.."]]")

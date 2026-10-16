@@ -59,15 +59,86 @@ local function KnownByPlayer(spellID)
   return known == true
 end
 
+-- The trees of a class, in talent tab order (the catalog lists them that way).
+local treesByClass = {}
+for _, entry in ipairs(specializations) do
+  treesByClass[entry[2]] = treesByClass[entry[2]] or {}
+  table.insert(treesByClass[entry[2]], entry)
+end
+
+local function Readable(value)
+  return value ~= nil and not (issecretvalue and issecretvalue(value))
+end
+
+-- Points spent per talent tab, or nil when the client cannot say (no talent
+-- API, or secret values). Modern clients answer through C_SpecializationInfo;
+-- the classic global returns the points as its fifth value.
+local function TalentPoints()
+  local count = C_SpecializationInfo and C_SpecializationInfo.GetNumTalentTabs and C_SpecializationInfo.GetNumTalentTabs()
+    or GetNumTalentTabs and GetNumTalentTabs()
+  if not Readable(count) or type(count) ~= "number" or count == 0 then return nil end
+  local points = {}
+  for tab = 1, count do
+    local spent, name
+    if C_SpecializationInfo and C_SpecializationInfo.GetTalentTabInfo then
+      local ok, info = pcall(C_SpecializationInfo.GetTalentTabInfo, tab)
+      if ok and type(info) == "table" then spent, name = info.pointsSpent, info.name end
+    elseif GetTalentTabInfo then
+      local ok, a, b, c, d, e = pcall(GetTalentTabInfo, tab)
+      if ok then
+        if type(a) == "string" then spent, name = c, a else spent, name = e, b end
+      end
+    end
+    if not Readable(spent) or type(spent) ~= "number" then return nil end
+    points[tab] = {spent = spent, name = Readable(name) and name or nil}
+  end
+  return points
+end
+
+-- The chosen specialization: the tree with 21 or more points, and the most
+-- points when several qualify (ties go to the earlier tab). Without readable
+-- talent data, the tree whose final talent is known (any rank) stands in.
+function Private.ExecEnv.ForeverSpecialization()
+  local _, class = UnitClass("player")
+  if not Readable(class) then return nil end
+  local trees = treesByClass[class]
+  if not trees then return nil end
+  local points = TalentPoints()
+  if points then
+    local best, bestPoints
+    for tab, info in ipairs(points) do
+      local entry = trees[tab]
+      -- A tab named like a tree takes that tree, whatever its index.
+      if info.name then
+        for _, candidate in ipairs(trees) do
+          if candidate[3] == info.name then entry = candidate end
+        end
+      end
+      if entry and info.spent >= 21 and (not bestPoints or info.spent > bestPoints) then
+        best, bestPoints = entry[1], info.spent
+      end
+    end
+    return best
+  end
+  for _, entry in ipairs(trees) do
+    for _, spellID in ipairs(entry[5]) do
+      if KnownByPlayer(spellID) then return entry[1] end
+    end
+  end
+  return nil
+end
+
 function Private.ExecEnv.IsForeverSpecialization(key)
   local entry = byKey[key]
   if not entry then return false end
-  local _, class = UnitClass("player")
-  if (issecretvalue and issecretvalue(class)) or class ~= entry[2] then return false end
-  -- Check only published IDs for the selected tree, with no spell database scan,
-  -- talent UI access, caching of combat results, or writes to Blizzard frames.
-  for _, spellID in ipairs(entry[5]) do
-    if KnownByPlayer(spellID) then return true end
-  end
-  return false
+  return Private.ExecEnv.ForeverSpecialization() == key
+end
+
+-- Multi selection: green (true) trees load the aura, red (false) trees keep
+-- it from loading. With only red trees, every other tree loads.
+function Private.ExecEnv.ForeverSpecLoad(positive, negative)
+  local current = Private.ExecEnv.ForeverSpecialization()
+  if current and negative[current] then return false end
+  if next(positive) then return current ~= nil and positive[current] == true end
+  return next(negative) ~= nil
 end

@@ -1,5 +1,24 @@
 # Changelog
 ## VERSIONS
+## 0.90.0
+Modern Aura Groups
+- Spacing is now exact at every group scale: each gap is a whole number of screen pixels, so icons and pixel-perfect borders line up like a Dynamic Group
+- Show On Missing and Remaining Time displays no longer take one unit too much or too little space in the row
+- Centred rows and the Limit option start on the same pixel live as in the options preview; the preview no longer shifts when the editor closes
+- The Limit cut ends at the last icon’s edge, so the next icon’s border no longer peeks through in the preview
+- Mixed groups (normal icons alongside Modern auras) keep the same spacing rules
+
+Modern auras
+- Multiple Border elements can be added to a Modern aura
+- Sounds for Show On Missing play on the right event (aura lost / aura regained)
+- Progress Texture: the native background texture follows the foreground’s shape and rotation
+
+Load
+- Specialization now follows your talent points: the tree with 21 or more points (and the most points) counts as your specialization. Each spec can be ticked green (load) or red (do not load) in the same control
+
+Other
+- Loads on the retail 12.x client for testing; Forever remains the supported game
+
 ## 0.87.6
 New
 - Weapon Enchant trigger: an Enchant Type option (Any / Imbue / Oil, Stone or Poison). Forever lets a weapon carry an imbue and an oil at the same time, and the trigger now tracks both, each with its own timer, charges, icon and name. Any keeps the old behaviour, and a typed enchant name is now found on either enchant
