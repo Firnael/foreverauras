@@ -1594,10 +1594,21 @@ Private.load_prototype = {
       type = "multiselect",
       values = "forever_spec_types",
       test = "Private.ExecEnv.IsForeverSpecialization(%s)",
-      events = {"SPELLS_CHANGED", "PLAYER_TALENT_UPDATE", "PLAYER_ENTERING_WORLD"},
+      events = {"SPELLS_CHANGED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "PLAYER_ENTERING_WORLD"},
       sorted = true,
       sortOrder = Private.forever_specs_sorted,
-      desc = "Matches a specialization when you have learned its final talent, such as Combustion for Fire Mage. Any rank counts. No match before learning that talent or after unlearning it. Select multiple specializations to match any of them. Feral Combat includes both cat and bear builds. Your assigned Role is checked separately.",
+      -- Clicking cycles each tree: off, green (load for it), red (never load for it).
+      multiTristate = true,
+      checkControl = "ForeverAurasTriCheckBox",
+      multiSetTest = function(multi)
+        local positive, negative = {}, {}
+        for key, state in pairs(multi) do
+          if state == true then positive[#positive + 1] = ("[%q] = true"):format(key)
+          elseif state == false then negative[#negative + 1] = ("[%q] = true"):format(key) end
+        end
+        return ("Private.ExecEnv.ForeverSpecLoad({%s}, {%s})"):format(table.concat(positive, ", "), table.concat(negative, ", "))
+      end,
+      desc = "Your specialization is the talent tree with 21 or more points; with several, the one with the most points. Click a tree once to load for it (green), twice to never load for it (red). With only red trees, every other tree loads. Feral Combat includes both cat and bear builds.",
     },
     {
       name = "talent",

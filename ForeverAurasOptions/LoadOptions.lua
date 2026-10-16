@@ -978,6 +978,9 @@ function OptionsPrivate.ConstructOptions(prototype, data, startorder, triggernum
             values = values,
             control = arg.multiUseControlWhenFalse and arg.control,
             multiTristate = arg.multiTristate,
+            -- Tri-state items (on / off / red) draw with their own checkbox widget.
+            tristate = arg.checkControl ~= nil or nil,
+            checkControl = arg.checkControl,
             get = function(info, v)
               if(trigger["use_"..realname] == false and trigger[realname] and trigger[realname].multi) then
                 if arg.multiConvertKey then

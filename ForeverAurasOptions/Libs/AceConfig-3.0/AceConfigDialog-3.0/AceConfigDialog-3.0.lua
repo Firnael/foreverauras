@@ -1344,7 +1344,8 @@ local function FeedOptions(appName, options,container,rootframe,path,group,inlin
 						for s = 1, #valuesort do
 							local value = valuesort[s]
 							local text = values[value]
-							local check = gui:Create("CheckBox")
+							-- ForeverAuras: an option may name the checkbox widget of its items.
+							local check = gui:Create(v.checkControl or "CheckBox")
 							check:SetLabel(text)
 							check:SetUserData("value", value)
 							check:SetUserData("text", text)

@@ -347,7 +347,9 @@ local function StyleBorder(entry, parent, target, width, height, element, snapRo
   local pixelPerfect = element.border_ppscale == true
   frame:SetIgnoreParentScale(pixelPerfect)
   frame:SetScale(pixelPerfect and PixelUtil.GetPixelToUIUnitFactor() or 1)
-  if frame.SetRoundLayoutToNearestPixel then frame:SetRoundLayoutToNearestPixel(pixelPerfect and not snapRow) end
+  -- Rounded in the engine also in a Modern Aura Group: the start frames there
+  -- are rounded the same way, so the border meets the icon on whole pixels.
+  if frame.SetRoundLayoutToNearestPixel then frame:SetRoundLayoutToNearestPixel(pixelPerfect) end
   frame:ClearAllPoints()
   if pixelPerfect then
     size = math.max(1, math.floor((element.border_size or 2) + 0.5))
@@ -364,7 +366,7 @@ local function StyleBorder(entry, parent, target, width, height, element, snapRo
     texture:SetTexture(file, "REPEAT", "REPEAT")
     texture:SetVertexColor(unpack(element.border_color or {1, 1, 1, 1}))
     -- Engine-side rounding follows protected anchor movement without Lua geometry reads.
-    if snapRow then
+    if snapRow and not pixelPerfect then
       Display.SnapTexture(texture, true)
       if texture.SetRoundLayoutToNearestPixel then texture:SetRoundLayoutToNearestPixel(false) end
     else

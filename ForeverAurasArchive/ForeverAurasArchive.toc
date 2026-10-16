@@ -1,5 +1,5 @@
 # Modified for ForeverAuras; namespace and/or implementation changes through 2026-09-18.
-## Interface: 16001
+## Interface: 16001, 120105
 ## Title: ForeverAuras Archive
 ## Author: m33shoq, WeakAuras contributors
 ## Version: 0.73.25-BETA.1

@@ -12,6 +12,9 @@ local Display = Private.BlizzardAuraDisplay
 function Display.CreateSampleNative(parent)
   local button = CreateFrame("Frame", nil, parent)
   button:EnableMouse(false)
+  -- Whole pixels for the icon's box as well as its place (see the start
+  -- frames in SecretAuraFlow.lua): a scaled group makes its size fractional.
+  if button.SetRoundLayoutToNearestPixel then button:SetRoundLayoutToNearestPixel(true) end
   button.bindings = {}
   -- These adapters belong only to ordinary preview frames, never AuraContainer children.
   -- Appearance code can therefore bind the same icon, timer, name and stack widgets.

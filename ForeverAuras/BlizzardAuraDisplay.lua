@@ -1163,6 +1163,8 @@ local function BuildButton(container, button)
   local native = {container = container}
   native.button = button
   button:EnableMouse(false)
+  -- Whole pixels for the button's box (its icon and borders hang on it).
+  if button.SetRoundLayoutToNearestPixel then pcall(button.SetRoundLayoutToNearestPixel, button, true) end
   -- Gate clip (Total Duration, Remaining Time, Stack Count): created before
   -- any element on every display type (StyleDurationGate). It does not
   -- clip while no gate is used.
