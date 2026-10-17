@@ -1,5 +1,8 @@
 # Changelog
 ## VERSIONS
+## 0.90.67
+- Fix memory issue causing combat hitch via load condition bug
+
 ## 0.90.63
 **NEW**
 - An API for custom code: `ForeverAuras.AuraOverlay(frame, {spellIDs = {...}, ...})` draws a native aura slot over any frame. Blizzard shows it while one of the spell IDs is on the unit - in combat and instances too - and drives its swipe and countdown from the aura’s own timer. Options for icon, swipe, countdown styling, border and unit; methods `SetSpellIDs`, `SetUnit`, `SetEnabled`, `SetBorderColor`, `Release.` Nothing reads aura data, so it works where `GetPlayerAuraBySpellID` returns nothing
