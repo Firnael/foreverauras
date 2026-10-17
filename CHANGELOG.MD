@@ -10,13 +10,20 @@
 - Precision in instances is the same as outside: it depends on which ranged spells your class knows (in combat, the friendly list is shorter)
 
 **Remaining Time glow conditions - exact, everywhere**
-
 - A "Remaining Time < X > Glow" condition now fires at exactly X seconds, driven by Blizzard’s own timer, no longer by an estimated duration. One aura with all rank IDs glows correctly whichever rank lands, with no duration to set or learn first.
 - Works on icons, bars, progress textures and texts, with all glow types and anchor areas.
 - Combines freely with Total Duration = / <= / >= and Remaining Time filters on the same trigger - the previous icon-only and no-filter restrictions are gone.
 - A %p text on the display is shown as countdown numbers, as wit the Total Duration gate.
 
+**Options**
+- Weapon Enchant kind now reads "Imbue (Firestones, Mage Scrolls, Shaman Imbues)"
+- Modern bar glow/border anchor areas renamed to match normal bars: Full Bar / Background / Icon (labels only; existing auras unchanged)
+
 **Fixes**
+- `ForeverAuras.AuraOverlay` can draw a fixed texture (`texture`, `textureCoords`, `overlay:SetTexture()`) under its swipe and countdown, so an overlay can cover what the frame below draws while the aura is up
+- `ForeverAuras.AuraOverlay` accepts `debuffSpellIDs` and `overlay:SetSpellIDs(buffs, debuffs)`: a second slot with the HARMFUL filter, drawn with the same look, for self-debuffs such as a trinket’s stun. The overlay container no longer takes mouse clicks
+- Fixed a Modern (Aura) display in a Dynamic Group or on its own drawing a pixel shorter than the plain icons beside it: its button box is rounded to whole screen pixels only inside a Modern Aura Group
+- Stand-in copies of a display’s icon take their pixel snapping from the region’s own icon instead of always snapping
 - Gates on large displays (Total Duration, Remaining Time, Stack Count "=") could clip the display or its glow to a thin strip. Cause found in-game (font size cap, line breaks dropped); all gates now size their clip from the display, so there is no size limit any more.
 - Proc glow no longer draws its whole sprite sheet when used by a condition glow
 - Conditions on a CDM Buff trigger’s variables (Active, Aura Active, On Cooldown, Remaining Time…) now work when that trigger isn’t the display’s active one. A single-spell or single-entry CDM trigger kept its state under an internal key the display couldn’t see, so such conditions always read "inactive"
@@ -25,18 +32,6 @@
 - Specialization load option draws its tri-state (green/red) boxes again when another addon ships the same AceConfigDialog version - FA’s patched copy now takes priority
 - Forever’s new talent UI stores talents as a single trait tree per class; the classic per-tab talent functions FA used to read points from no longer exist, so specialization was only recognised for characters who had taken a tree’s final talent
 - FA now reads the active trait config directly
-
-**Options**
-- Weapon Enchant kind now reads "Imbue (Firestones, Mage Scrolls, Shaman Imbues)"
-- Modern bar glow/border anchor areas renamed to match normal bars: Full Bar / Background / Icon (labels only; existing auras unchanged)
-
-------
-
-*   `ForeverAuras.AuraOverlay` can draw a fixed texture (`texture`, `textureCoords`, `overlay:SetTexture()`) under its swipe and countdown, so an overlay can cover what the frame below draws while the aura is up
-*   `ForeverAuras.AuraOverlay` accepts `debuffSpellIDs` and `overlay:SetSpellIDs(buffs, debuffs)`: a second slot with the HARMFUL filter, drawn with the same look, for self-debuffs such as a trinket’s stun. The overlay container no longer takes mouse clicks
-*   Fixed a Modern (Aura) display in a Dynamic Group or on its own drawing a pixel shorter than the plain icons beside it: its button box is rounded to whole screen pixels only inside a Modern Aura Group
-*   Stand-in copies of a display’s icon take their pixel snapping from the region’s own icon instead of always snapping
-
 
 ## 0.90.40
 **Aura (Modern)**
