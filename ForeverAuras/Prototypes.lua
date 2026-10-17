@@ -1594,7 +1594,10 @@ Private.load_prototype = {
       type = "multiselect",
       values = "forever_spec_types",
       test = "Private.ExecEnv.IsForeverSpecialization(%s)",
-      events = {"SPELLS_CHANGED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "PLAYER_ENTERING_WORLD"},
+      -- Forever 1.60 talents are a trait config: its updates and the switch
+      -- between the Primary and Secondary builds re-evaluate the tree.
+      events = {"SPELLS_CHANGED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "PLAYER_ENTERING_WORLD",
+        "TRAIT_CONFIG_UPDATED", "ACTIVE_COMBAT_CONFIG_CHANGED", "PLAYER_SPECIALIZATION_CHANGED"},
       sorted = true,
       sortOrder = Private.forever_specs_sorted,
       -- Clicking cycles each tree: off, green (load for it), red (never load for it).

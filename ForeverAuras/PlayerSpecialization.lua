@@ -70,13 +70,58 @@ local function Readable(value)
   return value ~= nil and not (issecretvalue and issecretvalue(value))
 end
 
+-- Forever 1.60 draws its talent trees with the Traits system: one trait tree
+-- per class holding every talent as a node, with no tabs, names or sub trees.
+-- The three classic trees are the three bands of node columns (posX), left
+-- to right in the catalog's tab order; a band's points are the purchased
+-- ranks of its nodes. Returns the bands as tabs, or nil when the data is
+-- not there (no config yet, secret values, or not three bands).
+local function TraitPoints()
+  if not (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_Traits and C_Traits.GetConfigInfo
+    and C_Traits.GetTreeNodes and C_Traits.GetNodeInfo) then return nil end
+  local ok, configID = pcall(C_ClassTalents.GetActiveConfigID)
+  if not ok or not Readable(configID) or type(configID) ~= "number" then return nil end
+  local okInfo, info = pcall(C_Traits.GetConfigInfo, configID)
+  local treeID = okInfo and type(info) == "table" and type(info.treeIDs) == "table" and info.treeIDs[1]
+  if not Readable(treeID) or type(treeID) ~= "number" then return nil end
+  local okNodes, nodes = pcall(C_Traits.GetTreeNodes, treeID)
+  if not okNodes or type(nodes) ~= "table" or #nodes == 0 then return nil end
+  local columns, xs = {}, {}
+  for _, nodeID in ipairs(nodes) do
+    local okNode, node = pcall(C_Traits.GetNodeInfo, configID, nodeID)
+    if okNode and type(node) == "table" and Readable(node.posX) and type(node.posX) == "number" then
+      local ranks = Readable(node.ranksPurchased) and tonumber(node.ranksPurchased) or 0
+      if not columns[node.posX] then columns[node.posX] = 0; xs[#xs + 1] = node.posX end
+      columns[node.posX] = columns[node.posX] + ranks
+    end
+  end
+  if #xs < 3 then return nil end
+  table.sort(xs)
+  -- Columns of one tree sit one step apart; a gap of more than two steps
+  -- starts the next tree.
+  local step
+  for i = 2, #xs do
+    local gap = xs[i] - xs[i - 1]
+    if gap > 0 and (not step or gap < step) then step = gap end
+  end
+  if not step then return nil end
+  local tabs = {{spent = columns[xs[1]]}}
+  for i = 2, #xs do
+    if xs[i] - xs[i - 1] > step * 2 then tabs[#tabs + 1] = {spent = 0} end
+    tabs[#tabs].spent = tabs[#tabs].spent + columns[xs[i]]
+  end
+  if #tabs ~= 3 then return nil end
+  return tabs
+end
+
 -- Points spent per talent tab, or nil when the client cannot say (no talent
 -- API, or secret values). Modern clients answer through C_SpecializationInfo;
--- the classic global returns the points as its fifth value.
+-- the classic global returns the points as its fifth value; Forever 1.60
+-- through its trait tree (TraitPoints).
 local function TalentPoints()
   local count = C_SpecializationInfo and C_SpecializationInfo.GetNumTalentTabs and C_SpecializationInfo.GetNumTalentTabs()
     or GetNumTalentTabs and GetNumTalentTabs()
-  if not Readable(count) or type(count) ~= "number" or count == 0 then return nil end
+  if not Readable(count) or type(count) ~= "number" or count == 0 then return TraitPoints() end
   local points = {}
   for tab = 1, count do
     local spent, name
@@ -126,6 +171,42 @@ function Private.ExecEnv.ForeverSpecialization()
     end
   end
   return nil
+end
+
+-- "/fa spec": what the client reports per talent tab, and the tree chosen,
+-- for reports of a specialization not being recognised.
+function Private.PrintSpecialization()
+  local print = WeakAuras.prettyPrint or print
+  local _, class = UnitClass("player")
+  print(("Class: %s"):format(tostring(class)))
+  local modernCount = C_SpecializationInfo and C_SpecializationInfo.GetNumTalentTabs and C_SpecializationInfo.GetNumTalentTabs()
+  local classicCount = GetNumTalentTabs and GetNumTalentTabs()
+  print(("Talent tabs: C_SpecializationInfo=%s, GetNumTalentTabs=%s, active group=%s"):format(tostring(modernCount), tostring(classicCount),
+    tostring(GetActiveTalentGroup and GetActiveTalentGroup() or C_SpecializationInfo and C_SpecializationInfo.GetActiveSpecGroup and C_SpecializationInfo.GetActiveSpecGroup())))
+  local count = tonumber(modernCount) or tonumber(classicCount) or 0
+  for tab = 1, count do
+    if C_SpecializationInfo and C_SpecializationInfo.GetTalentTabInfo then
+      local ok, info = pcall(C_SpecializationInfo.GetTalentTabInfo, tab)
+      if ok and type(info) == "table" then
+        print(("  tab %d (C_SpecializationInfo): name=%s pointsSpent=%s id=%s"):format(tab, tostring(info.name), tostring(info.pointsSpent), tostring(info.id)))
+      else
+        print(("  tab %d (C_SpecializationInfo): %s"):format(tab, ok and type(info) or ("error " .. tostring(info))))
+      end
+    end
+    if GetTalentTabInfo then
+      local ok, a, b, c, d, e = pcall(GetTalentTabInfo, tab)
+      print(("  tab %d (GetTalentTabInfo): %s, %s, %s, %s, %s"):format(tab, tostring(a), tostring(b), tostring(c), tostring(d), tostring(e)))
+    end
+  end
+  local okC, configID = pcall(function() return C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID() end)
+  print(("Trait config: %s"):format(okC and tostring(configID) or ("error " .. tostring(configID))))
+  local points = TalentPoints()
+  if points then
+    for tab, info in ipairs(points) do print(("  read: tab %d %s = %d points"):format(tab, tostring(info.name), info.spent)) end
+  else
+    print("  points unreadable: falling back to known final talents")
+  end
+  print(("Specialization: %s"):format(tostring(Private.ExecEnv.ForeverSpecialization())))
 end
 
 function Private.ExecEnv.IsForeverSpecialization(key)

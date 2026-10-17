@@ -4173,10 +4173,11 @@ Private.bossmods_timerTypes = {
 
 ---@type table<string, string>
 -- Weapon Enchant trigger: which enchant on the hand to read. "any" prefers
--- an imbue when both kinds are present, as the trigger always did.
+-- an imbue when both kinds are present, as the trigger always did. Shaman
+-- weapon imbues are reported as the Imbue kind on Forever.
 Private.weapon_enchant_kinds = {
   any = L["Any"],
-  imbue = L["Imbue (Firestone, Scrolls)"],
+  imbue = L["Imbue (Firestones, Mage Scrolls, Shaman Imbues)"],
   temporary = L["Oil, Stone or Poison"],
 }
 

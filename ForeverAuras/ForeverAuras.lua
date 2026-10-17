@@ -272,6 +272,9 @@ function SlashCmdList.WeakAuras(input)
     Private.PrintHelp();
   elseif msg == "cdmsetup" then
     Private.RunCDMSetup()
+  elseif msg == "spec" then
+    -- Specialization detection report (PlayerSpecialization.lua).
+    Private.PrintSpecialization()
   elseif msg == "repair" then
     StaticPopup_Show("WeakAuras_CONFIRM_REPAIR", nil, nil, {reason = "user"})
   elseif msg == "trackprint" then
@@ -2013,6 +2016,9 @@ do
   loadFrame:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR");
   loadFrame:RegisterEvent("TRAIT_CONFIG_CREATED")
   loadFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+  -- Forever 1.60: switching between the Primary and Secondary talent builds.
+  pcall(loadFrame.RegisterEvent, loadFrame, "ACTIVE_COMBAT_CONFIG_CHANGED")
+  pcall(loadFrame.RegisterEvent, loadFrame, "PLAYER_SPECIALIZATION_CHANGED")
 end
 
 loadFrame:RegisterEvent("GROUP_ROSTER_UPDATE");

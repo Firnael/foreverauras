@@ -200,7 +200,10 @@ function OptionsPrivate.PrepareSecretDisplayOptions(data, groups)
             -- All four types are native animations (SecretAuraGlow.lua).
             option.values = {buttonOverlay = "Action Button Glow", Pixel = "Pixel Glow", ACShine = "Autocast Shine", Proc = "Proc Glow"}
           elseif key == "anchor_area" then
-            option.values = data.regionType == "aurabar" and {ALL = "Whole Area", bar = "Bar", icon = "Icon"} or {ALL = "Whole Area"}
+            -- Named as on a normal bar: the whole display, the bar's track
+            -- (without the icon) and the icon. The filled part (Foreground)
+            -- has a secret width in combat, so nothing can be sized to it.
+            option.values = data.regionType == "aurabar" and {ALL = "Full Bar", bar = "Background", icon = "Icon"} or {ALL = "Whole Area"}
           elseif key == "anchor_point" and type(option.values) == "table" then
             local points = {}
             for point, title in pairs(option.values) do

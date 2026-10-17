@@ -7,7 +7,12 @@ local LibStub = LibStub
 local gui = LibStub("AceGUI-3.0")
 local reg = LibStub("AceConfigRegistry-3.0")
 
-local MAJOR, MINOR = "AceConfigDialog-3.0", 93
+-- ForeverAuras: upstream 93 plus the checkControl option for multiselect
+-- items (below). The minor is raised so this copy wins over an unpatched
+-- AceConfigDialog loaded by another addon; the options addon loads on demand,
+-- so without this any other copy would be registered first and the tri-state
+-- Specialization boxes would draw as plain checkboxes.
+local MAJOR, MINOR = "AceConfigDialog-3.0", 1093
 local AceConfigDialog, oldminor = LibStub:NewLibrary(MAJOR, MINOR)
 
 if not AceConfigDialog then return end

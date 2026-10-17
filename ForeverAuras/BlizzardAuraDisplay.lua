@@ -1355,8 +1355,11 @@ local function BuildButton(container, button)
   local native = {container = container}
   native.button = button
   button:EnableMouse(false)
-  -- Whole pixels for the button's box (its icon and borders hang on it).
-  if button.SetRoundLayoutToNearestPixel then pcall(button.SetRoundLayoutToNearestPixel, button, true) end
+  -- Whether the button's box is rounded to whole pixels is decided per
+  -- display in StyleAppearance: only inside a Modern Aura Group, whose row is
+  -- laid out on the pixel grid. Elsewhere a rounded box (34x32 units at 1.2
+  -- pixels a unit is 41x38 pixels, not 40.8x38.4) ends a row short of the
+  -- plain icons beside it, which WeakAuras never rounds.
   -- Gate clip (Total Duration, Remaining Time, Stack Count): created before
   -- any element on every display type (StyleDurationGate). It does not
   -- clip while no gate is used.

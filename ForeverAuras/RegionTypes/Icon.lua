@@ -626,7 +626,12 @@ local function modify(parent, region, data)
   end
 
   function region:SetDesaturated(b)
-    if type(b) == "boolean" then
+    -- Remembered for when a native saturated copy stops forcing the base
+    -- icon grey (CDMAuraProgress.ForceDesaturation).
+    region.cdmLastDesaturation = b
+    if region.cdmForcedDesaturation then
+      icon:SetDesaturation(1)
+    elseif type(b) == "boolean" then
       icon:SetDesaturation(b and 1 or 0);
     elseif type(b) == "number" then
       icon:SetDesaturation(b);

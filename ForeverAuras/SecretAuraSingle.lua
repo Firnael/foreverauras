@@ -289,8 +289,12 @@ function Display.TriggerStatus(data, trigger)
   if Display.InDynamicGroup(data) then
     text = text .. " " .. ORANGE .. "In a Dynamic Group it keeps a fixed position; a Modern Aura Group is recommended.|r"
   end
+  -- Only a list Icon with a Total Duration = / >= filter or a Remaining Time
+  -- window still estimates the duration for its timed glow; the rest are exact.
+  -- Only a list Icon with a Remaining Time window still estimates the
+  -- duration for its timed glow (TimedGlowHolder); the rest are exact.
   local lateX = Display.LateGlowSpec(data, trigger)
-  if lateX then
+  if lateX and data.regionType == "icon" and Display.RemainingWindow(trigger) and not Display.IsSingle(trigger, data) then
     local total = Display.LateGlowTotal(trigger)
     if not (total and total > lateX) then text = text .. " " .. ORANGE .. "Glow starts once the aura's duration is known.|r" end
   end
@@ -307,17 +311,6 @@ function Display.ValidateSingle(data, trigger)
   if remainingProblem then return remainingProblem end
   local fallbackProblem = Display.FallbackProblem(data)
   if fallbackProblem then return fallbackProblem end
-  -- A "Remaining Time < X" glow condition is drawn on Icon displays only.
-  if data.regionType ~= "icon" then
-    for _, condition in ipairs(data.conditions or {}) do
-      local check = condition.check
-      if check and check.variable == "faAuraRemaining" and Display.NativeConditionKind(data, check) then
-        for _, change in ipairs(condition.changes or {}) do
-          if Display.IsGlowProperty(data, change.property) then return "A Remaining Time glow needs an Icon display." end
-        end
-      end
-    end
-  end
   if not Display.IsSingle(trigger, data) then return end
   if not Display.IsSingleUnit(trigger) and not Display.UnitPlacedMissing(data, trigger) then
     return "On the screen, Aura(s) Missing, Always and Remaining Time watch one unit: choose Player, Target, Focus, Pet, Target of Target, Target of Focus, Pet Target or a Specific Unit. Anchored to unit frames or nameplates, Missing and Always work for every unit."
@@ -1191,8 +1184,8 @@ local function EnsureConditionGlow(single, instance, region, data, trigger, inde
   gate:SetWidth(0)
   gate:ClearAllPoints()
   gate:SetJustifyH("LEFT")
-  -- The block covers the glow's reach (margin) plus the gate's own margin.
-  gate:SetPoint("TOPLEFT", slot.button, "TOPLEFT", -margin - gateMargin, margin + gateMargin)
+  -- The run of W's spans the glow's reach (margin) plus the gate's own margin.
+  gate:SetPoint("LEFT", slot.button, "LEFT", -margin - gateMargin, 0)
   pcall(slot.button.ClearDurationText, slot.button)
   local ok, err = pcall(slot.button.SetDurationText, slot.button, gate, {
     textFormat = {formatString = "{}", components = {{property = Enum.DurationTextBindingProperty.RemainingDuration, formatter = formatter}}},
@@ -1204,9 +1197,7 @@ local function EnsureConditionGlow(single, instance, region, data, trigger, inde
     return
   end
   gate:Show()
-  slot.clip:ClearAllPoints()
-  slot.clip:SetPoint("TOPLEFT", gate, "TOPLEFT")
-  slot.clip:SetPoint("BOTTOMRIGHT", gate, "BOTTOMRIGHT")
+  Display.AnchorGateClip(slot.clip, gate, slot.button, margin + gateMargin)
   slot.holder:ClearAllPoints()
   slot.holder:SetAllPoints(icon.button)
   slot.glows = slot.glows or {}
@@ -1488,9 +1479,10 @@ end
 -- above x (Remaining Time > / >=) instead of below it: Remaining Time with a
 -- Glow turned on, or a "Remaining Time < X" condition that turns a Glow on.
 function Display.LateGlowSpec(data, trigger)
-  if data.regionType ~= "icon" then return end
   local op, x = Display.RemainingWindow(trigger)
-  if op then
+  -- A Remaining Time window on a bar, progress texture or text is the gate on
+  -- the whole display, so a Glow turned on there is an ordinary glow.
+  if op and data.regionType == "icon" then
     local element, index = FirstElement(data, function(element) return element.type == "subglow" and element.glow end)
     if not element then return end
     local edge = (op == "<=" or op == ">") and x + REMAIN_EPS or x
@@ -1675,7 +1667,8 @@ local function GlowMargin(width, height, element)
 end
 Display.GlowMargin = GlowMargin
 
--- Called by StyleAppearance for each Glow element of a live list button.
+-- Called by StyleAppearance for each Glow element of a live list button
+-- (icons, bars, progress textures and texts).
 -- nil: an ordinary glow. false: a timed glow whose total duration is not known
 -- yet (hidden). A frame: the holder inside the clip that the glow belongs in.
 function Display.TimedGlowHolder(native, data, index, frame)
@@ -1686,8 +1679,21 @@ function Display.TimedGlowHolder(native, data, index, frame)
   -- An Icon with a Remaining Time window draws its glows in the Remaining
   -- Time slot (EnsureRemaining), opened at exactly x seconds; nothing here.
   if data.regionType == "icon" and Display.RemainingWindow(trigger) and Display.IsSingle(trigger, data) then return false end
-  local total = Display.LateGlowTotal(trigger)
-  if not total or total <= x then return false end
+  -- A "Remaining Time < X" condition: the button's duration text is bound to
+  -- the time left with the Remaining Time slot's formatter gate and the
+  -- glow's clip hangs on it (StyleGlowGate), sharing the text with a Total
+  -- Duration or Remaining Time gate when there is one (CombinedGate). Exact
+  -- for IDs of different lengths, which the estimated bar below is not. Only
+  -- a list Icon with a Remaining Time window, drawn by its slot, keeps the bar.
+  local exact = not above and not (data.regionType == "icon" and Display.RemainingWindow(trigger))
+  local total
+  if not exact then
+    -- The estimated bar needs the button's duration bar, which a bar display
+    -- uses itself: such a glow stays an ordinary glow there.
+    if data.regionType ~= "icon" then return end
+    total = Display.LateGlowTotal(trigger)
+    if not total or total <= x then return false end
+  end
   local late = native.lateGlow
   if not late then
     late = {}
@@ -1705,6 +1711,19 @@ function Display.TimedGlowHolder(native, data, index, frame)
   end
   local width, height = Display.Dimensions(data)
   local margin = GlowMargin(width, height, element)
+  late.exact = nil
+  if exact then
+    -- The clip is anchored to the gate text by StyleGlowGate at the end of
+    -- StyleAppearance, once the text can be bound. Until then it covers the
+    -- button, shown: a glow built inside a hidden clip plays its flipbook
+    -- as the whole sprite sheet instead of frame by frame.
+    late.exact, late.margin = x, margin
+    late.clip:ClearAllPoints()
+    late.clip:SetAllPoints(native.button)
+    late.clip:SetFrameLevel(frame:GetFrameLevel() + 1)
+    late.clip:Show()
+    return late.holder
+  end
   local k = math.min(LATE_K, LATE_MAX_WIDTH / total)
   late.bar:ClearAllPoints()
   late.bar:SetSize(total * k, height + 2 * margin)
@@ -2094,21 +2113,28 @@ local function GateFormatter(lower, upper, fill)
 end
 Display.GateFormatter = GateFormatter
 
--- The gate text covers the whole clip area: its font size gives the height
--- and a run of wide characters the width. An empty text has no size, so the
+-- Font size of every gate text: well under the client's cap (about 120).
+local GATE_FONT_SIZE = 64
+
+-- The gate text gives a clip its width: a run of wide characters on one line
+-- (the formatter drops line breaks, so a taller text is not possible); the
+-- clip's top and bottom come from the display itself (AnchorGateClip). An
+-- empty text has no width, so the clip then shows nothing.
 local function GateFill(width, height)
   local margin = GateMargin(width, height)
-  local size = math.min(250, math.ceil(math.max(width, height) + 2 * margin))
+  local size = GATE_FONT_SIZE
   local fill = string.rep("W", math.ceil((width + 2 * margin) / (size / 2)) + 1)
-  -- Displays taller than one line of the largest font (tall bars) get more
-  -- lines; smaller ones keep the single line.
-  local lines = math.ceil((height + 2 * margin) / size)
-  if lines > 1 then
-    local rows = {}
-    for row = 1, lines do rows[row] = fill end
-    fill = table.concat(rows, "\n")
-  end
   return size, fill, margin
+end
+
+-- Hangs a gate clip on its text: left and right edges from the text, top and
+-- bottom from the frame with the gate margin around it.
+local function AnchorGateClip(clip, text, frame, margin)
+  clip:ClearAllPoints()
+  clip:SetPoint("LEFT", text, "LEFT")
+  clip:SetPoint("RIGHT", text, "RIGHT")
+  clip:SetPoint("TOP", frame, "TOP", 0, margin)
+  clip:SetPoint("BOTTOM", frame, "BOTTOM", 0, -margin)
 end
 
 local function PlaceGateText(text, button, margin)
@@ -2116,7 +2142,7 @@ local function PlaceGateText(text, button, margin)
   text:SetJustifyH("LEFT")
   text:SetPoint("LEFT", button, "LEFT", -margin - 2, 0)
 end
-Display.GateFill, Display.PlaceGateText = GateFill, PlaceGateText
+Display.GateFill, Display.PlaceGateText, Display.AnchorGateClip = GateFill, PlaceGateText, AnchorGateClip
 
 -- Stack Count "=": the hidden stack text decides the clip, so every drawn
 -- aura has exactly n stacks. Returns true when drawn.
@@ -2149,9 +2175,7 @@ local function StyleExactStackGate(native, data, n)
   end
   text:Show()
   Display.ClipChildren(clip)
-  clip:ClearAllPoints()
-  clip:SetPoint("TOPLEFT", text, "TOPLEFT")
-  clip:SetPoint("BOTTOMRIGHT", text, "BOTTOMRIGHT")
+  AnchorGateClip(clip, text, button, margin)
   -- The %s text lost its binding to the gate. The count is known, so it is
   -- written as plain text with the display's stack conditions applied.
   for index, element in ipairs(data.subRegions or {}) do
@@ -2221,46 +2245,78 @@ local function StyleStackGate(native, data, trigger)
   return true
 end
 
--- Called at the end of StyleAppearance for every live list button.
-function Display.StyleDurationGate(native, data)
-  if native.preview or not native.gateClip then return end
-  local clip, gate, button = native.gateClip, native.gateText, native.button
-  local trigger = Display.GetTrigger(data)
+-- Width of a run of n W's in the gate font, measured on a hidden text.
+local ruler
+local function RulerWidth(size, n)
+  if not ruler then
+    ruler = UIParent:CreateFontString(nil, "BACKGROUND")
+    ruler:SetAlpha(0)
+    ruler:SetPoint("TOPLEFT", UIParent, "TOPLEFT")
+  end
+  ruler:SetFont(STANDARD_TEXT_FONT, size, "")
+  ruler:SetWordWrap(false)
+  ruler:SetText(string.rep("W", n))
+  local width = ruler:GetStringWidth()
+  ruler:SetText("")
+  return width
+end
+
+-- A clip whose left, top and bottom are the frame's with a margin and whose
+-- right edge is the text's right edge moved by `offset` (negative): the clip
+-- is open only while the text is wider than that, and then spans the frame.
+local function AnchorEdgeClip(clip, text, frame, margin, offset)
+  clip:ClearAllPoints()
+  clip:SetPoint("LEFT", frame, "LEFT", -margin, 0)
+  clip:SetPoint("RIGHT", text, "RIGHT", offset, 0)
+  clip:SetPoint("TOP", frame, "TOP", 0, margin)
+  clip:SetPoint("BOTTOM", frame, "BOTTOM", 0, -margin)
+end
+
+-- One text for a Total Duration / Remaining Time gate and a "Remaining Time
+-- < X" glow condition (StyleDurationGate). The gate's formatter writes 2n W's
+-- while the gate is open, the glow's n W's while fewer than X seconds are
+-- left, and the text is their sum: n (glow only), 2n (gate only) or 3n
+-- (both). A clip opened past 1.5n shows the display for the gate, one past
+-- 2.5n the glow for both; n W's are at least twice the clip's span, so an
+-- open clip always covers it. Returns the parts, or nil when the formatters
+-- are refused (the gate then runs alone).
+local function CombinedGate(native, data, lower, upper, property, gateMargin)
+  local late = native.lateGlow
   local width, height = Display.Dimensions(data)
-  local lower, upper = Display.DurationGate(data, trigger)
-  -- Which time the gate text follows, and its name in warnings.
-  local property, label = "TotalDuration", "Total Duration"
-  if not lower then
-    -- Remaining Time on bars, progress textures and texts: the same gate on
-    -- the time left.
-    local remainingLower, remainingUpper = Display.RemainingGateRange(data, trigger)
-    if remainingLower then lower, upper, property, label = remainingLower, remainingUpper, "RemainingDuration", "Remaining Time" end
-  end
-  if not lower then
-    gate:Hide()
-    native.cooldown:SetUseAuraDisplayTime(false)
-    native.cooldown:SetMinimumCountdownDuration(0)
-    native.cooldown:SetCountdownFormatter(nil)
-    -- A Stack Count filter uses the same clip.
-    if StyleStackGate(native, data, trigger) then return end
-    -- No gate: the frame does not clip at all, as before the gate existed.
-    clip:SetClipsChildren(false)
-    clip:ClearAllPoints()
-    clip:SetAllPoints(button)
-    return
-  end
-  -- The time gate owns the clip; a stale stack bar is released.
-  StyleStackGate(native, data, nil)
-  -- Font size and "open" text shared with the Stack Count "=" gate.
-  local size, fill, margin = GateFill(width, height)
-  local formatter, err = GateFormatter(lower, upper, fill)
+  local size = GATE_FONT_SIZE
+  local _, _, glowGateMargin = GateFill(width + 2 * late.margin, height + 2 * late.margin)
+  local margin = math.max(gateMargin, late.margin + glowGateMargin)
+  -- The text starts 2 px left of the margin (PlaceGateText); 4 px of slack.
+  local span = width + 2 * margin + 4
+  local one = RulerWidth(size, 1)
+  if not one or one <= 0 then return end
+  local n = math.ceil(2 * span / one) + 1
+  local unit = RulerWidth(size, n)
+  if not unit or unit < 2 * span then return end
+  local formatter = GateFormatter(lower, upper, string.rep("W", 2 * n))
+  local glowFormatter = GateFormatter(0, late.exact, string.rep("W", n))
+  if not (formatter and glowFormatter) then return end
+  return {formatter = formatter, glowFormatter = glowFormatter, unit = unit, margin = margin}
+end
+
+-- A Glow element turned on by a "Remaining Time < X" condition on a list
+-- display (TimedGlowHolder): no filter uses the gate text, so it is bound to the time
+-- left and is a block while fewer than X seconds remain, empty otherwise; the
+-- glow's clip hangs on it. The button's own clip is left to the stack gate.
+local function StyleGlowGate(native, data)
+  local late, gate, button = native.lateGlow, native.gateText, native.button
+  local width, height = Display.Dimensions(data)
+  -- The run of W's spans the glow's reach (margin) plus the gate's own margin.
+  local size, fill, gateMargin = GateFill(width + 2 * late.margin, height + 2 * late.margin)
+  local formatter, err = GateFormatter(0, late.exact, fill)
   local ok = formatter ~= nil
   if ok then
     gate:SetFont(STANDARD_TEXT_FONT, size, "")
     gate:SetWordWrap(false)
-    -- No fixed width: the text's own width follows what the formatter writes.
     gate:SetWidth(0)
-    PlaceGateText(gate, button, margin)
+    gate:ClearAllPoints()
+    gate:SetJustifyH("LEFT")
+    gate:SetPoint("LEFT", button, "LEFT", -late.margin - gateMargin, 0)
     -- Always transparent: only its size matters.
     if not invisibleCurve then
       invisibleCurve = C_CurveUtil.CreateColorCurve()
@@ -2268,21 +2324,26 @@ function Display.StyleDurationGate(native, data)
       invisibleCurve:AddPoint(0, CreateColor(0, 0, 0, 0))
     end
     ok, err = pcall(button.SetDurationText, button, gate, {
-      textFormat = {formatString = "{}", components = {{property = Enum.DurationTextBindingProperty[property], formatter = formatter}}},
-      textColor = {curve = invisibleCurve, property = Enum.DurationTextBindingProperty[property]},
+      textFormat = {formatString = "{}", components = {{property = Enum.DurationTextBindingProperty.RemainingDuration, formatter = formatter}}},
+      textColor = {curve = invisibleCurve, property = Enum.DurationTextBindingProperty.RemainingDuration},
     })
   end
   if not ok then
-    Warn(data, "Blizzard refused the " .. label .. " check: " .. tostring(err))
-    return
+    Warn(data, "Blizzard refused the Remaining Time glow: " .. tostring(err))
+    gate:Hide()
+    return false
   end
   gate:Show()
-  Display.ClipChildren(clip)
-  clip:ClearAllPoints()
-  clip:SetPoint("TOPLEFT", gate, "TOPLEFT")
-  clip:SetPoint("BOTTOMRIGHT", gate, "BOTTOMRIGHT")
-  -- The %p text lost its binding to the gate, so it is hidden and a
-  -- cooldown's countdown numbers show the time in its place.
+  AnchorGateClip(late.clip, gate, button, late.margin + gateMargin)
+  late.clip:Show()
+  return true
+end
+
+-- The %p text lost its binding to the gate, so it is hidden and, when
+-- numbers is true, a cooldown's countdown numbers show the time in its
+-- place; the numbers start at `minimum` seconds of total duration.
+local function HandOffCountdown(native, data, numbers, minimum)
+  local button = native.button
   local countdown, settings, prefix
   if native.mainText and data.regionType == "text" and Display.TextKind(data.displayText) == "duration" then
     native.mainText:Hide()
@@ -2299,8 +2360,7 @@ function Display.StyleDurationGate(native, data)
       end
     end
   end
-  -- Icons with Remaining Time are drawn by the single display, not this gate.
-  if countdown and (data.regionType ~= "icon" or property == "TotalDuration") then
+  if countdown and numbers then
     local cooldown = native.cooldown
     cooldown:Show()
     if data.regionType ~= "icon" then
@@ -2323,7 +2383,7 @@ function Display.StyleDurationGate(native, data)
     end
     cooldown:SetUseAuraDisplayTime(true)
     -- Second guard: no numbers for auras shorter than the range.
-    cooldown:SetMinimumCountdownDuration(property == "TotalDuration" and lower * 1000 or 0)
+    cooldown:SetMinimumCountdownDuration(minimum * 1000)
     -- The numbers take the %p text's font, colour, position and time format.
     local numbers = cooldown:GetCountdownFontString()
     if numbers then Display.StyleText(numbers, native, settings, "text", 18, "CENTER", 0, 0) end
@@ -2335,6 +2395,101 @@ function Display.StyleDurationGate(native, data)
     end
     button:SetDurationCooldown(cooldown)
   end
+end
+
+-- Called at the end of StyleAppearance for every live list button.
+function Display.StyleDurationGate(native, data)
+  if native.preview or not native.gateClip then return end
+  local clip, gate, button = native.gateClip, native.gateText, native.button
+  local trigger = Display.GetTrigger(data)
+  local width, height = Display.Dimensions(data)
+  local lower, upper = Display.DurationGate(data, trigger)
+  -- Which time the gate text follows, and its name in warnings.
+  local property, label = "TotalDuration", "Total Duration"
+  if not lower then
+    -- Remaining Time on bars, progress textures and texts: the same gate on
+    -- the time left.
+    local remainingLower, remainingUpper = Display.RemainingGateRange(data, trigger)
+    if remainingLower then lower, upper, property, label = remainingLower, remainingUpper, "RemainingDuration", "Remaining Time" end
+  end
+  if not lower then
+    gate:Hide()
+    native.cooldown:SetUseAuraDisplayTime(false)
+    native.cooldown:SetMinimumCountdownDuration(0)
+    native.cooldown:SetCountdownFormatter(nil)
+    -- A Stack Count filter uses the same clip.
+    if not StyleStackGate(native, data, trigger) then
+      -- No gate: the frame does not clip at all, as before the gate existed.
+      clip:SetClipsChildren(false)
+      clip:ClearAllPoints()
+      clip:SetAllPoints(button)
+    end
+    -- A "Remaining Time < X" glow condition binds the gate text to its own
+    -- clip; the %p text then shows as countdown numbers, as with a time gate.
+    if native.lateGlow and native.lateGlow.exact and StyleGlowGate(native, data) then
+      HandOffCountdown(native, data, true, 0)
+    end
+    return
+  end
+  -- The time gate owns the clip; a stale stack bar is released.
+  StyleStackGate(native, data, nil)
+  -- Font size and "open" text shared with the Stack Count "=" gate.
+  local size, fill, margin = GateFill(width, height)
+  local formatter, err = GateFormatter(lower, upper, fill)
+  local ok = formatter ~= nil
+  -- A "Remaining Time < X" glow condition shares the text with the gate
+  -- (CombinedGate): the gate's part is twice as wide as the glow's, so the
+  -- text's right edge tells both apart. Both clips then start at the same
+  -- margin, the larger of the two.
+  local late = native.lateGlow
+  local combined = late and late.exact and ok and CombinedGate(native, data, lower, upper, property, margin)
+  if combined then
+    formatter, margin = combined.formatter, combined.margin
+  end
+  if ok then
+    gate:SetFont(STANDARD_TEXT_FONT, size, "")
+    gate:SetWordWrap(false)
+    -- No fixed width: the text's own width follows what the formatter writes.
+    gate:SetWidth(0)
+    PlaceGateText(gate, button, margin)
+    -- Always transparent: only its size matters.
+    if not invisibleCurve then
+      invisibleCurve = C_CurveUtil.CreateColorCurve()
+      invisibleCurve:SetType(Enum.LuaCurveType.Step)
+      invisibleCurve:AddPoint(0, CreateColor(0, 0, 0, 0))
+    end
+    local components = {{property = Enum.DurationTextBindingProperty[property], formatter = formatter}}
+    if combined then
+      components[2] = {property = Enum.DurationTextBindingProperty.RemainingDuration, formatter = combined.glowFormatter}
+    end
+    ok, err = pcall(button.SetDurationText, button, gate, {
+      textFormat = {formatString = combined and "{}{}" or "{}", components = components},
+      textColor = {curve = invisibleCurve, property = Enum.DurationTextBindingProperty[property]},
+    })
+  end
+  if not ok then
+    Warn(data, "Blizzard refused the " .. label .. " check: " .. tostring(err))
+    return
+  end
+  gate:Show()
+  Display.ClipChildren(clip)
+  if combined then
+    -- Gate: open from the display's edge once the text is wider than the
+    -- glow's part alone. Glow: once it is wider than the gate's part alone.
+    AnchorEdgeClip(clip, gate, button, margin, -1.5 * combined.unit)
+    AnchorEdgeClip(late.clip, gate, button, margin, -2.5 * combined.unit)
+    late.clip:Show()
+  else
+    AnchorGateClip(clip, gate, button, margin)
+    -- A glow that could not share the text stays hidden rather than always on.
+    if late and late.exact then
+      late.clip:Hide()
+      Warn(data, "The Remaining Time glow could not be measured; it stays off.")
+    end
+  end
+  -- Icons with Remaining Time are drawn by the single display, not this gate.
+  HandOffCountdown(native, data, data.regionType ~= "icon" or property == "TotalDuration",
+    property == "TotalDuration" and lower or 0)
 end
 
 -- Maximum Duration becomes Total Duration "<=". Pre-release test builds had a
