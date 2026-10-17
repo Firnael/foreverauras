@@ -188,7 +188,7 @@ end
 Display.flowSortModes = {
   none = "None", ascending = "Ascending", descending = "Descending",
   expiration = "Remaining time (Blizzard priority)", name = "Name", namePriority = "Name (Blizzard priority)",
-  blizzard = "Blizzard default", important = "Importance only", bigDefensive = "Big defensives", applied = "Aura instance ID",
+  blizzard = "Blizzard default", important = "Importance only", bigDefensive = "Big defensives", applied = "Order applied",
 }
 Display.flowSortOrder = {"ascending", "descending", "expiration", "name", "namePriority", "blizzard", "important", "bigDefensive", "applied", "none"}
 local sortModeMethods = {

@@ -1328,6 +1328,7 @@ local funcs = {
   end,
   UpdateDuration = function(self)
     if self.cdmNativeProgress then return end
+    if Private.CDMFollowBar then Private.CDMFollowBar(self, nil) end
     self.secretProgress = "duration"
     self:SetProgressSecret()
 
@@ -1339,6 +1340,9 @@ local funcs = {
   UpdateValue = function(self)
     if self.cdmNativeProgress then return end
     -- self.inverse = nil -- we don't want this field to affect "static" progress
+    -- A CDM Buff state driven by a Cooldown Manager bar (cdmBarSource): the
+    -- secret bar follows that bar's values each frame (CooldownViewerCatalog).
+    if Private.CDMFollowBar then Private.CDMFollowBar(self, self.state and self.state.cdmBarSource or nil) end
     if hasanysecretvalues(self.value, self.total) then
       self.secretProgress = "value"
       self:SetProgressSecret()
@@ -1358,6 +1362,7 @@ local funcs = {
   end,
   UpdateTime = function(self)
     if self.cdmNativeProgress then return end
+    if Private.CDMFollowBar then Private.CDMFollowBar(self, nil) end
     self.secretProgress = nil
     local remaining = self.expirationTime - GetTime();
     local progress = self.duration ~= 0 and remaining / self.duration or 0;

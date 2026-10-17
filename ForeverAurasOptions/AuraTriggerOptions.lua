@@ -80,7 +80,11 @@ function Editor.AddOptions(options, data, triggernum)
     end
     -- Remaining Time heads the Aura Filters section, as it heads Legacy's
     -- Active Aura Filters; like Legacy, only with Show On: Aura(s) Found.
-    local function RemainingHidden() return display.RawShowOn(trigger) ~= "showOnActive" end
+    -- Show On: Aura(s) Gained shows an aura only while new, through its own
+    -- fade; the time and stack gates hide auras through native curves, and the
+    -- two cannot combine, so the gates are hidden (and cleared) with Gained.
+    local function Gained() return display.RawShowOn(trigger) == "showOnActive" and trigger.secretGained == true end
+    local function RemainingHidden() return display.RawShowOn(trigger) ~= "showOnActive" or Gained() end
     options.useRem = {type = "toggle", name = "Remaining Time", order = 10.01, width = WeakAuras.normalWidth,
       hidden = RemainingHidden,
       get = function() return trigger.secretUseRem or false end,
@@ -113,8 +117,12 @@ function Editor.AddOptions(options, data, triggernum)
       return true
     end
     -- Total Duration: a standard filter on the aura's full duration, laid out
-    -- like Remaining Time. "<=" works everywhere; "=" and ">=" on Icons.
+    -- like Remaining Time. "<=" is Blizzard's own candidate filter and works
+    -- everywhere; "=" and ">=" are drawn by a clip (Icons on screen). "=" also
+    -- replaces every learned or described duration (glows).
     options.useTotal = {type = "toggle", name = "Total Duration", order = 10.05, width = WeakAuras.normalWidth,
+      desc = "= matches only auras of exactly this length and sets the duration assumed for glows.",
+      hidden = function() return Gained() end,
       get = function() return trigger.secretUseTotal or false end,
       set = function(_, value)
         trigger.secretUseTotal = value or nil
@@ -123,19 +131,20 @@ function Editor.AddOptions(options, data, triggernum)
       end}
     options.totalOperator = {type = "select", name = "Operator", order = 10.06, width = WeakAuras.halfWidth,
       values = display.totalOperators, sorting = {"=", "<=", ">="},
-      hidden = function() return not trigger.secretUseTotal end,
+      hidden = function() return Gained() or not trigger.secretUseTotal end,
       get = function() return trigger.secretTotalOperator or "=" end,
       set = function(_, value) trigger.secretTotalOperator = value; Save() end}
     options.total = {type = "input", name = "Total Duration", order = 10.07, width = WeakAuras.halfWidth,
-      hidden = function() return not trigger.secretUseTotal end,
+      hidden = function() return Gained() or not trigger.secretUseTotal end,
       validate = function(_, value) return ValidSeconds(value) end,
       get = function() return trigger.secretTotal and tostring(trigger.secretTotal) or "" end,
       set = function(_, value) trigger.secretTotal = Seconds(value); Save() end}
     options.useTotalSpace = {type = "description", name = "", order = 10.08, width = WeakAuras.normalWidth,
-      hidden = function() return trigger.secretUseTotal end}
+      hidden = function() return Gained() or trigger.secretUseTotal end}
     -- Stack Count: laid out like Total Duration. Blizzard has no stack filter,
     -- so it is drawn by a clip around the display (SecretAuraSingle.lua).
     options.useStacks = {type = "toggle", name = "Stack Count", order = 10.085, width = WeakAuras.normalWidth,
+      hidden = function() return Gained() end,
       get = function() return trigger.secretUseStacks or false end,
       set = function(_, value)
         trigger.secretUseStacks = value or nil
@@ -144,11 +153,11 @@ function Editor.AddOptions(options, data, triggernum)
       end}
     options.stacksOperator = {type = "select", name = "Operator", order = 10.086, width = WeakAuras.halfWidth,
       values = display.stackOperators, sorting = {"=", ">=", ">", "<=", "<"},
-      hidden = function() return not trigger.secretUseStacks end,
+      hidden = function() return Gained() or not trigger.secretUseStacks end,
       get = function() return trigger.secretStacksOperator or ">=" end,
       set = function(_, value) trigger.secretStacksOperator = value; Save() end}
     options.stacks = {type = "input", name = "Stack Count", order = 10.087, width = WeakAuras.halfWidth,
-      hidden = function() return not trigger.secretUseStacks end,
+      hidden = function() return Gained() or not trigger.secretUseStacks end,
       validate = function(_, value)
         local count = tonumber(value)
         if not count or count ~= math.floor(count) or count < 0 or count > display.STACK_LIMIT then
@@ -159,32 +168,47 @@ function Editor.AddOptions(options, data, triggernum)
       get = function() return trigger.secretStacks and tostring(trigger.secretStacks) or "" end,
       set = function(_, value) trigger.secretStacks = tonumber(value); Save() end}
     options.useStacksSpace = {type = "description", name = "", order = 10.088, width = WeakAuras.normalWidth,
-      hidden = function() return trigger.secretUseStacks end}
-    -- Debuffs on friendly units cannot be picked by spell ID in combat; this
-    -- matches the entered spell by its known duration and type instead. Shown
-    -- under Aura Type once a spell ID is entered.
-    options.secretApproximate = {type = "toggle", name = "Approximate Match", order = 4.02, width = "full",
-      desc = "Approximates the selected spell ID based on its duration and other learned information.",
-      hidden = function()
-        return not (display.approximateUnits[display.UnitCategory(trigger)] and trigger.debuffType == "HARMFUL"
-          and #display.GetSpellIDs(trigger, true) > 0)
-      end,
-      get = function() return trigger.secretApproximate or false end,
-      set = function(_, value) trigger.secretApproximate = value or nil; Save() end}
+      hidden = function() return Gained() or trigger.secretUseStacks end}
     options.show_settings_header = {type = "header", name = "Show and Clone Settings", order = 69.91}
     -- Same label/selector pair and values as Aura (Legacy). Aura(s) Found keeps
     -- the list behaviour; Missing and Always draw one aura (SecretAuraSingle.lua).
     options.use_matchesShowOn = {type = "toggle", name = "Show On", order = 71, width = WeakAuras.normalWidth,
       get = function() return true end, disabled = true}
+    -- Aura(s) Gained is a Found list whose auras show only while new
+    -- (BlizzardAuraDisplay.lua, Display.GainedSeconds): stored as Found plus
+    -- secretGained, so it behaves as Found everywhere but in the drawing.
+    local showOnValues = {showOnActive = "Aura(s) Found", showOnGained = "Aura(s) Gained", showOnMissing = "Aura(s) Missing", showAlways = "Always"}
     options.matchesShowOn = {type = "select", name = "Show On", order = 71.1, width = WeakAuras.normalWidth,
-      values = display.showOnValues,
-      sorting = {"showOnActive", "showOnMissing", "showAlways"},
-      get = function() return display.RawShowOn(trigger) end,
+      values = showOnValues,
+      sorting = {"showOnActive", "showOnGained", "showOnMissing", "showAlways"},
+      desc = "Aura(s) Gained: shows an aura only while it is new, for the seconds below.",
+      get = function()
+        local shown = display.RawShowOn(trigger)
+        if shown == "showOnActive" and trigger.secretGained then return "showOnGained" end
+        return shown
+      end,
       set = function(_, value)
-        if not display.showOnValues[value] then return end
-        trigger.secretShowOn = value ~= "showOnActive" and value or nil
+        if not showOnValues[value] then return end
+        if value == "showOnGained" then
+          trigger.secretShowOn = nil
+          trigger.secretGained = true
+          trigger.secretUseRem, trigger.secretUseTotal, trigger.secretUseStacks = nil, nil, nil
+          if tonumber(trigger.secretGainedSeconds) == nil then trigger.secretGainedSeconds = 1.5 end
+        else
+          trigger.secretGained = nil
+          trigger.secretShowOn = value ~= "showOnActive" and value or nil
+        end
         Save()
       end}
+    options.gainedSeconds = {type = "input", name = "Shown for (seconds)", order = 71.2, width = WeakAuras.normalWidth,
+      hidden = function() return not (display.RawShowOn(trigger) == "showOnActive" and trigger.secretGained) end,
+      validate = function(_, value)
+        local seconds = tonumber(Seconds(value))
+        if not seconds or seconds <= 0 then return "Enter a number of seconds." end
+        return true
+      end,
+      get = function() return tostring(tonumber(trigger.secretGainedSeconds) or 1.5) end,
+      set = function(_, value) trigger.secretGainedSeconds = tonumber(Seconds(value)); Save() end}
     -- The Missing icon's look is set with an "Aura Active = False" condition
     -- (SecretAuraConditions.lua); the former box here is migrated to one.
     -- As in Aura (Legacy): the trigger is inactive while its target, focus or
@@ -193,7 +217,7 @@ function Editor.AddOptions(options, data, triggernum)
       desc = "Keep this trigger active while there is no such unit. Otherwise it is inactive then, so other triggers can supply the display.",
       hidden = function()
         local unit = trigger.unit
-        return not (unit == "target" or unit == "focus" or unit == "pet" or unit == "targettarget" or unit == "focustarget" or unit == "member")
+        return not (unit == "target" or unit == "focus" or unit == "pet" or unit == "targettarget" or unit == "focustarget" or unit == "pettarget" or unit == "member")
       end,
       get = function() return trigger.unitExists or false end,
       set = function(_, value) trigger.unitExists = value or nil; Save() end}

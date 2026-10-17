@@ -476,6 +476,7 @@ local function BuildCooldownViewerStates(allstates, selected, event, showGCD, tr
         -- Reused states must not retain a spell-only text requirement for buffs/items/previews.
         state.cdmTextDurationObject, state.cdmTextDurationRequired = nil, nil
         state.cdmSuppressGCD = false
+        state.cdmBarSource = nil
         state.cdmNativePaused = false
         state.cdmBuff = Private.CDMIsBuff(entry.category)
         local bindingIDs = selected.buffSpellIDsByEntry and selected.buffSpellIDsByEntry[cooldownID]

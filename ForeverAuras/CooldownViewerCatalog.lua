@@ -133,7 +133,7 @@ local function Observe(frame)
     if type(frame[method]) == "function" then hooksecurefunc(frame, method, ClearAura) end
   end
   for _, method in ipairs({"OnCooldownIDSet", "OnCooldownIDCleared", "ResetCooldownData"}) do
-    if type(frame[method]) == "function" then hooksecurefunc(frame, method, Clear) end
+    if type(frame[method]) == "function" then hooksecurefunc(frame, method, function() record.barDuration = nil; Clear() end) end
   end
   for _, method in ipairs({"SetAuraInstanceInfo", "OnUnitAuraRemovedEvent", "OnUnitAuraUpdatedEvent", "OnNewTarget", "OnActiveStateChanged", "RefreshIconColor"}) do
     if type(frame[method]) == "function" then hooksecurefunc(frame, method, NativeRefresh) end
@@ -177,6 +177,68 @@ local function Observe(frame)
       end
     end
     CaptureIdentity()
+  end
+  -- A tracked bar (BuffBar viewer item) has no Cooldown. For an aura applied
+  -- in combat its instance and times are secret, which GetAuraDuration and
+  -- SetTimeFromEnd refuse from an addon, and the client drives the bar not
+  -- from a duration object but from its own OnUpdate: SetMinMaxValues and
+  -- SetValue every frame, with secret numbers. Those numbers can still be
+  -- handed on to a StatusBar, so they are mirrored into every Aura Bar that
+  -- follows this viewer bar (Private.CDMFollowBar), whose secret-value mask
+  -- draws them. A duration object, should the client ever set one, is kept.
+  local bar = frame.Bar
+  if type(bar) == "table" then
+    if type(bar.SetTimerDuration) == "function" then
+      hooksecurefunc(bar, "SetTimerDuration", function(_, duration)
+        if not WeakAuras.IsDurationObject(duration) then return end
+        record.barDuration = duration
+        CaptureIdentity()
+        NativeRefresh()
+      end)
+    end
+    record.followers = setmetatable({}, {__mode = "k"})
+    if type(bar.SetMinMaxValues) == "function" then
+      hooksecurefunc(bar, "SetMinMaxValues", function(_, low, high)
+        record.barMin, record.barMax = low, high
+        for region in pairs(record.followers) do
+          if region.secretBar and region.cdmBarSource == bar then region.secretBar:SetMinMaxValues(low, high) end
+        end
+      end)
+    end
+    if type(bar.SetValue) == "function" then
+      hooksecurefunc(bar, "SetValue", function(_, value)
+        record.barValue = value
+        if not record.barDriven then
+          -- The first value: the trigger reads the bar from now on.
+          record.barDriven = true
+          NativeRefresh()
+        end
+        for region in pairs(record.followers) do
+          if region.secretBar and region.cdmBarSource == bar then region.secretBar:SetValue(value) end
+        end
+      end)
+    end
+    CaptureIdentity()
+  end
+end
+
+-- Called by the Aura Bar region (UpdateValue): region's secret bar follows
+-- the viewer bar source (a state's cdmBarSource), or stops following.
+function Private.CDMFollowBar(region, source)
+  if region.cdmBarSource == source then return end
+  for _, record in pairs(observed) do
+    if record.followers then record.followers[region] = nil end
+  end
+  region.cdmBarSource = source
+  if not source then return end
+  for frame, record in pairs(observed) do
+    if frame.Bar == source and record.followers then
+      record.followers[region] = true
+      if region.secretBar then
+        if record.barMin ~= nil and record.barMax ~= nil then region.secretBar:SetMinMaxValues(record.barMin, record.barMax) end
+        if record.barValue ~= nil then region.secretBar:SetValue(record.barValue) end
+      end
+    end
   end
 end
 
@@ -447,9 +509,19 @@ local function ApplyCachedAura(state, identity, info, frame, exactID, buffSpellI
   end
   if nativeMatches and not nativeAbsent and observed[frame] then
     local record = observed[frame]
-    if not state.durationObject and record.duration then
-      state.progressType, state.durationObject = "durationObject", record.duration
+    local caught = record.duration or record.barDuration
+    -- A tracked bar also answers for its timer directly (GetTimerDuration).
+    if not caught and type(frame.Bar) == "table" and type(frame.Bar.GetTimerDuration) == "function" then
+      local ok, duration = pcall(frame.Bar.GetTimerDuration, frame.Bar)
+      if ok and WeakAuras.IsDurationObject(duration) then caught = duration end
+    end
+    if not state.durationObject and caught then
+      state.progressType, state.durationObject = "durationObject", caught
       state.value, state.total = nil, nil
+    elseif not state.durationObject and record.barDriven and type(frame.Bar) == "table" then
+      -- The client's per-frame numbers: the Aura Bar follows the viewer bar.
+      state.progressType, state.value, state.total = "static", record.barValue, record.barMax
+      state.cdmBarSource = frame.Bar
     elseif not state.durationObject and record.raw then
       -- Buff/debuff viewers also supply restricted raw cooldown times. Keep
       -- them inside a native duration object, as the spell-viewer path does,

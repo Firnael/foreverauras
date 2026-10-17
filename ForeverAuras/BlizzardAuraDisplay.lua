@@ -31,7 +31,7 @@ local unitGlowFrameLevel = 8
 
 Display.units = {
   player = "Player", target = "Target", focus = "Focus", pet = "Pet", mouseover = "Mouseover",
-  targettarget = "Target of Target", focustarget = "Target of Focus", group = "Smart Group",
+  targettarget = "Target of Target", focustarget = "Target of Focus", pettarget = "Pet Target", group = "Smart Group",
   party = "Party", raid = "Raid", boss = "Boss", arena = "Arena", nameplate = "Nameplate",
   member = "Specific Unit",
 }
@@ -155,10 +155,10 @@ local function FilterString(trigger)
   return table.concat(filters, "|")
 end
 Display.sortMethods = {
-  Default = "Blizzard default", BigDefensive = "Big defensives", UnitFrameDebuff = "Unit-frame debuffs",
+  Default = "Blizzard default", BigDefensive = "Big defensives", UnitFrameDebuff = "Blizzard debuff order",
   ImportantOnly = "Importance only", Expiration = "Remaining time (Blizzard priority)",
   ExpirationOnly = "Remaining time", Name = "Name (Blizzard priority)", NameOnly = "Name",
-  AuraInstanceIDOnly = "Aura instance ID",
+  AuraInstanceIDOnly = "Order applied",
 }
 Display.processedTypes = {any = "Any (no classification)", Buff = "Buff", Debuff = "Debuff", Dispel = "Dispellable raid debuff"}
 Display.processingOptions = {
@@ -263,11 +263,25 @@ function Display.Elements(settings)
   return settings.elements
 end
 
+-- The holder of everything FA draws on a button besides the icon and
+-- cooldown (borders, texts, glows, condition highlights). A Start animation
+-- only reaches the icon and cooldown Blizzard draws, so the holder fades in
+-- over the animation instead (BuildAuraAnimation).
+function Display.ElementHolder(native)
+  if not native.elements then
+    native.elements = CreateFrame("Frame", nil, native.gateClip or native.button)
+    native.elements:SetAllPoints(native.button)
+    native.elements:EnableMouse(false)
+  end
+  return native.elements
+end
+
 local function ElementFrame(native, key)
   native.elementFrames = native.elementFrames or {}
   if not native.elementFrames[key] then
     -- Icons: every element lives in the Total Duration gate clip (SecretAuraSingle.lua).
-    local frame = CreateFrame("Frame", nil, native.gateClip or native.button)
+    -- The icon's own frame hangs on the clip; the rest on the elements holder.
+    local frame = CreateFrame("Frame", nil, key == "sharedBase" and (native.gateClip or native.button) or Display.ElementHolder(native))
     frame:SetAllPoints(native.button)
     frame:EnableMouse(false)
     native.elementFrames[key] = frame
@@ -361,6 +375,19 @@ local function MatchesUnitName(trigger, unit)
     if name == strlower(wanted) then return true end
   end
   return false
+end
+
+-- Filter by Hostility, as on Aura (Legacy) (same useHostility/hostility
+-- fields): nameplate tokens cover friends and enemies alike. True when the
+-- unit's side matches; a side the client hides (a secret answer) passes.
+function Display.UsesHostility(trigger)
+  return type(trigger) == "table" and trigger.unit == "nameplate" and trigger.useHostility == true
+end
+function Display.HostilityMatches(trigger, unit)
+  if not unit or not Display.UsesHostility(trigger) then return true end
+  local hostile = UnitCanAttack("player", unit)
+  if issecretvalue(hostile) then return true end
+  return (hostile == true) == (trigger.hostility ~= "friendly")
 end
 
 local function UnitTokens(trigger)
@@ -683,7 +710,7 @@ local function UpdatePreviewNotice(region)
   local trigger = Display.GetTrigger(data)
   local warning
   -- Same rule as the trigger's status line: only a selection Blizzard always
-  -- refuses (not Approximate Match, not never-secret spells) gets the notice.
+  -- refuses (not never-secret spells) gets the notice.
   if trigger and Display.SpellIDFilterNote(trigger) == "error" then
     warning = "Preview only: these auras will not display in combat with spell ID filters.\nConfigured sounds in Actions can still play."
   end
@@ -928,11 +955,177 @@ local function StyleGlow(native, data, unitGlow)
 
 end
 
+-- Show On: Aura(s) Gained. An aura new to the unit fades in, holds for the
+-- trigger's seconds and fades out; its button rests at alpha 0 otherwise, so
+-- the display shows only what just happened (a buff an enemy gains, say). The fade is an
+-- animation group handed to the button (AddAuraAssignedAnimation), which
+-- Blizzard plays when it assigns an aura to the button and never on an
+-- update: nothing here reads the aura. A build without that call plays it
+-- whenever the aura is shown. Proven first in the Enemy Nameplate Spells aura
+-- with its own container; the aura's rest alpha is the one live alpha write
+-- besides ConfigureSingle (SecretAuraSingle.lua), which defers to it.
+local FLASH_IN, FLASH_OUT = 0.1, 0.3
+-- Show On: Aura(s) Gained (SecretAuraTriggerOptions.lua): the trigger stays a
+-- Found list (secretShowOn nil) with secretGained set, so everything else
+-- treats it as Found; only the drawing here reads it.
+function Display.GainedSeconds(trigger)
+  if type(trigger) ~= "table" or not trigger.secretGained or Display.ShowOn(trigger) ~= "showOnActive" then return 0 end
+  -- The time and stack gates hide auras their own way; with one set (an
+  -- import, say) the trigger is a plain Found list.
+  if trigger.secretUseRem or trigger.secretUseTotal or trigger.secretUseStacks then return 0 end
+  local seconds = tonumber(trigger.secretGainedSeconds) or 1.5
+  return seconds > 0 and seconds or 0
+end
+function Display.FlashSeconds(data)
+  return Display.GainedSeconds(Display.GetSavedTrigger(data))
+end
+-- From first light to gone.
+function Display.FlashLength(data)
+  local seconds = Display.FlashSeconds(data)
+  return seconds > 0 and FLASH_IN + seconds + FLASH_OUT or 0
+end
+local function StyleFlash(native, data)
+  local button = native.button
+  local seconds = Display.FlashSeconds(data)
+  local flash = native.flash
+  if seconds <= 0 then
+    if flash and flash.registered then
+      if flash.assigned then button:RemoveAuraAssignedAnimation(flash.group) else button:RemoveAuraShownAnimation(flash.group) end
+      flash.registered, flash.assigned = nil, nil
+      flash.group:Stop()
+      button:SetAlpha(1)
+    end
+    return
+  end
+  if not flash then
+    local group = button:CreateAnimationGroup()
+    group:SetToFinalAlpha(true)
+    local into = group:CreateAnimation("Alpha")
+    into:SetFromAlpha(0); into:SetToAlpha(1); into:SetDuration(FLASH_IN); into:SetOrder(1)
+    local hold = group:CreateAnimation("Alpha")
+    hold:SetFromAlpha(1); hold:SetToAlpha(1); hold:SetOrder(2)
+    local out = group:CreateAnimation("Alpha")
+    out:SetFromAlpha(1); out:SetToAlpha(0); out:SetDuration(FLASH_OUT); out:SetOrder(3)
+    flash = {group = group, hold = hold}
+    native.flash = flash
+  end
+  flash.hold:SetDuration(seconds)
+  if not flash.registered then
+    if button.AddAuraAssignedAnimation then
+      button:AddAuraAssignedAnimation(flash.group)
+      flash.assigned = true
+    else
+      button:AddAuraShownAnimation(flash.group)
+    end
+    flash.registered = true
+  end
+  button:SetAlpha(0)
+end
+-- Whether this button rests at alpha 0 between flashes (ConfigureSingle).
+function Display.FlashRests(native)
+  local flash = native and native.flash
+  return flash ~= nil and flash.registered == true
+end
+
+-- Aura animations (the Animations tab of an Aura (Modern) list): native
+-- animation groups the client plays on each aura's button, since nothing
+-- else reaches a button. Start plays when the client assigns an aura to a
+-- button (AddAuraAssignedAnimation); Main loops while the aura is shown
+-- (AddAuraShownAnimation). The display's own trigger is always active, so
+-- these are never driven by trigger state. A freshly bound unit's existing
+-- auras are all assigned at once and play Start together, as a display's own
+-- Start plays when it first shows. There is no hook for an aura ending, so
+-- there is no Finish.
+Display.auraStartTypes = {none = "None", fade = "Fade In", zoom = "Zoom In", spin = "Spin In", bounce = "Bounce In"}
+Display.auraMainTypes = {none = "None", pulse = "Pulse", spin = "Spin", wobble = "Wobble", bounce = "Bounce"}
+function Display.AuraAnimation(data, kind)
+  local settings = data.blizzardAuraDisplay and data.blizzardAuraDisplay[kind == "start" and "auraStart" or "auraMain"]
+  if type(settings) ~= "table" then return "none", 0 end
+  local types = kind == "start" and Display.auraStartTypes or Display.auraMainTypes
+  local animType = types[settings.type] and settings.type or "none"
+  local duration = tonumber(settings.duration) or (kind == "start" and 0.3 or 1)
+  if animType == "none" or duration <= 0 then return "none", 0 end
+  -- Gained plays its own fade; Start is its flash, and Main may not touch alpha.
+  if Display.FlashSeconds(data) > 0 and (kind == "start" or animType == "pulse") then return "none", 0 end
+  return animType, duration
+end
+local function BuildAuraAnimation(native, data, kind, animType, duration)
+  local button = native.button
+  local group = button:CreateAnimationGroup()
+  local function Alpha(from, to, order, seconds)
+    local a = group:CreateAnimation("Alpha"); a:SetFromAlpha(from); a:SetToAlpha(to); a:SetOrder(order); a:SetDuration(seconds); return a
+  end
+  local function Move(x, y, order, seconds)
+    local a = group:CreateAnimation("Translation"); a:SetOffset(x, y); a:SetOrder(order); a:SetDuration(seconds); return a
+  end
+  local function Turn(degrees, order, seconds)
+    local a = group:CreateAnimation("Rotation"); a:SetDegrees(degrees); a:SetOrigin("CENTER", 0, 0); a:SetOrder(order); a:SetDuration(seconds); return a
+  end
+  -- One Scale on the button reaches everything: children inherit it, and a
+  -- pixel-perfect border (StyleBorder, ignoring the parent scale) follows the
+  -- button's corners it is anchored to. A second Scale aimed at the border
+  -- would double it up.
+  local function Grow(from, to, order, seconds)
+    local a = group:CreateAnimation("Scale"); a:SetOrigin("CENTER", 0, 0); a:SetOrder(order); a:SetDuration(seconds)
+    if a.SetScaleFrom then a:SetScaleFrom(from, from); a:SetScaleTo(to, to) else a:SetScale(to / from, to / from) end
+    return a
+  end
+  -- The button's own size is secret inside a container; the display's is not.
+  local _, height = Display.Dimensions(data)
+  local hop = math.max(4, (tonumber(height) or 30) * 0.25)
+  if kind == "start" then
+    -- The elements (Display.ElementHolder: borders, texts, glows) are held
+    -- at alpha 0 by an animation of the group aimed at the holder while a
+    -- Start animation moves the icon, and reappear when it ends. Only an
+    -- animation reaches them: the client plays the group itself, with no
+    -- Lua scripts run and no progress queries allowed. Fade In needs none,
+    -- as the button's alpha carries them.
+    if animType ~= "fade" then
+      local elements = Display.ElementHolder(native)
+      local hold = group:CreateAnimation("Alpha"); hold:SetTarget(elements)
+      hold:SetFromAlpha(0); hold:SetToAlpha(0); hold:SetOrder(1); hold:SetDuration(duration)
+    end
+    if animType == "fade" then Alpha(0, 1, 1, duration)
+    elseif animType == "zoom" then Grow(0.5, 1, 1, duration); Alpha(0, 1, 1, duration)
+    elseif animType == "spin" then Turn(-360, 1, duration); Alpha(0, 1, 1, duration)
+    elseif animType == "bounce" then Move(0, hop, 1, duration / 2); Move(0, -hop, 2, duration / 2) end
+  else
+    group:SetLooping("REPEAT")
+    if animType == "pulse" then Alpha(1, 0.4, 1, duration / 2); Alpha(0.4, 1, 2, duration / 2)
+    elseif animType == "spin" then Turn(-360, 1, duration)
+    elseif animType == "wobble" then Turn(8, 1, duration / 4); Turn(-16, 2, duration / 2); Turn(8, 3, duration / 4)
+    elseif animType == "bounce" then Move(0, hop, 1, duration / 2); Move(0, -hop, 2, duration / 2) end
+  end
+  return group
+end
+local function StyleAuraAnimations(native, data)
+  local button = native.button
+  native.auraAnims = native.auraAnims or {}
+  for _, kind in ipairs({"start", "main"}) do
+    local animType, duration = Display.AuraAnimation(data, kind)
+    local current = native.auraAnims[kind]
+    if current and (current.type ~= animType or current.duration ~= duration) then
+      if kind == "start" then button:RemoveAuraAssignedAnimation(current.group) else button:RemoveAuraShownAnimation(current.group) end
+      current.group:Stop()
+      native.auraAnims[kind] = nil
+      current = nil
+    end
+    if not current and animType ~= "none" then
+      local group = BuildAuraAnimation(native, data, kind, animType, duration)
+      if kind == "start" then button:AddAuraAssignedAnimation(group) else button:AddAuraShownAnimation(group) end
+      native.auraAnims[kind] = {type = animType, duration = duration, group = group}
+    end
+  end
+end
+
 local function Style(native, data, region)
   Display.StyleAppearance(native, Display.PrepareConditionAppearance(data), ElementFrame, StyleText, StyleGlow)
   Display.ApplyPresentConditions(native, data, region and region.secretAuraGates)
   Display.ApplyConditionAppearance(native, region, data)
   if Display.StyleEraser then Display.StyleEraser(native, data) end
+  -- Editor samples stay shown; only live buttons flash. Both play the aura animations.
+  if not native.preview then StyleFlash(native, data) end
+  StyleAuraAnimations(native, data)
 end
 
 local function SpellIDMap(values)
@@ -961,8 +1154,7 @@ local function RawCandidateFilters(data)
       for name, value in pairs(trigger[field]) do filters[field][name] = value end
     end
   end
-  -- Approximate Match swaps spell IDs for learned properties (SecretAuraSingle.lua).
-  return Display.ApproximateFilters(trigger, filters)
+  return filters
 end
 Display.RawCandidateFilters = RawCandidateFilters
 
@@ -1198,7 +1390,7 @@ local function BuildButton(container, button)
   native.cooldown:SetDrawBling(false)
   native.cooldown:SetHideCountdownNumbers(true)
   button:SetDurationCooldown(native.cooldown)
-  local overlay = CreateFrame("Frame", nil, native.gateClip or button)
+  local overlay = CreateFrame("Frame", nil, Display.ElementHolder(native))
   native.overlay = overlay
   overlay:SetAllPoints(button)
   overlay:SetFrameLevel(native.cooldown:GetFrameLevel() + 1)
@@ -1339,6 +1531,8 @@ end
 
 local function ApplyUnitStatus(instance, trigger)
   local hidden = UnitIgnored(trigger, instance.visible and instance.boundUnit)
+  -- Settling after a unit change (see the binding below).
+  if instance.settleUntil and GetTime() < instance.settleUntil then hidden = true end
   instance.statusHidden = hidden or nil
   if not Locked(instance.container) then instance.container:SetAlpha(hidden and 0 or instance.baseAlpha or 1) end
 end
@@ -1388,7 +1582,7 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
       if anchorFrame and anchorFrame:IsForbidden() then anchorFrame = nil end
       -- Live aura visibility must not affect the editor samples.
       local shown = not IsPreview() and unit ~= nil and region:IsShown() and (not (unitFrames or nameplates) or anchorFrame ~= nil)
-        and not native.gridMember
+        and not native.gridMember and Display.HostilityMatches(trigger, unit)
       -- An erased Missing look (SecretAuraSingle.lua) draws the aura slot and
       -- the Missing look in one frame buffer: the slot's parent is that stage.
       local parent = unitFrames and data.anchorFrameParent ~= false and anchorFrame
@@ -1483,6 +1677,24 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
         if not (slotPoint and pcall(instance.missingSlot.SetPoint, instance.missingSlot, slotPoint, container, slotPoint)) then
           instance.missingSlot:SetPoint("TOPLEFT", region, "TOPLEFT")
         end
+      end
+      -- Flash (StyleFlash): whenever the client re-reads a unit's auras (a new
+      -- unit, an enable, a nameplate that came back or a new unit behind a
+      -- kept token), its existing auras are all assigned at once and would
+      -- flash together, though none is new. The container stays hidden until
+      -- those flashes have run. A Start animation (StyleAuraAnimations) does
+      -- play then, as a display's own Start plays when it first shows.
+      local flashLength = Display.FlashLength(data)
+      if shown and flashLength > 0 and (container.faEnabled ~= true or not unchanged or unitChanged) then
+        instance.settleUntil = GetTime() + flashLength + 0.2
+        C_Timer.After(flashLength + 0.3, function()
+          if instance.settleUntil and GetTime() >= instance.settleUntil then
+            instance.settleUntil = nil
+            ApplyUnitStatus(instance, Display.GetSavedTrigger(data))
+          end
+        end)
+      elseif not shown then
+        instance.settleUntil = nil
       end
       instance.visible = shown
       ApplyUnitStatus(instance, trigger)
@@ -1963,8 +2175,10 @@ local unitEvents = {
 local function NeedsUnitRefresh(mode, event, unit, trigger)
   if event == "UNIT_TARGET" then
     return (mode == "targettarget" and unit == "target") or (mode == "focustarget" and unit == "focus")
+      or (mode == "pettarget" and unit == "pet")
   elseif event == "UNIT_PET" then
-    return (mode == "pet" and unit == "player") or mode == "member" or Display.IncludesPets(trigger) ~= nil
+    -- A new pet brings a new target of pet.
+    return ((mode == "pet" or mode == "pettarget") and unit == "player") or mode == "member" or Display.IncludesPets(trigger) ~= nil
   end
   local modes = unitEvents[event]
   return modes == nil or modes[mode] == true
@@ -1978,7 +2192,7 @@ events:RegisterEvent("UI_SCALE_CHANGED")
 events:RegisterEvent("DISPLAY_SIZE_CHANGED")
 for _, event in ipairs({"PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED",
   "UPDATE_MOUSEOVER_UNIT", "UNIT_TARGET", "UNIT_PET", "INSTANCE_ENCOUNTER_ENGAGE_UNIT", "ARENA_OPPONENT_UPDATE",
-  "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_NAME_UPDATE", "PLAYER_ROLES_ASSIGNED"}) do events:RegisterEvent(event) end
+  "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_NAME_UPDATE", "PLAYER_ROLES_ASSIGNED", "UNIT_FACTION"}) do events:RegisterEvent(event) end
 -- Deaths, releases and disconnects only change the affected unit's alpha.
 local statusEvents = CreateFrame("Frame")
 for _, event in ipairs({"UNIT_CONNECTION", "UNIT_HEALTH", "UNIT_FLAGS", "PLAYER_FLAGS_CHANGED"}) do statusEvents:RegisterEvent(event) end
@@ -2055,7 +2269,12 @@ events:SetScript("OnEvent", function(_, event, unit)
   for region in pairs(activeRegions) do
     local trigger = Display.GetSavedTrigger(region.blizzardAuraDisplay.data)
     local mode = trigger and trigger.unit
-    if event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED" then
+    if event == "UNIT_FACTION" then
+      -- A plate's side changed (PvP flag, mind control): re-check its hostility.
+      if type(unit) == "string" and not issecretvalue(unit) and unit:match("^nameplate%d+$") and Display.UsesHostility(trigger) then
+        RefreshUnits(region, nil, unit, true)
+      end
+    elseif event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED" then
       if Display.UsesNameplates(region.blizzardAuraDisplay.data) then
         if mode == "nameplate" then
           RefreshUnits(region, event == "NAME_PLATE_UNIT_REMOVED" and unit or nil, unit, true)

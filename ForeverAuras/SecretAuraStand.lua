@@ -12,7 +12,8 @@ local Display = Private.BlizzardAuraDisplay
 
 local standTypes = {icon = true, text = true}
 -- Glow elements are mirrored by building the glow on the copy (MirrorGlow).
-local mirrorTypes = {subtext = true, subborder = true, subglow = true}
+-- A Texture element's own texture is linked like a Text element's string.
+local mirrorTypes = {subtext = true, subborder = true, subglow = true, subtexture = true}
 
 local FRAME = {"ClearAllPoints", "SetPoint", "SetAllPoints", "SetSize", "SetWidth", "SetHeight", "Show", "Hide", "SetShown", "SetAlpha"}
 local TEXTURE = {"ClearAllPoints", "SetPoint", "SetAllPoints", "Show", "Hide", "SetShown", "SetAlpha", "SetTexture", "SetAtlas",
@@ -174,6 +175,8 @@ end
 local player = {
   AddAuraShownAnimation = function(_, animation) animation:Play() end,
   RemoveAuraShownAnimation = function(_, animation) animation:Stop() end,
+  AddAuraAssignedAnimation = function(_, animation) animation:Play() end,
+  RemoveAuraAssignedAnimation = function(_, animation) animation:Stop() end,
 }
 local function MirrorGlow(copy)
   local sub = copy.faGlowSource
@@ -387,6 +390,14 @@ function Display.EnsureStand(region, normal)
         local text = Pooled(stand, "subtextText" .. index, function() return copy:CreateFontString(nil, "OVERLAY") end)
         Link(stand, sub.text, text, FONT, sub)
         CopyFont(sub.text, text)
+      end
+      -- A Texture element draws through a TextureBase wrapper (sub.texture)
+      -- around the real texture (sub.texture.texture): every change, including
+      -- rotation and mirroring (texture coordinates), reaches that texture.
+      if sub.type == "subtexture" and type(sub.texture) == "table" and sub.texture.texture then
+        local texture = Pooled(stand, "subtextureTexture" .. index, function() return copy:CreateTexture(nil, "ARTWORK") end)
+        Link(stand, sub.texture.texture, texture, TEXTURE, sub)
+        CopyTexture(sub.texture.texture, texture)
       end
       if sub.type == "subborder" and sub.GetBackdrop and copy.SetBackdrop then
         Pass(copy, "SetBackdrop", sub, "GetBackdrop")

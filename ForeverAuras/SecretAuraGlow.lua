@@ -77,17 +77,17 @@ local function ResetTexture(texture, layer)
   for _, group in pairs(texture.faGroups or {}) do group:Stop() end
 end
 
--- A pooled animation group on texture of one shape: "flip" (one FlipBook),
--- "move<n>" (n Translations) or "twinkle" (two Alphas). Its animations are
--- reconfigured by the caller; a group of the wrong shape is never reused.
-local function GroupFor(glow, texture, shape, build)
-  texture.faGroups = texture.faGroups or {}
-  local group = texture.faGroups[shape]
+-- A pooled animation group on owner (a texture or frame) of one shape: "flip"
+-- (one FlipBook) or "path<n>" (n Translations, FinishPaths). Its animations
+-- are reconfigured by the caller; a group of the wrong shape is never reused.
+local function GroupFor(glow, owner, shape, build)
+  owner.faGroups = owner.faGroups or {}
+  local group = owner.faGroups[shape]
   if not group then
-    group = texture:CreateAnimationGroup()
+    group = owner:CreateAnimationGroup()
     group:SetLooping("REPEAT")
     group.faAnimations = build(group)
-    texture.faGroups[shape] = group
+    owner.faGroups[shape] = group
   end
   group:Stop()
   glow.groups[#glow.groups + 1] = group
@@ -98,7 +98,7 @@ end
 local GLOW_KEYS = {"glowType", "glowLines", "glowFrequency", "glowLength", "glowThickness", "glowXOffset",
   "glowYOffset", "glowScale", "glowBorder", "glowDuration", "useGlowColor"}
 local function GlowKey(button, parent, anchor, element, w, h)
-  local parts = {tostring(button), tostring(parent), tostring(anchor), w, h}
+  local parts = {tostring(button), tostring(parent), tostring(anchor), w, h, tostring(button.faStaticGlow == true)}
   for _, key in ipairs(GLOW_KEYS) do parts[#parts + 1] = tostring(element[key]) end
   if type(element.glowColor) == "table" then
     for index = 1, 4 do parts[#parts + 1] = tostring(element.glowColor[index]) end
@@ -164,6 +164,11 @@ end
 -- Moves texture once around the w x h rectangle of holder per duration,
 -- starting at phase (0..1) of the perimeter. One Translation per straight
 -- stretch between corners, each timed by its length, keeps the speed even.
+-- The moves are only planned here: FinishPaths puts every texture of one
+-- parent into a single animation group (one per glow, or per Pixel Glow
+-- edge) instead of a group per texture, which was 32 groups and
+-- registrations for a default glow; the editor built that for every sample.
+-- A static glow (the editor's further samples) only places the texture.
 local function Perimeter(glow, texture, holder, w, h, duration, phase, reverse)
   local perimeter = 2 * (w + h)
   local function Point(distance)
@@ -179,6 +184,7 @@ local function Perimeter(glow, texture, holder, w, h, duration, phase, reverse)
   local x0, y0 = Point(start)
   texture:ClearAllPoints()
   texture:SetPoint("CENTER", holder, "BOTTOMLEFT", x0, y0)
+  if glow.static then return end
   local stops, seen = {perimeter}, {[perimeter] = true}
   for _, corner in ipairs({0, h, w + h, w + 2 * h}) do
     local distance = (reverse and (start - corner) or (corner - start)) % perimeter
@@ -188,22 +194,40 @@ local function Perimeter(glow, texture, holder, w, h, duration, phase, reverse)
     end
   end
   table.sort(stops)
-  local group = GroupFor(glow, texture, "move" .. #stops, function(g)
-    local moves = {}
-    for index = 1, #stops do moves[index] = g:CreateAnimation("Translation") end
-    return moves
-  end)
+  local owner = texture:GetParent()
+  glow.paths = glow.paths or {}
+  glow.paths[owner] = glow.paths[owner] or {}
+  local moves = glow.paths[owner]
   local previous, px, py = 0, x0, y0
   for order, distance in ipairs(stops) do
     local x, y = Point(start + (reverse and -distance or distance))
     if order == #stops then x, y = x0, y0 end
-    local move = group.faAnimations[order]
-    move:SetOrder(order)
-    move:SetDuration(duration * (distance - previous) / perimeter)
-    move:SetOffset(x - px, y - py)
+    moves[#moves + 1] = {texture = texture, delay = duration * previous / perimeter,
+      duration = duration * (distance - previous) / perimeter, dx = x - px, dy = y - py}
     previous, px, py = distance, x, y
   end
-  return group
+end
+
+-- Builds the planned moves (Perimeter): per parent frame one group whose
+-- Translations each aim at their texture, all in one order and timed by
+-- start delays, so every texture keeps its own pace while sharing the group.
+local function FinishPaths(glow)
+  for owner, moves in pairs(glow.paths or {}) do
+    local group = GroupFor(glow, owner, "path" .. #moves, function(g)
+      local list = {}
+      for index = 1, #moves do list[index] = g:CreateAnimation("Translation") end
+      return list
+    end)
+    for index, plan in ipairs(moves) do
+      local move = group.faAnimations[index]
+      move:SetTarget(plan.texture)
+      move:SetOrder(1)
+      move:SetStartDelay(plan.delay)
+      move:SetDuration(plan.duration)
+      move:SetOffset(plan.dx, plan.dy)
+    end
+  end
+  glow.paths = nil
 end
 
 -- Builds element's glow inside parent, centred on anchor (w x h).
@@ -226,7 +250,8 @@ function Display.StyleElementGlow(entry, button, parent, anchor, element, w, h)
   -- reused by this build where their parent frame matches.
   if kept then Recycle(entry, kept) end
   entry.keptGlow = nil
-  local glow = {button = button, entry = entry, groups = {}, textures = {}, frames = {}, key = key}
+  -- The editor's further samples of a display draw the glow still.
+  local glow = {button = button, entry = entry, groups = {}, textures = {}, frames = {}, key = key, static = button.faStaticGlow == true}
   entry.nativeGlow = glow
   local xOffset = Number(element.glowXOffset, 0, -200, 200)
   local yOffset = Number(element.glowYOffset, 0, -200, 200)
@@ -318,11 +343,15 @@ function Display.StyleElementGlow(entry, button, parent, anchor, element, w, h)
           texture:SetTexture(SPARKLE)
           texture:SetTexCoord(unpack(SPARKLE_TC))
           texture:SetSize(size, size)
+          -- Additive, as Blizzard's AutoCastShine (and the library) draws
+          -- these sparkles: overlapping rings brighten into the dense shine.
+          texture:SetBlendMode("ADD")
           Tint(texture, element)
           Perimeter(glow, texture, holder, gw, gh, duration * ring, sparkle / count, reverse)
         end
       end
     end
   end
+  FinishPaths(glow)
   for _, group in ipairs(glow.groups) do button:AddAuraShownAnimation(group) end
 end

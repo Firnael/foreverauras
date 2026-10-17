@@ -1,5 +1,28 @@
 # Changelog
 ## VERSIONS
+## 0.90.40
+**Aura (Modern)**
+- Nameplate unit: “Filter by Hostility” (Hostile / Friendly), re-checked when a plate’s faction changes
+- Show On: Gained no longer re-flashes a unit’s existing auras when its nameplate returns or the container is re-read
+- Remaining Time icons draw their Glow elements inside the exact-seconds window; “Remaining Time < X” glow conditions now work (they were never recognized) and are exact on Remaining Time icons
+- Approximate Match removed. Debuffs on friendly units are filtered explicitly by Total Duration =, dispel type and the aura flags - the properties it used to guess. The status line says so where spell IDs can’t be used
+- Total Duration: tooltip notes that “=” also pins the duration assumed for glows.
+- “Target of Pet” renamed “Pet Target”
+- Aura (Modern) Settings: the Sort by tooltip is replaced by a note shown only while Blizzard debuff order is selected
+
+**Animations (Modern)**
+- Zoom / Spin / Bounce In hide the display’s borders, texts and glows while the icon animates; they reappear when it ends. Start animations play after a reload or target change
+
+**Glows**
+- Pixel Glow and Autocast Shine: one animation group per glow (or per edge) instead of one per sparkle, and the editor animates only the first sample of each display. Fixes multi-second freezes when selecting large groups
+- Autocast Shine sparkles are drawn additively again, matching the library’s look
+
+**Modern Aura Group**
+- Texture sub elements of normal displays are drawn in the row (they stayed on the parked original)
+
+**CDM Buff trigger**
+- An Aura Bar for a buff applied in combat now animates (it only followed buffs already up before combat)
+
 ## 0.90.25
 - Fixed auras anchored to a display inside a Modern Aura Group landing off-screen. A non-Modern display in such a group is drawn by a stand-in and its own region is parked away; anchors to it now follow the stand-in where it is drawn, and are refreshed whenever the stand-in appears or goes
 - Added `ForeverAurasAPI` so WagoUI UI Packs can list, export and import ForeverAuras auras. Imports always go through the import window, where the player confirms them

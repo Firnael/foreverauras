@@ -12,30 +12,10 @@ local function GetOptions(data, triggernum)
     OptionsPrivate.SaveAuraTrigger(data, triggernum)
     OptionsPrivate.QueueOptionsRefresh(data.id)
   end
-  local auraTypes = {
-    HELPFUL = "Buff", HARMFUL = "Debuff",
-    Buff = "Blizzard: Buff", Debuff = "Blizzard: Debuff",
-    Dispel = "Blizzard: Dispellable",
-  }
-  local classificationFilters = {Buff = "HELPFUL", Debuff = "HARMFUL", Dispel = "HARMFUL"}
-  local function SelectedAuraType()
-    local classification = trigger.processedAuraType
-    if not classification or classification == "any" then return trigger.debuffType end
-    if classificationFilters[classification] ~= trigger.debuffType then
-      return classification .. ":" .. trigger.debuffType
-    end
-    return classification
-  end
-  local function AuraTypeValues()
-    local values = {}
-    for key, title in pairs(auraTypes) do values[key] = title end
-    -- Preserve older independently selected filter/classification combinations.
-    local selected = SelectedAuraType()
-    if not values[selected] then
-      values[selected] = (auraTypes[trigger.processedAuraType] or trigger.processedAuraType) .. " (" .. (auraTypes[trigger.debuffType] or trigger.debuffType) .. " filter)"
-    end
-    return values
-  end
+  -- Buff or Debuff. Blizzard's classification (processedAuraType) is not
+  -- chosen here: the Blizzard debuff order sort sets it itself
+  -- (AuraDisplayOptions.lua), and nothing else needs it.
+  local auraTypes = {HELPFUL = "Buff", HARMFUL = "Debuff"}
   local options = {
     -- The trigger is active whenever its unit exists; Blizzard shows the auras
     -- inside (SecretAuraTrigger.lua). Kept short on request.
@@ -70,28 +50,42 @@ local function GetOptions(data, triggernum)
       get = function() return trigger.specificUnit or "" end,
       set = function(_, value) Save("specificUnit", value:lower():match("^%s*(%S+)%s*$")) end,
     },
+    -- As Aura (Legacy)'s Filter by Hostility (BuffTrigger2.lua), same fields:
+    -- nameplates belong to friends and enemies alike (Display.HostilityMatches).
+    useHostility = {
+      type = "toggle", name = "Filter by Hostility", order = 3.04, width = width,
+      hidden = function() return trigger.unit ~= "nameplate" end,
+      get = function() return trigger.useHostility or false end,
+      set = function(_, value) Save("useHostility", value or nil) end,
+    },
+    hostility = {
+      type = "select", name = "Hostility", order = 3.05, width = width, values = OptionsPrivate.Private.hostility_types,
+      hidden = function() return trigger.unit ~= "nameplate" or not trigger.useHostility end,
+      get = function() return trigger.hostility or "hostile" end,
+      set = function(_, value) Save("hostility", value) end,
+    },
+    hostilitySpace = {
+      type = "description", name = "", order = 3.05, width = width,
+      hidden = function() return trigger.unit ~= "nameplate" or trigger.useHostility end,
+    },
     auraTypeLabel = {
       type = "toggle", name = "Aura Type", order = 4, width = width,
       disabled = true, get = function() return true end,
     },
     debuffType = {
-      type = "select", name = "Aura Type", order = 4.01, width = width, values = AuraTypeValues,
-      sorting = function()
-        local order = {"HELPFUL", "HARMFUL", "Buff", "Debuff", "Dispel"}
-        local selected = SelectedAuraType()
-        if not auraTypes[selected] then order[#order + 1] = selected end
-        return order
-      end,
-      desc = "Buff and Debuff use your filters. Blizzard Classification also applies Blizzard's unit-frame visibility and dispel rules, so some auras may be hidden.",
-      get = SelectedAuraType,
+      type = "select", name = "Aura Type", order = 4.01, width = width, values = auraTypes,
+      sorting = {"HELPFUL", "HARMFUL"},
+      get = function() return trigger.debuffType == "HARMFUL" and "HARMFUL" or "HELPFUL" end,
       set = function(_, value)
         if not auraTypes[value] then return end
-        local classification = classificationFilters[value] and value or "any"
-        trigger.debuffType = classificationFilters[value] or value
-        if trigger.sortMethod == "UnitFrameDebuff" and classification ~= "Debuff" and classification ~= "Dispel" then
-          trigger.sortMethod = "Default"
+        trigger.debuffType = value
+        -- A classification that no longer fits the filter is dropped; the
+        -- unit-frame debuff sort only applies to debuffs.
+        if value == "HELPFUL" and (trigger.processedAuraType == "Debuff" or trigger.processedAuraType == "Dispel") then
+          trigger.processedAuraType = "any"
+          if trigger.sortMethod == "UnitFrameDebuff" then trigger.sortMethod = "Default" end
         end
-        Save("processedAuraType", classification)
+        Save("debuffType", value)
       end,
     },
     useUnitNames = {
@@ -281,17 +275,6 @@ local function GetOptions(data, triggernum)
       end,
     }
   end
-  for index, field in ipairs(display.processingOptions) do
-    local key = field[1]
-    options[key] = {
-      type = "toggle", name = field[2], order = 25 + index, width = width,
-      disabled = function() return not trigger.processedAuraType or trigger.processedAuraType == "any" end,
-      desc = key == "displayOnlyDispellableDebuffs"
-        and "Changes Blizzard's unit-frame classification paths; priority and boss exceptions may still apply. To show only dispellable auras, use the dispel filters under Aura Filters."
-        or "Controls Blizzard's classification pass. Ignoring the selected classification can hide all matching auras.",
-      get = function() return trigger[key] or false end, set = function(_, value) Save(key, value) end,
-    }
-  end
   for index, field in ipairs(display.nativeFilters) do
     local key = field[1]
     TriState("native" .. key, field[2], 20 + index / 20, field[3],
@@ -307,7 +290,6 @@ local function GetOptions(data, triggernum)
   options.nativePLAYER.width = width
   options.nativePLAYER.order = options.isFromPlayerOrPlayerPet.order
   options.isFromPlayerOrPlayerPet.order = options.nativePLAYER.order + 0.01
-  for _, field in ipairs(display.processingOptions) do options[field[1]] = nil end
   for _, fields in ipairs({display.nativeFilters, display.booleanFilters}) do
     for _, field in ipairs(fields) do
       local key = field[1]
