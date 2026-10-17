@@ -410,6 +410,10 @@ Display.StyleBorderFrame = StyleBorder
 function Display.StyleAppearance(native, data, ElementFrame, StyleText, StyleGlow)
   local button = native.button
   local width, height = Display.Dimensions(data)
+  -- Whole pixels for the box only in a Modern Aura Group (see BuildButton in
+  -- BlizzardAuraDisplay.lua); a display of its own, or one in a Dynamic
+  -- Group, keeps the exact size its neighbours have.
+  if button.SetRoundLayoutToNearestPixel then pcall(button.SetRoundLayoutToNearestPixel, button, Display.FlowGroup(data) ~= nil) end
   button:SetSize(width, height)
   native.inner:SetSize(width * 0.8, height * 0.8)
   native.outer:SetSize(width * 1.1, height * 1.1)
@@ -435,7 +439,8 @@ function Display.StyleAppearance(native, data, ElementFrame, StyleText, StyleGlo
     -- Glow elements (SecretAuraGlow.lua) are rebuilt below when still configured.
     Display.ClearElementGlow(entry)
   end
-  if native.lateGlow then native.lateGlow.clip:Hide() end
+  -- The timed glow's clip and its gate text binding are rebuilt below when still configured.
+  if native.lateGlow then native.lateGlow.clip:Hide(); native.lateGlow.exact = nil end
   -- Pandemic glows are registered again below when still configured.
   Display.ResetPandemicGlows(native)
   native.sharedElements = native.sharedElements or {}

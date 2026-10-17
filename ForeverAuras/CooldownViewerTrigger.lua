@@ -433,10 +433,10 @@ local function BuildCooldownViewerStates(allstates, selected, event, showGCD, tr
   -- A missing catalog entry is not a reason to hide an editor selection.
   if event == "OPTIONS" and selected.previewSpell then
     local spell = selected.previewSpell
-    allstates.spell = {show = true, changed = true, progressType = "timed", duration = 6,
+    allstates[""] = {show = true, changed = true, progressType = "timed", duration = 6,
       expirationTime = GetTime() + 6, autoHide = false, name = spell.name, icon = spell.iconID,
       spellId = spell.spellID, cdmTextPreview = true, index = 1}
-    built.spell = true
+    built[""] = true
     return true
   end
   if not IsAvailable() then return true end
@@ -458,7 +458,10 @@ local function BuildCooldownViewerStates(allstates, selected, event, showGCD, tr
           local spell = C_Spell.GetSpellInfo(displaySpellID)
           identity = {spellID = displaySpellID, name = spell and spell.name or identity.name, icon = spell and spell.iconID or identity.icon}
         end
-        local cloneID = selected.singleClone and "spell" or tostring(cooldownID)
+        -- A single spell's state is the trigger's plain (non-clone) state, keyed
+        -- "", so the display finds it for conditions on the trigger's variables
+        -- and for its Active check; a named key left those looking at nothing.
+        local cloneID = selected.singleClone and "" or tostring(cooldownID)
         local state = allstates[cloneID]
         if not state then
           state = {}
@@ -683,6 +686,17 @@ local function SameOutput(previous, current)
   return true
 end
 
+-- The last output of a trigger's single buff entry, shown or not: a hidden
+-- state is dropped from the trigger's states, but the display still needs to
+-- know whether the aura was absent or merely secret (CDMAuraProgress).
+function Private.CDMLastOutput(allstates)
+  local previous = allstates and snapshots[allstates]
+  if not previous then return end
+  for _, output in pairs(previous) do return output end
+end
+-- Read-only view for the FAFlowProbe diagnostics addon.
+ForeverAurasProbe_LastOutput = Private.CDMLastOutput
+
 local function CommitStates(allstates, outputs)
   local previous = snapshots[allstates]
   if not previous then previous = {}; snapshots[allstates] = previous end
@@ -743,6 +757,8 @@ function Private.ExecEnv.UpdateCDMSelectionList(allstates, queries, event)
     local selected = Private.ResolveCDMSpell(query, event)
     local temporary = GetOutputs(selected, event, query.showGCD, query.track, query.hideGCDText,
       query.showMode, query.event ~= "Blizzard CDM Item" and query.cdmExact and tonumber(query.cdmSpell) or nil, query.requireTarget, query.use_ignoreSpellKnown)
+    local count = 0
+    for _ in pairs(temporary) do count = count + 1 end
     for _, state in pairs(temporary) do
       -- Cooldown and item aliases share a clone; buff filters each own their clone.
       local key = tostring(state.cooldownID) .. ":" .. tostring(state.spellId or query.cdmSpell)
@@ -754,6 +770,9 @@ function Private.ExecEnv.UpdateCDMSelectionList(allstates, queries, event)
         clone.index = queryIndex
         state = clone
       end
+      -- One entry in the list: the trigger's plain state (key ""), so the
+      -- display finds it for conditions and its Active check, as above.
+      if #queries == 1 and count == 1 then key = "" end
       if not outputs[key] or not outputs[key].show or state.show then outputs[key] = state end
     end
   end

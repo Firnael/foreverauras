@@ -29,10 +29,10 @@ end
 
 -- Native aura slots supply missing CDM target-debuff timers only. Player buffs,
 -- helpful target auras, previews, totems and spell CDM retain their existing path.
-local function NativeSource(state)
+local function NativeSource(state, anyProgress)
   if not CustomAuraContainerAuraProcessingPolicy or not state or not state.cdmBuff
       or not state.show or state.cdmTextPreview or state.cdmAuraTotem
-      or state.auraActive == false or state.progressType ~= "static" then return end
+      or state.auraActive == false or (not anyProgress and state.progressType ~= "static") then return end
   local unit = state.cdmAuraRenderUnit
   if unit ~= "target" or state.cdmAuraFilter ~= "HARMFUL|PLAYER" then return end
   local ids = state.cdmAuraRenderSpellIDs
@@ -112,13 +112,110 @@ local function BindNative(native, unit, filter, ids)
   end
 end
 
+-- A condition "Active is false -> Desaturate on" (or "Aura Active is false")
+-- of a CDM Buff trigger: the trigger index it watches, or nil. When Blizzard
+-- keeps the aura's presence secret (target debuffs in combat) the trigger
+-- reads as inactive and the icon would stay grey with the debuff up, so
+-- Display.UpdateSaturation draws the saturated icon natively instead.
+local function InactiveDesaturateTrigger(data)
+  for _, condition in ipairs(data and data.conditions or {}) do
+    local check = condition.check
+    if type(check) == "table" and (check.variable == "auraActive" or check.variable == "show") and (check.value == 0 or check.value == false) then
+      local index = tonumber(check.trigger)
+      local entry = index and data.triggers and data.triggers[index]
+      if type(entry) == "table" and entry.trigger and entry.trigger.type == "cdm" and entry.trigger.event == "Blizzard CDM Buff" then
+        for _, change in ipairs(condition.changes or {}) do
+          if change.property == "desaturate" and change.value == true then return index end
+        end
+      end
+    end
+  end
+end
+
 function Display.Modify(region, data)
   DisableNative(region.cdmAuraTimer)
+  DisableNative(region.cdmAuraSaturate)
   region.cdmProgressData = data
   region.cdmNativeProgress = nil
+  region.cdmInactiveDesaturate = region.regionType == "icon" and InactiveDesaturateTrigger(data) or nil
+  Display.ForceDesaturation(region, false)
+end
+
+-- The base icon stays desaturated while the native saturated copy is in use;
+-- the icon region's SetDesaturated (conditions) defers to this.
+function Display.ForceDesaturation(region, forced)
+  if (region.cdmForcedDesaturation == true) == forced then return end
+  region.cdmForcedDesaturation = forced or nil
+  local last = region.cdmLastDesaturation
+  if last == nil and region.cdmProgressData then last = region.cdmProgressData.desaturate end
+  if region.SetDesaturated then region:SetDesaturated(last) end
+end
+
+-- Copies the icon's texture onto the saturated copy when the client lets the
+-- addon touch it (at creation, and later when it is not locked).
+local function CopyIconTexture(region, native, initializing)
+  local copy = native.saturated
+  if not copy or not CanStyleWidget(copy, initializing) then return end
+  local icon = region.icon
+  local texture = icon:GetTexture()
+  if texture ~= nil and not (issecretvalue and issecretvalue(texture)) then copy:SetTexture(texture) end
+  local ulx, uly, llx, lly, urx, ury, lrx, lry = icon:GetTexCoord()
+  if type(ulx) == "number" and not (issecretvalue and issecretvalue(ulx)) then copy:SetTexCoord(ulx, uly, llx, lly, urx, ury, lrx, lry) end
+  copy:SetDesaturated(false)
+  copy:SetAlpha(1)
+  copy:Show()
+end
+
+-- Called with every progress update: while the condition's answer is secret
+-- the icon is desaturated and Blizzard shows a saturated copy of it in an
+-- aura slot for as long as the player's debuff is on the target.
+function Display.UpdateSaturation(region)
+  local index = region.cdmInactiveDesaturate
+  -- A hidden trigger keeps no state on the display; its last output does.
+  local state = index and region.states and region.states[index]
+  if (not state or state.show == nil) and index and Private.CDMLastOutput and WeakAuras.GetTriggerStateForTrigger then
+    state = Private.CDMLastOutput(WeakAuras.GetTriggerStateForTrigger(region.id, index))
+  end
+  local unit, filter, ids
+  if state and state.auraActive == nil then
+    if state.show then unit, filter, ids = NativeSource(state, true) end
+    -- In combat the viewer's unit is secret too, so the render source above
+    -- is empty; a trigger that requires a target watches the player's own
+    -- debuffs on the target by its spell IDs (every rank, as the catalog does).
+    local data = region.cdmProgressData
+    local entry = data and data.triggers and data.triggers[index]
+    if not unit and state.cdmBuff and not state.cdmTextPreview and not state.cdmAuraTotem
+        and entry and entry.trigger and entry.trigger.cdmRequireTarget and type(state.cdmAuraSpellIDs) == "table" then
+      local ranks, seen = {}, {}
+      for _, id in ipairs(state.cdmAuraSpellIDs) do
+        for _, rankID in ipairs(Private.GetAuraSpellRanks and Private.GetAuraSpellRanks(id) or {id}) do
+          if type(rankID) == "number" and not seen[rankID] then seen[rankID] = true; ranks[#ranks + 1] = rankID end
+        end
+      end
+      if #ranks > 0 then unit, filter, ids = "target", "HARMFUL|PLAYER", ranks end
+    end
+  end
+  if not unit then
+    DisableNative(region.cdmAuraSaturate)
+    Display.ForceDesaturation(region, false)
+    return
+  end
+  if not region.cdmAuraSaturate then
+    region.cdmAuraSaturate = CreateNative(region, function(native, button)
+      native.saturated = button:CreateTexture(nil, "ARTWORK")
+      native.saturated:SetAllPoints(region.icon)
+      CopyIconTexture(region, native, true)
+    end)
+  end
+  local native = region.cdmAuraSaturate
+  native.container:SetFrameLevel(region:GetFrameLevel())
+  CopyIconTexture(region, native)
+  Display.ForceDesaturation(region, true)
+  BindNative(native, unit, filter, ids)
 end
 
 function Display.Update(region)
+  if region.cdmInactiveDesaturate then Display.UpdateSaturation(region) end
   region.cdmNativeProgress = nil
   local unit, filter, ids = NativeSource(SourceState(region))
   local data = region.cdmProgressData

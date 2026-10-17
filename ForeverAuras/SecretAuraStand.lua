@@ -341,12 +341,30 @@ function Display.EnsureStand(region, normal)
     local icon = Pooled(stand, "icon", function() return frame:CreateTexture(nil, "ARTWORK") end)
     Link(stand, region.icon, icon, TEXTURE)
     CopyTexture(region.icon, icon)
-    -- Snapped like the row's Aura (Modern) icons (Display.SnapTexture).
-    if Display.SnapTexture then Display.SnapTexture(icon, true) end
+    -- Pixel snapping follows the region's own icon, which the Icon display
+    -- leaves unsnapped (a snapped copy rounded a 34x32 icon to a pixel less
+    -- at the bottom than its unsnapped neighbours in a dynamic group).
+    if region.icon.GetSnapToPixelGrid then
+      Pass(icon, "SetSnapToPixelGrid", region.icon, "GetSnapToPixelGrid")
+      Pass(icon, "SetTexelSnappingBias", region.icon, "GetTexelSnappingBias")
+    elseif Display.SnapTexture then
+      Display.SnapTexture(icon, false)
+    end
   end
   if region.cooldown then
     local cooldown = Pooled(stand, "cooldown", function() return CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate") end)
     Link(stand, region.cooldown, cooldown, COOLDOWN)
+  end
+  -- The icon's Inner and Outer anchor areas (80% and 110% of the icon), which
+  -- texts and borders may anchor to. Linked before the elements, so their
+  -- copies' points resolve to these copies; unmapped, an area fell back to
+  -- the icon's own box, and an Outer text sat 10% of the icon too high.
+  for _, area in ipairs({"inner", "outer"}) do
+    if region[area] then
+      local copy = Pooled(stand, area, function() return CreateFrame("Frame", nil, frame) end)
+      copy:EnableMouse(false)
+      Link(stand, region[area], copy, FRAME)
+    end
   end
   if region.text then
     local text = Pooled(stand, "text", function() return frame:CreateFontString(nil, "OVERLAY") end)
