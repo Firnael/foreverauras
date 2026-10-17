@@ -232,6 +232,13 @@ function OptionsPrivate.CreateFrame()
     if frame.moversizer then
       frame.moversizer:OptionsClosed()
     end
+
+    -- Closing the options declines an import whose caller waits for an answer. Combat only hides them until it
+    -- ends, and a running import has already taken its answer.
+    local updateFrame = OptionsPrivate.UpdateFrame(frame, true)
+    if updateFrame and updateFrame.callbackFunc and not OptionsPrivate.hidingForCombat then
+      updateFrame:Close(false)
+    end
   end)
 
   local width, height

@@ -1357,6 +1357,12 @@ end
 
 local methods = {
   Open = function(self, data, children, target, linkedAuras, sender, callbackFunc)
+    -- A new import replaces the open one, which counts as declined.
+    if self.callbackFunc then
+      local previousCallback = self.callbackFunc
+      self.callbackFunc = nil
+      previousCallback(false)
+    end
     local optionsWindow =  self.optionsWindow
     local optionsWindowTitle = self.optionsWindow.window
     if(optionsWindowTitle == "importexport") then
@@ -1638,6 +1644,9 @@ local methods = {
     local pendingData = self.pendingData
     local userChoices = self.userChoices
     local matchInfo = self.matchInfo
+    -- The running import answers its own caller, so an import opened while it runs cannot decline it.
+    local callbackFunc = self.callbackFunc
+    self.callbackFunc = nil
 
     self.importButton:SetEnabled(false)
     self.closeButton:SetEnabled(false)
@@ -1831,7 +1840,13 @@ local methods = {
     self.closeButton:SetEnabled(true)
     OptionsPrivate.Private.callbacks:Fire("Import")
 
-    self:Close(true, pendingPickData.id)
+    -- Another import may have taken the window while this one ran; its window stays open.
+    if self.pendingData == pendingData then
+      self:Close(true, pendingPickData.id)
+    end
+    if callbackFunc then
+      callbackFunc(true, pendingPickData.id)
+    end
 
     if pendingPickData then
       OptionsPrivate.ClearPicks()
@@ -2159,8 +2174,10 @@ local methods = {
   Close = function(self, success, id)
     self.optionsWindow.window = "default";
     self.optionsWindow:UpdateFrameVisible()
-    if self.callbackFunc then
-      self.callbackFunc(success, id)
+    local callbackFunc = self.callbackFunc
+    self.callbackFunc = nil
+    if callbackFunc then
+      callbackFunc(success, id)
     end
   end,
   AddBasicInformationWidgets = function(self, data, sender)

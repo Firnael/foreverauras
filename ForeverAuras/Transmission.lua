@@ -397,9 +397,12 @@ function StringToTable(inString, fromChat)
 end
 Private.StringToTable = StringToTable
 
-function Private.DisplayToString(id, forChat)
+-- excludedIds leaves those auras out, along with everything inside them.
+function Private.DisplayToString(id, forChat, excludedIds)
   local data = WeakAuras.GetData(id);
   if(data) then
+    excludedIds = excludedIds or {}
+    local excluded = {}
     data.uid = data.uid or GenerateUniqueID()
     -- Check which transmission version we want to use
     local version = 1421
@@ -419,17 +422,38 @@ function Private.DisplayToString(id, forChat)
       local uids = {}
       local index = 1
       for child in Private.TraverseAllChildren(data) do
-        if child.uid then
-          if uids[child.uid] then
-            child.uid = GenerateUniqueID()
-          else
-            uids[child.uid] = true
-          end
+        -- Children come after their group, so a group's exclusion reaches everything inside it.
+        if excludedIds[child.id] or excluded[child.parent] then
+          excluded[child.id] = true
         else
-          child.uid = GenerateUniqueID()
+          if child.uid then
+            if uids[child.uid] then
+              child.uid = GenerateUniqueID()
+            else
+              uids[child.uid] = true
+            end
+          else
+            child.uid = GenerateUniqueID()
+          end
+          transmit.c[index] = CompressDisplay(child, version);
+          index = index + 1
         end
-        transmit.c[index] = CompressDisplay(child, version);
-        index = index + 1
+      end
+    end
+    if next(excluded) then
+      local function dropExcluded(groupData)
+        if not groupData.controlledChildren then return end
+        local kept = {}
+        for _, childId in ipairs(groupData.controlledChildren) do
+          if not excluded[childId] then
+            tinsert(kept, childId)
+          end
+        end
+        groupData.controlledChildren = kept
+      end
+      dropExcluded(transmitData)
+      for _, childData in ipairs(transmit.c or {}) do
+        dropExcluded(childData)
       end
     end
     return TableToString(transmit, forChat);

@@ -273,6 +273,56 @@ function Display.StandLocked(normal)
   return InCombatLockdown() and stand ~= nil and next(stand.secure) ~= nil
 end
 
+-- Another aura anchored to a display drawn by a stand-in must follow the
+-- stand, since the display itself is parked off screen. The chain frame
+-- cannot be the anchor (it follows an aura container, which only frames made
+-- from DisableUntrustedLayoutScriptsTemplate may do), so a proxy frame on
+-- UIParent copies the stand's screen rectangle while the stand is active, the
+-- way the Clickable auras place their buttons over a display. The rectangle
+-- can be secret in combat; the proxy then keeps its last place.
+local function PlaceProxy(proxy)
+  local frame = proxy.standFrame
+  local ok, left, bottom, width, height = pcall(frame.GetRect, frame)
+  if not ok or type(left) ~= "number" or type(bottom) ~= "number" or type(width) ~= "number" or type(height) ~= "number" then return end
+  if issecretvalue(left) or issecretvalue(bottom) or issecretvalue(width) or issecretvalue(height) then return end
+  local scale = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+  if proxy.placedScale ~= scale then proxy:SetScale(scale); proxy.placedScale = scale end
+  if proxy.placedLeft == left and proxy.placedBottom == bottom and proxy.placedWidth == width and proxy.placedHeight == height then return end
+  proxy.placedLeft, proxy.placedBottom, proxy.placedWidth, proxy.placedHeight = left, bottom, width, height
+  proxy:ClearAllPoints()
+  proxy:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+  proxy:SetSize(math.max(width, 1), math.max(height, 1))
+end
+
+local function EnsureProxy(stand)
+  local proxy = stand.proxy
+  if not proxy then
+    proxy = CreateFrame("Frame", nil, UIParent)
+    proxy:EnableMouse(false)
+    proxy.standFrame = stand.frame
+    proxy:SetScript("OnUpdate", function(self, elapsed)
+      self.elapsed = (self.elapsed or 0) + elapsed
+      if self.elapsed < 0.1 then return end
+      self.elapsed = 0
+      PlaceProxy(self)
+    end)
+    stand.proxy = proxy
+  end
+  proxy.standFrame = stand.frame
+  PlaceProxy(proxy)
+  proxy:Show()
+  return proxy
+end
+
+-- The frame other auras anchor to for this display: its stand's proxy while
+-- the stand draws it, otherwise nil (the display's own region serves).
+function Display.StandAnchor(region)
+  local normal = region and region.flowNormal
+  local stand = normal and normal.stand
+  if stand and stand.active and stand.proxy then return stand.proxy end
+  return nil
+end
+
 function Display.EnsureStand(region, normal)
   local stand = normal.stand
   if not stand then
@@ -281,6 +331,8 @@ function Display.EnsureStand(region, normal)
   end
   Unlink(stand)
   stand.active = true
+  EnsureProxy(stand)
+  if Private.ReanchorAttachedTo then Private.ReanchorAttachedTo(region.id) end
   local frame = stand.frame
   if region.icon then
     local icon = Pooled(stand, "icon", function() return frame:CreateTexture(nil, "ARTWORK") end)
@@ -391,6 +443,9 @@ function Display.ReleaseStand(normal)
   if not stand then return end
   stand.active = false
   Unlink(stand)
+  -- Auras anchored to the display go back to its own region.
+  if stand.proxy then stand.proxy:Hide() end
+  if Private.ReanchorAttachedTo then Private.ReanchorAttachedTo(stand.region.id) end
   if next(stand.secure) then
     pending[stand] = true
     releaser:RegisterEvent("PLAYER_REGEN_ENABLED")
