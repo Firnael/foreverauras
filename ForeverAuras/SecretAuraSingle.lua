@@ -1,6 +1,5 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
--- Show On, Remaining Time, Total Duration and Approximate Match for the
--- Aura (Modern) trigger.
+-- Show On, Remaining Time and Total Duration for the Aura (Modern) trigger.
 --
 -- Aura(s) Found lists every matching aura in a native aura group. Aura(s)
 -- Missing, Always and Remaining Time watch one unit and draw at most one aura
@@ -21,7 +20,7 @@ local Display = Private.BlizzardAuraDisplay
 local function Locked(frame) return Display.Busy ~= nil and Display.Busy(frame) end
 
 -- Units that name one unit; group, nameplate, boss and arena are lists.
-Display.singleUnits = {player = true, target = true, focus = true, pet = true, targettarget = true, focustarget = true}
+Display.singleUnits = {player = true, target = true, focus = true, pet = true, targettarget = true, focustarget = true, pettarget = true}
 function Display.IsSingleUnit(trigger)
   if type(trigger) ~= "table" then return false end
   if trigger.unit == "member" then return Display.SpecificUnit(trigger) ~= nil end
@@ -246,8 +245,6 @@ end
 -- Returns "error" or "note" and the text for the spell ID section, or nil.
 function Display.SpellIDFilterNote(trigger)
   if not (Display.UsesSpellIDs(trigger) or Display.UsesRankSpellIDs(trigger) or Display.UsesExcludedSpellIDs(trigger)) then return end
-  -- Approximate Match does not ask Blizzard for spell IDs at all.
-  if Display.UsesApproximate(trigger) then return end
   local ids = Display.GetSpellIDs(trigger, true)
   if Display.UsesExcludedSpellIDs(trigger) then
     for _, value in ipairs(trigger.excludedAuraSpellIDs or {}) do
@@ -260,9 +257,9 @@ function Display.SpellIDFilterNote(trigger)
   local category = Display.UnitCategory(trigger)
   local label = trigger.unit == "member" and Display.SpecificUnit(trigger) or Display.units[trigger.unit] or trigger.unit
   if (debuff and friendlyUnits[category]) or (not debuff and hostileUnits[category]) then
-    -- Point to Approximate Match wherever it can help.
-    if debuff and Display.approximateUnits[category] then
-      return "error", ("Blizzard hides debuffs on %s from spell ID filters in combat. Try Approximate Match.")
+    -- What does work there: the aura's own properties.
+    if debuff and Display.friendlyDebuffUnits[category] then
+      return "error", ("Blizzard hides debuffs on %s from spell ID filters in combat: filter by Total Duration =, dispel type and flags instead.")
         :format(label)
     end
     return "error", ("Blizzard hides %s on %s from spell ID filters in combat.")
@@ -286,17 +283,6 @@ function Display.TriggerStatus(data, trigger)
   -- Blizzard still plays Actions sounds for these spell IDs (AddAuraSound).
   if severity == "error" then return RED .. "Won't work:|r " .. reason .. " " .. ORANGE .. "Sounds in Actions still play.|r" end
   local text = GREEN .. "Works in combat.|r"
-  if Display.UsesApproximate(trigger) then
-    local profile = Display.ApproximateProfile(trigger)
-    if not profile then
-      return RED .. "Won't work:|r This debuff's duration isn't known. Add a Total Duration filter."
-    end
-    -- Without the gate (not an Icon, Missing, Remaining Time) only Blizzard's
-    -- maximum duration applies, so shorter debuffs get through.
-    local _, _, source, problem = Display.GateRange(data, trigger)
-    text = text .. " " .. ORANGE .. ((source and not problem) and "Approximate match, may not be exact."
-      or "Approximate match: shorter debuffs can match too.") .. "|r"
-  end
   if severity == "note" then
     text = text .. " " .. ORANGE .. (trigger.debuffType == "HARMFUL" and "Hostile units only." or "Friendly units only.") .. "|r"
   end
@@ -334,7 +320,7 @@ function Display.ValidateSingle(data, trigger)
   end
   if not Display.IsSingle(trigger, data) then return end
   if not Display.IsSingleUnit(trigger) and not Display.UnitPlacedMissing(data, trigger) then
-    return "On the screen, Aura(s) Missing, Always and Remaining Time watch one unit: choose Player, Target, Focus, Pet, Target of Target, Target of Focus or a Specific Unit. Anchored to unit frames or nameplates, Missing and Always work for every unit."
+    return "On the screen, Aura(s) Missing, Always and Remaining Time watch one unit: choose Player, Target, Focus, Pet, Target of Target, Target of Focus, Pet Target or a Specific Unit. Anchored to unit frames or nameplates, Missing and Always work for every unit."
   end
   local showOn = Display.ShowOn(trigger)
   local op = Display.RemainingWindow(trigger)
@@ -356,8 +342,8 @@ function Display.ValidateSingle(data, trigger)
   -- Blizzard never matches debuffs on you or your pet by spell ID while auras
   -- are secret, so a Missing icon would show even with the debuff present.
   if NeedsMissing(trigger) and trigger.debuffType == "HARMFUL" and (trigger.unit == "player" or trigger.unit == "pet")
-    and (Display.UsesSpellIDs(trigger) or Display.UsesRankSpellIDs(trigger)) and not Display.UsesApproximate(trigger) then
-    return "Debuffs on you or your pet can't be found by spell ID in combat. Tick Approximate Match."
+    and (Display.UsesSpellIDs(trigger) or Display.UsesRankSpellIDs(trigger)) then
+    return "Debuffs on you or your pet can't be found by spell ID in combat: filter by Total Duration =, dispel type and flags instead."
   end
   if op then
     if not Display.SupportsDurationColorCondition() then
@@ -1171,6 +1157,65 @@ end
 -- limited to the range by Blizzard, see StyleRemainingList); this slot adds the
 -- display's icon as inline artwork whose opacity follows the same range.
 local remainingGateCurve
+-- A Glow element turned on by a "Remaining Time < X" condition, on an Icon
+-- with a Remaining Time window: its own aura slot, whose hidden text (the
+-- same formatter gate as the icon's) is a block while fewer than X seconds
+-- are left and empty otherwise; the clip hung on that text holds the glow,
+-- centred on the icon's art. Exact for every rank, as the icon's window is.
+local function EnsureConditionGlow(single, instance, region, data, trigger, index, element, seconds, icon)
+  local key = "FAGlow" .. index
+  local slot = EnsureSlot(single, instance, region, key, trigger, data, function(button, me)
+    me.clip = CreateFrame("Frame", nil, button, "DisableUntrustedLayoutScriptsTemplate")
+    Display.ClipChildren(me.clip)
+    me.clip:SetClipsChildren(true)
+    me.holder = CreateFrame("Frame", nil, me.clip)
+    me.holder:EnableMouse(false)
+    me.gate = button:CreateFontString(nil, "BACKGROUND")
+  end)
+  if not slot or not slot.clip then return end
+  local width, height = Display.Dimensions(data)
+  local margin = Display.GlowMargin(width, height, element)
+  slot.button:ClearAllPoints()
+  slot.button:SetAllPoints(icon.button)
+  local size, fill, gateMargin = Display.GateFill(width + 2 * margin, height + 2 * margin)
+  local formatter = Display.GateFormatter(0, seconds, fill)
+  if not formatter then slot.used = false; return end
+  if not remainingGateCurve then
+    remainingGateCurve = C_CurveUtil.CreateColorCurve()
+    remainingGateCurve:SetType(Enum.LuaCurveType.Step)
+    remainingGateCurve:AddPoint(0, CreateColor(0, 0, 0, 0))
+  end
+  local gate = slot.gate
+  gate:SetFont(STANDARD_TEXT_FONT, size, "")
+  gate:SetWordWrap(false)
+  gate:SetWidth(0)
+  gate:ClearAllPoints()
+  gate:SetJustifyH("LEFT")
+  -- The block covers the glow's reach (margin) plus the gate's own margin.
+  gate:SetPoint("TOPLEFT", slot.button, "TOPLEFT", -margin - gateMargin, margin + gateMargin)
+  pcall(slot.button.ClearDurationText, slot.button)
+  local ok, err = pcall(slot.button.SetDurationText, slot.button, gate, {
+    textFormat = {formatString = "{}", components = {{property = Enum.DurationTextBindingProperty.RemainingDuration, formatter = formatter}}},
+    textColor = {curve = remainingGateCurve, property = Enum.DurationTextBindingProperty.RemainingDuration},
+  })
+  if not ok then
+    Warn(data, "Blizzard refused the Remaining Time glow: " .. tostring(err))
+    slot.used = false
+    return
+  end
+  gate:Show()
+  slot.clip:ClearAllPoints()
+  slot.clip:SetPoint("TOPLEFT", gate, "TOPLEFT")
+  slot.clip:SetPoint("BOTTOMRIGHT", gate, "BOTTOMRIGHT")
+  slot.holder:ClearAllPoints()
+  slot.holder:SetAllPoints(icon.button)
+  slot.glows = slot.glows or {}
+  slot.glows[index] = slot.glows[index] or {}
+  Display.StyleElementGlow(slot.glows[index], slot.button, slot.holder, icon.art, setmetatable({glow = true}, {__index = element}), width, height)
+  pcall(slot.clip.SetFrameLevel, slot.clip, icon.cooldown:GetFrameLevel() + 2)
+  instance.container:SetAuraSlotEnabled(key, true)
+end
+
 local function EnsureRemaining(single, instance, region, data, trigger, op, x)
   local icon = EnsureSlot(single, instance, region, SLOT_ICON, trigger, data)
   if not icon then return false end
@@ -1320,6 +1365,43 @@ local function EnsureRemaining(single, instance, region, data, trigger, op, x)
       icon.borders[index].border:Show()
     end
   end
+  -- Glow elements, inside the same clip: Blizzard's formatter opens it at
+  -- exactly x seconds, whatever the aura's total duration. (The list button's
+  -- window glow, TimedGlowHolder, needs that total, which an "All Ranks"
+  -- selection cannot give: ranks differ, and the aura's rank is secret.)
+  -- Present conditions that turn a glow on apply, as on the live button.
+  icon.glows = icon.glows or {}
+  for _, entry in pairs(icon.glows) do Display.ClearElementGlow(entry) end
+  -- A glow turned on by a "Remaining Time < X" condition is drawn by a slot
+  -- of its own (below), whose gate opens at X; any other condition that
+  -- turns a glow on counts as on, as on the live button.
+  local onAlways, onBelow = {}, {}
+  for _, condition in ipairs(data.conditions or {}) do
+    local check = condition.check
+    for _, change in ipairs(condition.changes or {}) do
+      local glowIndex = tonumber((change.property or ""):match("^sub%.(%d+)%.glow$"))
+      if glowIndex and change.value == true and not condition.linked and not Display.IsDetachedProperty(data, change.property) then
+        local x = Display.RemainingBelowCheck(data, check)
+        if x then
+          onBelow[glowIndex] = math.max(onBelow[glowIndex] or 0, x)
+        else
+          onAlways[glowIndex] = true
+        end
+      end
+    end
+  end
+  for index, element in ipairs(data.subRegions or {}) do
+    if element.type == "subglow" and not Display.IsDetachedElement(data, element) then
+      if element.glow or onAlways[index] then
+        icon.glows[index] = icon.glows[index] or {}
+        Display.StyleElementGlow(icon.glows[index], icon.button, art, art, setmetatable({glow = true}, {__index = element}), width, height)
+        local holder = icon.glows[index].nativeGlow and icon.glows[index].nativeGlow.holder
+        if holder then pcall(holder.SetFrameLevel, holder, cooldown:GetFrameLevel() + 2) end
+      elseif onBelow[index] then
+        EnsureConditionGlow(single, instance, region, data, trigger, index, element, onBelow[index], icon)
+      end
+    end
+  end
   instance.container:SetAuraSlotEnabled(SLOT_ICON, true)
   local level = icon.button:GetFrameLevel()
   -- The swipe is drawn on the icon's frame above; the separate swipe slot
@@ -1392,6 +1474,16 @@ end
 local LATE_K, LATE_MAX_WIDTH = 2000, 200000
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 
+-- True for a "Remaining Time < X" check on an Aura (Modern) trigger, with X.
+function Display.RemainingBelowCheck(data, check)
+  if type(check) ~= "table" or check.variable ~= "faAuraRemaining" or check.op ~= "<" then return end
+  local entry = data.triggers and data.triggers[check.trigger]
+  local trigger = type(entry) == "table" and entry.trigger
+  if type(trigger) ~= "table" or trigger.type ~= "secretAura" then return end
+  local x = tonumber(check.value)
+  if x and x > 0 then return x end
+end
+
 -- Returns x (seconds), the glow element, its index, and whether the glow shows
 -- above x (Remaining Time > / >=) instead of below it: Remaining Time with a
 -- Glow turned on, or a "Remaining Time < X" condition that turns a Glow on.
@@ -1406,12 +1498,12 @@ function Display.LateGlowSpec(data, trigger)
   end
   for _, condition in ipairs(data.conditions or {}) do
     local check = condition.check
-    if not condition.linked and check and check.variable == "faAuraRemaining" and check.op == "<"
-      and Display.NativeConditionKind(data, check) and tonumber(check.value) and tonumber(check.value) > 0 then
+    local x = not condition.linked and Display.RemainingBelowCheck(data, check)
+    if x then
       for _, change in ipairs(condition.changes or {}) do
         if change.value == true and Display.IsGlowProperty(data, change.property) then
           local index = tonumber(change.property:match("^sub%.(%d+)%."))
-          return tonumber(check.value), data.subRegions[index], index, false
+          return x, data.subRegions[index], index, false
         end
       end
     end
@@ -1581,6 +1673,7 @@ local function GlowMargin(width, height, element)
   local offset = math.max(math.abs(tonumber(element.glowXOffset) or 0), math.abs(tonumber(element.glowYOffset) or 0))
   return math.ceil(math.max(width, height) * 0.5 * (tonumber(element.glowScale) or 1)) + offset + 4
 end
+Display.GlowMargin = GlowMargin
 
 -- Called by StyleAppearance for each Glow element of a live list button.
 -- nil: an ordinary glow. false: a timed glow whose total duration is not known
@@ -1590,6 +1683,9 @@ function Display.TimedGlowHolder(native, data, index, frame)
   local trigger = Display.GetTrigger(data)
   local x, element, glowIndex, above = Display.LateGlowSpec(data, trigger)
   if not x or glowIndex ~= index then return end
+  -- An Icon with a Remaining Time window draws its glows in the Remaining
+  -- Time slot (EnsureRemaining), opened at exactly x seconds; nothing here.
+  if data.regionType == "icon" and Display.RemainingWindow(trigger) and Display.IsSingle(trigger, data) then return false end
   local total = Display.LateGlowTotal(trigger)
   if not total or total <= x then return false end
   local late = native.lateGlow
@@ -1601,7 +1697,7 @@ function Display.TimedGlowHolder(native, data, index, frame)
     -- Invisible: only its fill edge serves as an anchor.
     late.bar:SetAlpha(0)
     -- Inside the Total Duration gate clip, so a rejected aura never glows.
-    late.clip = CreateFrame("Frame", nil, native.gateClip or native.button, "DisableUntrustedLayoutScriptsTemplate")
+    late.clip = CreateFrame("Frame", nil, Display.ElementHolder(native), "DisableUntrustedLayoutScriptsTemplate")
     late.clip:SetClipsChildren(true)
     late.holder = CreateFrame("Frame", nil, late.clip)
     late.holder:SetAllPoints(native.button)
@@ -1654,32 +1750,18 @@ function Display.StyleRemainingList(native, data)
   end
 end
 
----------------------------------------------------------------------------- approximate match
--- Blizzard never picks debuffs on friendly units by spell ID while auras are
--- secret. Its containers do filter by an aura's properties, so Approximate
--- Match asks for a debuff with the selected one's properties instead:
---   * its duration: a Total Duration "=" filter, else learned, else read from
---     the spell's description and tooltip, so it works before any sighting;
---     on Icons the Total Duration gate then keeps only that exact duration;
---   * its dispel type and flags, once it has been seen while auras are
---     readable (out of combat, including when combat ends with it still up).
--- A different debuff with the same properties matches too.
-local FINGERPRINT_FLAGS = {"canApplyAura", "isStealable", "isBossAura", "isFromPlayerOrPlayerPet", "nameplateShowAll", "nameplateShowPersonal"}
-local watchedProfiles = {}
+---------------------------------------------------------------------------- learning durations
+-- Timed glows need the selected spells' total durations; they are learned
+-- while auras are readable (out of combat, including when combat ends with
+-- the aura still up). Debuffs on friendly units cannot be found by spell ID
+-- while secret: their displays filter by Total Duration =, dispel type and
+-- flags instead (SpellIDFilterNote).
 local learningRegions = setmetatable({}, {__mode = "k"})
 
--- True while an Approximate Match display watches party or raid members, so
--- the end-of-combat scan only reads the group when it has to.
-local learnsFromGroup = false
-local groupUnits = {group = true, party = true, raid = true}
-
 local function RebuildLearningWatches()
-  wipe(watchedProfiles); wipe(watchedIDs)
-  learnsFromGroup = false
+  wipe(watchedIDs)
   for _, entry in pairs(learningRegions) do
-    if entry.approximate and entry.group then learnsFromGroup = true end
     for _, id in ipairs(entry.ids) do
-      if entry.approximate then watchedProfiles[id] = true end
       if entry.glow then watchedIDs[id] = true end
     end
   end
@@ -1694,93 +1776,24 @@ function Display.ReleaseAuraLearning(region)
 end
 
 function Display.WatchAuraLearning(region, data, trigger, glow)
-  local approximate = Display.UsesApproximate(trigger)
-  if not approximate and not glow then Display.ReleaseAuraLearning(region); return end
+  if not glow then Display.ReleaseAuraLearning(region); return end
   local ids = Display.GetSpellIDs(trigger, true)
-  local key = table.concat(ids, ",") .. tostring(approximate) .. tostring(not not glow) .. tostring(trigger.unit)
+  local key = table.concat(ids, ",") .. tostring(not not glow) .. tostring(trigger.unit)
   if not learningRegions[region] or learningRegions[region].key ~= key then
-    learningRegions[region] = {ids = ids, key = key, approximate = approximate, glow = glow, group = groupUnits[Display.UnitCategory(trigger)]}
+    learningRegions[region] = {ids = ids, key = key, glow = glow}
     RebuildLearningWatches()
   end
   -- Keep learned displays subscribed so later readable changes reach them too.
   waitingRegions[region] = data
 end
 
-local function Profiles()
-  if type(ForeverAurasSaved) ~= "table" then return end
-  ForeverAurasSaved.auraProfiles = ForeverAurasSaved.auraProfiles or {}
-  return ForeverAurasSaved.auraProfiles
-end
-
 -- Friendly units, where Blizzard refuses spell ID filters for debuffs.
-Display.approximateUnits = {player = true, pet = true, group = true, party = true, raid = true}
+Display.friendlyDebuffUnits = {player = true, pet = true, group = true, party = true, raid = true}
 
-function Display.UsesApproximate(trigger)
-  return type(trigger) == "table" and trigger.secretApproximate == true and Display.approximateUnits[Display.UnitCategory(trigger)]
-    and trigger.debuffType == "HARMFUL" and (Display.UsesSpellIDs(trigger) or Display.UsesRankSpellIDs(trigger)) or false
-end
-
--- One profile for the selected ranks: the longest duration, and the dispel
--- type and flags where every seen rank agrees. Second result: "seen" when
--- learned from a sighting, "manual" when a Total Duration filter is set,
--- "duration" when only the described duration is known.
-function Display.ApproximateProfile(trigger)
-  local all = Profiles()
-  if not all then return end
-  local merged
-  for _, id in ipairs(Display.GetSpellIDs(trigger, true)) do
-    local profile = all[id]
-    if type(profile) == "table" then
-      if not merged then
-        merged = CopyTable(profile)
-      else
-        merged.duration = math.max(merged.duration or 0, profile.duration or 0)
-        if merged.dispel ~= profile.dispel then merged.dispel = nil end
-        for _, key in ipairs(FINGERPRINT_FLAGS) do if merged[key] ~= profile[key] then merged[key] = nil end end
-      end
-    end
-  end
-  -- A Total Duration filter is followed as entered: it replaces every learned
-  -- or described duration ("=" becomes the duration; "<=" and ">=" are applied
-  -- by the filter itself, see CandidateFilters and GateRange). A learned dispel
-  -- type and flags still apply.
-  local op, manual = Display.TotalFilter(trigger)
-  if op then
-    merged = merged or {}
-    merged.duration = op == "=" and manual or nil
-    return merged, "manual"
-  end
-  if merged then return merged, "seen" end
-  -- Not seen yet: the spell's description and tooltip give the duration.
-  local best
-  for _, id in ipairs(Display.GetSpellIDs(trigger, true)) do
-    local seconds = DescribedDuration(id)
-    if seconds and seconds > (best or 0) then best = seconds end
-  end
-  if best then return {duration = best}, "duration" end
-end
-
-function Display.ApproximateFilters(trigger, filters)
-  if not Display.UsesApproximate(trigger) then return filters end
-  local profile = Display.ApproximateProfile(trigger)
-  -- Nothing learned yet: match nothing rather than every debuff on you.
-  if not profile then filters.includeSpellIDs = {}; return filters end
-  filters.includeSpellIDs, filters.excludeSpellIDs = nil, nil
-  -- Durations carry a few ms of noise; permanent debuffs (0) get no limit.
-  if (profile.duration or 0) > 0 then
-    filters.maxDuration = math.min(filters.maxDuration or math.huge, profile.duration + 0.5)
-  end
-  if type(profile.dispel) == "string" then filters.includeDispelTypes = {[profile.dispel] = true} end
-  for _, key in ipairs(FINGERPRINT_FLAGS) do
-    if filters[key] == nil and type(profile[key]) == "boolean" then filters[key] = profile[key] end
-  end
-  return filters
-end
-
--- Friendly unit tokens whose debuffs teach Approximate Match.
-local function Friendly(token)
-  return token == "player" or token == "pet" or (type(token) == "string" and (token:match("^party%d$") or token:match("^raid%d+$"))) ~= nil
-end
+-- Approximate Match was removed: its learned properties are what the Total
+-- Duration =, dispel type and flag filters set by hand.
+function Display.UsesApproximate() return false end
+function Display.ApproximateFilters(_, filters) return filters end
 
 -- Learns total durations and debuff properties of the selected spell IDs while
 -- auras are readable: on aura changes out of combat and when combat ends.
@@ -1823,44 +1836,18 @@ learnEvents:SetScript("OnEvent", function(_, event, unit, updateInfo)
     reapplyAfterCombat = {}
     ReapplyWaiting(changed)
   end
-  if (not next(watchedIDs) and not next(watchedProfiles)) or InCombatLockdown()
+  if not next(watchedIDs) or InCombatLockdown()
     or (C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret()) then return end
-  local seen, profiles = SeenDurations(), Profiles()
-  if not seen or not profiles then return end
+  local seen = SeenDurations()
+  if not seen then return end
   local changed = {}
-  -- Reads one aura; harmful: it is a debuff.
-  local function Learn(token, aura, harmful)
+  -- Reads one aura.
+  local function Learn(token, aura)
     local id, duration = aura.spellId, aura.duration
     if not issecretvalue(id) and not issecretvalue(duration) and watchedIDs[id] and type(duration) == "number" and duration > 0 then
       -- Durations carry a few ms of noise; keep tenths.
       local tenths = math.floor(duration * 10 + 0.5) / 10
       if seen[id] ~= tenths then seen[id] = tenths; changed[id] = true end
-    end
-    -- Approximate Match profiles, for the selected spell IDs only. A debuff
-    -- on an enemy teaches its duration and dispel type; the flags depend on
-    -- who it is on, so they come only from friendly units, and a friendly
-    -- profile is never replaced by an enemy sighting.
-    if type(id) == "number" and not issecretvalue(id) and watchedProfiles[id] and harmful
-      and type(duration) == "number" and not issecretvalue(duration) then
-      local friendly = Friendly(token)
-      local old = profiles[id]
-      if friendly or not (type(old) == "table" and old.friendly) then
-        local profile = {duration = math.floor(duration * 10 + 0.5) / 10, friendly = friendly or nil}
-        local dispel = aura.dispelName
-        if type(dispel) == "string" and not issecretvalue(dispel) then profile.dispel = dispel end
-        if friendly then
-          for _, key in ipairs(FINGERPRINT_FLAGS) do
-            local value = aura[key]
-            if type(value) == "boolean" and not issecretvalue(value) then profile[key] = value end
-          end
-        end
-        local same = type(old) == "table"
-        if same then
-          for key, value in pairs(profile) do if old[key] ~= value then same = false end end
-          for key in pairs(old) do if profile[key] == nil then same = false end end
-        end
-        if not same then profiles[id] = profile; changed[id] = true end
-      end
     end
   end
   -- Buff durations are only needed for timed glows (watchedIDs).
@@ -1870,21 +1857,18 @@ learnEvents:SetScript("OnEvent", function(_, event, unit, updateInfo)
       for i = 1, 40 do
         local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, token, i, filter)
         if not ok or type(aura) ~= "table" then break end
-        Learn(token, aura, filter == "HARMFUL")
+        Learn(token, aura)
       end
     end
   end
   if event == "UNIT_AURA" then
-    if unit ~= "target" and unit ~= "focus" and not Friendly(unit) then return end
+    if unit ~= "target" and unit ~= "focus" and unit ~= "player" and unit ~= "pet" then return end
     if type(updateInfo) == "table" and not updateInfo.isFullUpdate then
       -- Only the auras that were added or changed; removals teach nothing.
-      for _, aura in ipairs(updateInfo.addedAuras or {}) do
-        local harmful = aura.isHarmful
-        if not issecretvalue(harmful) then Learn(unit, aura, harmful == true) end
-      end
+      for _, aura in ipairs(updateInfo.addedAuras or {}) do Learn(unit, aura) end
       for _, instanceID in ipairs(updateInfo.updatedAuraInstanceIDs or {}) do
         local ok, aura = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, instanceID)
-        if ok and type(aura) == "table" and not issecretvalue(aura.isHarmful) then Learn(unit, aura, aura.isHarmful == true) end
+        if ok and type(aura) == "table" then Learn(unit, aura) end
       end
     else
       Scan(unit)
@@ -1892,13 +1876,8 @@ learnEvents:SetScript("OnEvent", function(_, event, unit, updateInfo)
   elseif event == "PLAYER_TARGET_CHANGED" then
     Scan("target")
   else
-    -- Combat ended: auras still up become readable. The group only when an
-    -- Approximate Match display watches it.
+    -- Combat ended: auras still up become readable.
     for _, token in ipairs(FIXED_UNITS) do Scan(token) end
-    if learnsFromGroup then
-      for i = 1, (IsInRaid() and GetNumGroupMembers() or 0) do Scan("raid" .. i) end
-      for i = 1, (not IsInRaid() and GetNumSubgroupMembers() or 0) do Scan("party" .. i) end
-    end
   end
   if next(changed) then ReapplyWaiting(changed) end
 end)
@@ -1909,7 +1888,6 @@ end)
 -- formatted from the aura's total duration: a run of wide characters when it
 -- is in range, empty otherwise. A clip spans exactly that text, and everything
 -- the button draws sits inside the clip, so a wrong aura draws nothing.
--- Approximate Match uses the same gate with the spell's known duration.
 -- The gate takes the button's one duration text, so %p is shown by the
 -- swipe's countdown numbers. Candidates stack on one spot (Layout),
 -- so rejected auras leave no gaps.
@@ -1940,8 +1918,8 @@ local function GateProblem(data, trigger)
 end
 
 -- The total-duration range the gate should let through: lower, upper (nil for
--- no upper limit), where it comes from ("filter" or "approximate"), and why it
--- cannot be drawn (nil when it can).
+-- no upper limit), where it comes from ("filter"), and why it cannot be drawn
+-- (nil when it can).
 function Display.GateRange(data, trigger)
   trigger = trigger or Display.GetTrigger(data)
   if not trigger then return end
@@ -1951,10 +1929,6 @@ function Display.GateRange(data, trigger)
     lower, upper, source = x - GATE_TOLERANCE, x + GATE_TOLERANCE, "filter"
   elseif op == ">=" then
     lower, source = x - GATE_TOLERANCE, "filter"
-  elseif Display.UsesApproximate(trigger) then
-    local profile = Display.ApproximateProfile(trigger)
-    local duration = profile and tonumber(profile.duration)
-    if duration and duration > 0 then lower, upper, source = duration - GATE_TOLERANCE, duration + GATE_TOLERANCE, "approximate" end
   end
   if not source then return end
   return math.max(0.001, lower), upper, source, GateProblem(data, trigger)
@@ -2022,7 +1996,7 @@ function Display.StackFilterProblem(data, trigger)
   end
   -- Both filters need the one clip around the button.
   if Display.GateRange(data, trigger) then
-    return "Stack Count can't be combined with Total Duration = or >=, or with Approximate Match."
+    return "Stack Count can't be combined with Total Duration = or >=."
   end
   if not (C_AuraContainerUtil and C_AuraContainerUtil.ProcessCustomAuraButtonApplicationBarOptions) then
     return "This client can't check Stack Count."
@@ -2056,7 +2030,7 @@ function Display.RemainingGateProblem(data, trigger)
   end
   -- The Total Duration gate would need the same clip.
   if Display.GateRange(data, trigger) then
-    return "On this display type, Remaining Time can't be combined with Total Duration = or >=, or with Approximate Match."
+    return "On this display type, Remaining Time can't be combined with Total Duration = or >=."
   end
   if not (Enum.DurationTextBindingProperty and Enum.DurationTextBindingProperty.RemainingDuration ~= nil
     and C_StringUtil and C_StringUtil.CreateNumericRuleFormatter and Display.SupportsDurationColorCondition()) then
@@ -2408,7 +2382,10 @@ function Display.ConfigureSingle(instance, region, data, index)
   if isSingle and op then EnsureRemaining(single, instance, region, data, trigger, op, x) end
   -- Parts no longer configured stop matching auras.
   for key, slot in pairs(single.slots or {}) do
-    if not slot.used then pcall(instance.container.SetAuraSlotEnabled, instance.container, key, false) end
+    if not slot.used then
+      pcall(instance.container.SetAuraSlotEnabled, instance.container, key, false)
+      for _, entry in pairs(slot.glows or {}) do Display.ClearElementGlow(entry) end
+    end
   end
   -- Aura(s) Missing alone draws no live aura: the list is switched off and its
   -- buttons made invisible. Otherwise the list draws (Remaining Time styles it).
@@ -2419,7 +2396,10 @@ function Display.ConfigureSingle(instance, region, data, index)
   else
     instance.container:SetAuraGroupEnabled("Auras", listDraws)
   end
-  for _, button in ipairs(instance.buttons or {}) do button.button:SetAlpha(listDraws and 1 or 0) end
+  for _, button in ipairs(instance.buttons or {}) do
+    -- A flashing button rests at alpha 0 (BlizzardAuraDisplay.lua, StyleFlash).
+    button.button:SetAlpha((listDraws and not Display.FlashRests(button)) and 1 or 0)
+  end
 end
 
 -- Mirrors the aura list container's unit binding and visibility; unit = nil

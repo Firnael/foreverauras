@@ -63,7 +63,7 @@ end
 -- public; whether it has the aura is not, so this is the only case in which
 -- the trigger goes inactive. Mouseover has no event when it clears, so it
 -- stays active, as before.
-local optionalUnits = {target = true, focus = true, pet = true, targettarget = true, focustarget = true, member = true}
+local optionalUnits = {target = true, focus = true, pet = true, targettarget = true, focustarget = true, pettarget = true, member = true}
 local function UnitMissing(trigger)
   if type(trigger) ~= "table" or not optionalUnits[trigger.unit] or trigger.unitExists then return false end
   return not Display.SingleUnitExists(trigger)
@@ -145,9 +145,9 @@ end
 local unitChangeEvents = {
   PLAYER_TARGET_CHANGED = {target = true, targettarget = true},
   PLAYER_FOCUS_CHANGED = {focus = true, focustarget = true},
-  UNIT_TARGET = {target = {targettarget = true}, focus = {focustarget = true}},
-  UNIT_PET = {player = {pet = true}},
-  PLAYER_ENTERING_WORLD = {target = true, focus = true, pet = true, targettarget = true, focustarget = true, member = true},
+  UNIT_TARGET = {target = {targettarget = true}, focus = {focustarget = true}, pet = {pettarget = true}},
+  UNIT_PET = {player = {pet = true, pettarget = true}},
+  PLAYER_ENTERING_WORLD = {target = true, focus = true, pet = true, targettarget = true, focustarget = true, pettarget = true, member = true},
   GROUP_ROSTER_UPDATE = {member = true},
   INSTANCE_ENCOUNTER_ENGAGE_UNIT = {member = true},
   ARENA_OPPONENT_UPDATE = {member = true},
@@ -382,6 +382,8 @@ function Trigger.GetTriggerDescription(data, triggernum, lines)
   lines[#lines + 1] = {"Secret Auras", trigger.unit == "member" and (Display.SpecificUnit(trigger) or "Specific Unit") or Display.units[trigger.unit] or trigger.unit}
   -- What makes the display appear.
   local showOn = Display.showOnValues[Display.ShowOn(trigger)]
+  local gained = Display.GainedSeconds and Display.GainedSeconds(trigger) or 0
+  if gained > 0 then showOn = "Aura(s) Gained, shown " .. gained .. " s" end
   local op, seconds = Display.RemainingWindow(trigger)
   if op then showOn = showOn .. ", remaining " .. op .. " " .. seconds .. " s" end
   lines[#lines + 1] = {"Show On", showOn}

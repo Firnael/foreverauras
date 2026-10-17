@@ -171,7 +171,7 @@ function Display.PandemicGlowHolder(native, data, index, frame)
   local holder = native.pandemicGlowFrames[index]
   if not holder then
     -- Inside the Total Duration / Stack Count clip, so a rejected aura never glows.
-    holder = CreateFrame("Frame", nil, native.gateClip or native.button)
+    holder = CreateFrame("Frame", nil, Display.ElementHolder(native))
     native.pandemicGlowFrames[index] = holder
   end
   holder:ClearAllPoints()
@@ -844,7 +844,7 @@ function Display.StyleNativeConditionIndicators(native, data)
   -- below both; placing textures there hid thin borders and exposed only overflow.
   -- Inside the Total Duration gate clip, when there is one, so a rejected aura
   -- shows no highlight either.
-  native.conditionOverlay = native.conditionOverlay or CreateFrame("Frame", nil, native.gateClip or button)
+  native.conditionOverlay = native.conditionOverlay or CreateFrame("Frame", nil, Display.ElementHolder(native))
   native.conditionOverlay:SetAllPoints(button)
   local base = native.elementFrames and native.elementFrames.sharedBase
   native.conditionOverlay:SetFrameLevel(math.max(native.cooldown:GetFrameLevel(), native.bar and native.bar:GetFrameLevel() or 0,

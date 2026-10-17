@@ -27,6 +27,9 @@ function Display.CreateSampleNative(parent)
   end
   function button:AddAuraShownAnimation(animation) animation:Play() end
   function button:RemoveAuraShownAnimation(animation) animation:Stop() end
+  -- Samples play a Start animation once, as a newly assigned aura would.
+  function button:AddAuraAssignedAnimation(animation) animation:Play() end
+  function button:RemoveAuraAssignedAnimation(animation) animation:Stop() end
   -- Preview the same Blizzard assets as the native bindings, using a public sample type.
   function button:AddDispelTypeTexture(texture, options)
     if options.style == Enum.CustomAuraButtonDispelTypeTextureStyle.PreserveAsset then
@@ -158,6 +161,9 @@ function Display.ShowPreview(region, data, StyleSample)
     sample.previewUnit = previewUnits[math.floor((slot - 1) / count) + 1]
     local button = sample.button
     button.expires, button.inverse = GetTime() + 6, data.inverse == true
+    -- Only the first sample animates its Glow elements (SecretAuraGlow.lua);
+    -- a display with many spells had a full set of glow animations per sample.
+    button.faStaticGlow = slot > 1
     local info = ids[index] and C_Spell.GetSpellInfo(ids[index])
     -- Use the configured entry once, not every expanded rank of that entry.
     sample.name, sample.iconID = info and info.name or "Aura", info and info.iconID or 134400

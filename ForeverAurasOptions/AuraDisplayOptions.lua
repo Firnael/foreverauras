@@ -39,7 +39,6 @@ function OptionsPrivate.GetSecretAuraSettings(data)
   args.sortMethod = {
     type = "select", name = "Sort by", disabled = Disabled, values = Display.sortMethods,
     sorting = {"Default", "ExpirationOnly", "Expiration", "NameOnly", "Name", "ImportantOnly", "BigDefensive", "UnitFrameDebuff", "AuraInstanceIDOnly"},
-    desc = "Sort each unit's auras. Remaining time puts the soonest-expiring aura first, with permanent auras last. Blizzard priority applies caster and priority rules before time or name. Unit-frame debuffs also enables debuff classification, which can hide auras.",
     -- The saved trigger: GetTrigger returns a copy when a Blizzard
     -- classification is set, and a choice written there was lost.
     get = function() local trigger = Display.GetSavedTrigger(data); return trigger and trigger.sortMethod or "Default" end,
@@ -66,6 +65,10 @@ function OptionsPrivate.GetSecretAuraSettings(data)
       OptionsPrivate.QueueOptionsRefresh(data.id)
     end,
   }
+  -- Shown only while Blizzard debuff order is selected, in place of a tooltip.
+  args.sortNotice = {type = "description", width = "full", fontSize = "small",
+    name = "Blizzard debuff order turns on debuff classification, which can hide auras not classified as debuffs.",
+    hidden = function() local trigger = Display.GetSavedTrigger(data); return not trigger or trigger.sortMethod ~= "UnitFrameDebuff" end}
   args.growth = {
     type = "select", name = "Icon growth direction", order = 3.1, disabled = Disabled,
     values = {RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER_HORIZONTAL = "Centered Horizontal", CENTER_VERTICAL = "Centered Vertical"},
@@ -132,7 +135,7 @@ function OptionsPrivate.GetSecretAuraSettings(data)
     set = function(_, value) Save("textHeight", value, true) end}
   args.status = {type = "description", width = "full", name = function() return Display.Validate(data) or "" end,
     hidden = function() return Display.Validate(data) == nil end}
-  local order = {"status", "singleNotice", "growth", "spacing", "perRow", "rowGrowth", "maxIcons", "sortMethod", "sortReverse", "textHeight"}
+  local order = {"status", "singleNotice", "growth", "spacing", "perRow", "rowGrowth", "maxIcons", "sortMethod", "sortReverse", "sortNotice", "textHeight"}
   for index, key in ipairs(order) do
     args[key].order = index
     args[key].width = args[key].width or WeakAuras.normalWidth

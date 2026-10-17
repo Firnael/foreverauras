@@ -1076,5 +1076,65 @@ function OptionsPrivate.GetAnimationOptions(data)
     animation.disabled = function(info, ...) return disabledAll(data, info, ...); end;
   end
 
+  -- Aura (Modern) lists: nothing animates an aura but the client, which plays
+  -- the groups it is handed when it assigns an aura (Start) and while the aura
+  -- is shown (Main). The trigger is always active, so the display's own
+  -- Start/Main/Finish would never follow an aura; the tab offers only these.
+  local Display = OptionsPrivate.Private.BlizzardAuraDisplay
+  local modernTrigger = Display and Display.Enabled(data) and Display.GetSavedTrigger(data)
+  if modernTrigger then
+    for key in pairs(animation.args) do animation.args[key].hidden = true end
+    -- The display's own animations never reach a Modern display (Validate
+    -- reports them); ones left from another trigger type are cleared here.
+    local cleared
+    for _, kind in ipairs({"start", "main", "finish"}) do
+      local entry = data.animation and data.animation[kind]
+      if type(entry) == "table" and entry.type and entry.type ~= "none" then entry.type = "none"; cleared = true end
+    end
+    if cleared then WeakAuras.Add(data) end
+    -- A Missing look is not an aura button: nothing can play on it.
+    local missingOnly = Display.ShowOn(modernTrigger) == "showOnMissing"
+    local function Settings(kind)
+      data.blizzardAuraDisplay = data.blizzardAuraDisplay or {}
+      local key = kind == "start" and "auraStart" or "auraMain"
+      data.blizzardAuraDisplay[key] = data.blizzardAuraDisplay[key] or {}
+      return data.blizzardAuraDisplay[key]
+    end
+    local function Apply() WeakAuras.Add(data); OptionsPrivate.QueueOptionsRefresh(data.id) end
+    local gained = Display.GainedSeconds(modernTrigger) > 0
+    local function Section(kind, title, order, types, sorting, default)
+      animation.args[kind .. "_header"] = {type = "header", name = title, order = order}
+      animation.args[kind .. "_type"] = {type = "select", name = L["Type"], order = order + 1, width = WeakAuras.normalWidth,
+        values = types, sorting = sorting,
+        disabled = function() return missingOnly or (gained and kind == "start") end,
+        get = function()
+          if missingOnly or (gained and kind == "start") then return "none" end
+          local value = Settings(kind).type
+          return types[value] and value or "none"
+        end,
+        set = function(_, value) Settings(kind).type = value; Apply() end}
+      animation.args[kind .. "_duration"] = {type = "input", name = L["Duration (s)"], order = order + 2, width = WeakAuras.halfWidth,
+        hidden = function() return missingOnly or (gained and kind == "start") or (Settings(kind).type or "none") == "none" end,
+        validate = function(_, value)
+          local seconds = tonumber((tostring(value):gsub(",", ".")))
+          if not seconds or seconds <= 0 then return "Enter a number of seconds." end
+          return true
+        end,
+        get = function() return tostring(tonumber(Settings(kind).duration) or default) end,
+        set = function(_, value) Settings(kind).duration = tonumber((tostring(value):gsub(",", "."))); Apply() end}
+    end
+    Section("start", L["Start"], 1, Display.auraStartTypes, {"none", "fade", "zoom", "spin", "bounce"}, 0.3)
+    animation.args.start_gained = {type = "description", order = 3.5, width = "full", fontSize = "small",
+      hidden = function() return not gained end,
+      name = "Show On: Aura(s) Gained plays its own fade in and out."}
+    Section("main", L["Main"], 10, Display.auraMainTypes, {"none", "pulse", "spin", "wobble", "bounce"}, 1)
+    animation.args.main_gained = {type = "description", order = 12.5, width = "full", fontSize = "small",
+      hidden = function() return not gained end,
+      name = "Pulse is not available with Show On: Aura(s) Gained."}
+    animation.args.finish_header = {type = "header", name = L["Finish"], order = 20}
+    animation.args.finish_type = {type = "select", name = L["Type"], order = 21, width = WeakAuras.normalWidth,
+      values = {none = L["None"]}, disabled = true, get = function() return "none" end, set = function() end}
+  end
+
   return animation;
 end
