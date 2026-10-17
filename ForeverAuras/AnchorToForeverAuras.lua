@@ -70,6 +70,22 @@ local function OnAdd(_, uid, id, data, simpleChange)
   end
 end
 
+-- Re-anchors every aura anchored to the target aura, for when the frame that
+-- stands for the target changes (SecretAuraStand.lua: a display drawn by a
+-- stand-in inside a Modern Aura Group).
+function Private.ReanchorAttachedTo(target)
+  local attached = targetToAttached[target]
+  if not attached then return end
+  for id in pairs(attached) do
+    local data = WeakAuras.GetData(id)
+    local entry = Private.regions[id]
+    if data and entry and entry.region then
+      local parentEntry = data.parent and Private.regions[data.parent]
+      Private.AnchorFrame(data, entry.region, parentEntry and parentEntry.region or nil)
+    end
+  end
+end
+
 Private.callbacks:RegisterCallback("Delete", OnDelete)
 Private.callbacks:RegisterCallback("Rename", OnRename)
 Private.callbacks:RegisterCallback("Add", OnAdd)

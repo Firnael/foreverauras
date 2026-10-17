@@ -6531,7 +6531,11 @@ local function GetAnchorFrame(data, region, parent)
       end
 
       if Private.regions[frame_name] and Private.regions[frame_name].region then
-        return Private.regions[frame_name].region;
+        local target = Private.regions[frame_name].region
+        -- A display drawn by a stand-in inside a Modern Aura Group is itself
+        -- off screen; what shows is its stand (SecretAuraStand.lua).
+        local stand = Private.BlizzardAuraDisplay and Private.BlizzardAuraDisplay.StandAnchor and Private.BlizzardAuraDisplay.StandAnchor(target)
+        return stand or target
       end
       postponeAnchor(id);
     else

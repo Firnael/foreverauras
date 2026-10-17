@@ -1,5 +1,11 @@
 # Changelog
 ## VERSIONS
+## 0.90.25
+- Fixed auras anchored to a display inside a Modern Aura Group landing off-screen. A non-Modern display in such a group is drawn by a stand-in and its own region is parked away; anchors to it now follow the stand-in where it is drawn, and are refreshed whenever the stand-in appears or goes
+- Added `ForeverAurasAPI` so WagoUI UI Packs can list, export and import ForeverAuras auras. Imports always go through the import window, where the player confirms them
+- Exports can leave out chosen auras and everything inside them
+- The import window now answers its caller exactly once: closing the options declines, hiding for combat doesn’t, and a new import replaces the previous one
+
 ## 0.90.23
 - Fix %p showing on weapon enchant scrolls
 - A tweak to previews flickering on options hiding.

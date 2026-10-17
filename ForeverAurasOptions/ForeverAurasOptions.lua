@@ -252,7 +252,9 @@ loadedFrame:SetScript("OnEvent", function(self, event, addon)
   elseif (event == "PLAYER_REGEN_DISABLED") then
     if(frame and frame:IsVisible()) then
       reopenAfterCombat = true;
-      WeakAuras.HideOptions();
+      OptionsPrivate.hidingForCombat = true
+      xpcall(WeakAuras.HideOptions, geterrorhandler())
+      OptionsPrivate.hidingForCombat = nil
     end
   elseif (event == "PLAYER_REGEN_ENABLED") then
     if (reopenAfterCombat) then
