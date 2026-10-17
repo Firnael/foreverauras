@@ -143,7 +143,19 @@ end
 -- The chosen specialization: the tree with 21 or more points, and the most
 -- points when several qualify (ties go to the earlier tab). Without readable
 -- talent data, the tree whose final talent is known (any rank) stands in.
-function Private.ExecEnv.ForeverSpecialization()
+-- Reading the trait tree allocates a table per node, and every load scan
+-- asks for the specialization twice per aura with a Specialization load
+-- condition (UNIT_FLAGS scans run throughout combat: 46 ms and 17 MB per
+-- scan on a full UI). The answer is kept until talents can have changed.
+local specCache = {valid = false, value = nil}
+local specEvents = CreateFrame("Frame")
+for _, event in ipairs({"SPELLS_CHANGED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "PLAYER_ENTERING_WORLD",
+  "TRAIT_CONFIG_UPDATED", "ACTIVE_COMBAT_CONFIG_CHANGED", "PLAYER_SPECIALIZATION_CHANGED", "PLAYER_REGEN_ENABLED"}) do
+  pcall(specEvents.RegisterEvent, specEvents, event)
+end
+specEvents:SetScript("OnEvent", function() specCache.valid = false end)
+
+local function ComputeSpecialization()
   local _, class = UnitClass("player")
   if not Readable(class) then return nil end
   local trees = treesByClass[class]
@@ -171,6 +183,14 @@ function Private.ExecEnv.ForeverSpecialization()
     end
   end
   return nil
+end
+
+function Private.ExecEnv.ForeverSpecialization()
+  if not specCache.valid then
+    specCache.value = ComputeSpecialization()
+    specCache.valid = true
+  end
+  return specCache.value
 end
 
 -- "/fa spec": what the client reports per talent tab, and the tree chosen,
