@@ -1,5 +1,6 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 local _, Private = ...
 
 -- Timers from this file are timed by the profiler (see Private.TimedAPI).
@@ -10,6 +11,10 @@ function Private.MigrateCDMCooldownTrigger(trigger)
     trigger.event = "Blizzard Cooldown Manager"
     trigger.cdmSource = "cooldown"
   end
+  -- The Total Duration filter was removed from the Buff/Debuff trigger (your
+  -- own auras' durations only vary by rank, which Remaining Time already
+  -- handles): a saved one is switched off so it no longer hides anything.
+  if trigger and trigger.type == "cdm" and trigger.cdmUseTotal then trigger.cdmUseTotal = nil end
 end
 
 local catalog
@@ -189,7 +194,17 @@ function Private.ResolveCDMSpell(trigger, event)
         spell.known = WeakAuras.IsSpellKnownIncludingPet(spell.id) == true
         if spell.known then spell.rank = SpellRank(spell.id) or 0 end
       end
-      if spell.known then
+      -- An entry's own spell can be a stand-in that no one learns (Blizzard's
+      -- "Curses", 1319652, linking every curse): the entry being known counts.
+      local known = spell.known
+      if not known and entries[candidate.entryID] and entries[candidate.entryID].known == true then
+        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(candidate.entryID)
+        if info and (IsReadable(info.spellID) and info.spellID == spell.id or IsReadable(info.overrideSpellID) and info.overrideSpellID == spell.id) then
+          known = true
+          spell.rank = spell.rank or 0
+        end
+      end
+      if known then
         local rank, direct, entryID = spell.rank, candidate.direct, candidate.entryID
         local displayed = candidate.displayed
         if not bestSpell or rank > bestRank or (rank == bestRank and displayed
@@ -203,6 +218,15 @@ function Private.ResolveCDMSpell(trigger, event)
     selected.singleClone, selected.buffName = true, name
     selected.buffResolvedSpellID = bestSpell
     selected.buffSpellIDs = bestSpell and {bestSpell} or {}
+    -- The name of the entry itself (its own spell ID) stands for every aura
+    -- the entry links, so the native binding follows whichever is up.
+    if bestEntry and bestSpell then
+      local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(bestEntry)
+      if info and (IsReadable(info.spellID) and info.spellID == bestSpell or IsReadable(info.overrideSpellID) and info.overrideSpellID == bestSpell) then
+        local ids = Private.CDMAuraSpellIDs(info)
+        if #ids > 1 then selected.buffSpellIDs = ids end
+      end
+    end
     resolved[key] = selected
     return selected
   end
@@ -380,7 +404,7 @@ local function GetValues(trigger)
     end
   end
   for _, id in ipairs(GetSelections(trigger)) do
-    if type(id) == "number" and not values[id] then values[id] = "Unavailable in this specialization" end
+    if type(id) == "number" and not values[id] then values[id] = L["Unavailable in this specialization"] end
   end
   return values
 end
@@ -483,7 +507,15 @@ local function BuildCooldownViewerStates(allstates, selected, event, showGCD, tr
         state.cdmNativePaused = false
         state.cdmBuff = Private.CDMIsBuff(entry.category)
         local bindingIDs = selected.buffSpellIDsByEntry and selected.buffSpellIDsByEntry[cooldownID]
-        state.cdmAuraSpellIDs = state.cdmBuff and (bindingIDs or (exactID and {exactID}) or selected.buffSpellIDs or {identity.spellID}) or nil
+        -- An entry picked from the list carries every aura it stands for
+        -- (its linked spell IDs: Blizzard's "Curses" entry lists each curse),
+        -- so the native binding and the live icon follow whichever is up.
+        local entryIDs
+        if state.cdmBuff and not bindingIDs and not exactID and not selected.buffSpellIDs then
+          entryIDs = Private.CDMAuraSpellIDs(info)
+          if #entryIDs == 0 then entryIDs = nil end
+        end
+        state.cdmAuraSpellIDs = state.cdmBuff and (bindingIDs or (exactID and {exactID}) or selected.buffSpellIDs or entryIDs or {identity.spellID}) or nil
         state.cdmTextPreview = event == "OPTIONS"
         -- Clear native fallback identity before selecting a fresh buff clone;
         -- an absent/changed viewer must not retain the previous aura's slot.
@@ -491,6 +523,7 @@ local function BuildCooldownViewerStates(allstates, selected, event, showGCD, tr
         state.cdmCountdownSource, state.cdmStackSource, state.cdmTextRecord, state.cdmDispelName = nil, nil, nil, nil
         state.isUsable, state.insufficientResources = nil, nil
         state.onCooldown, state.isReady, state.recharging, state.stacks, state.auraActive = nil, nil, nil, nil, nil
+        state.cdmNativeShow = nil
         state.wandAppearanceDuration = nil -- No snapshot may survive source/clone reuse.
         state.cdmGCDOnly, state.cdmHideGCDText = false, hideGCDText == true
 
@@ -503,17 +536,51 @@ local function BuildCooldownViewerStates(allstates, selected, event, showGCD, tr
         elseif Private.CDMIsBuff(entry.category) then
           if selected.buffEntryIDs then
             local bestAura, bestScore
+            local candidates = {}
             for _, auraID in ipairs(selected.buffEntryIDs) do
               local auraInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(auraID)
               if auraInfo and available[auraID] then
                 local candidate = {}
                 local auraIdentity = Private.CDMIdentity(auraID, available[auraID], auraInfo, frames[auraID])
                 Private.CDMApplyAura(candidate, auraIdentity, auraInfo, frames[auraID], nil, selected.buffSpellIDs)
+                candidates[#candidates + 1] = candidate
                 local score = candidate.auraActive == true and 2 or candidate.auraActive == nil and 1 or 0
                 if not bestAura or score > bestScore then bestAura, bestScore = candidate, score end
               end
             end
             for key, value in pairs(bestAura or {}) do state[key] = value end
+            -- Several entries (any of these auras): while none is known to be
+            -- active, which cannot be known in combat, the native binding
+            -- watches every entry's aura IDs on the unit instead of only the
+            -- first entry's, so whichever of them is up drives the timer text.
+            if bestAura and bestScore < 2 and #candidates > 1 then
+              local unit = state.cdmAuraRenderUnit
+              if not unit then
+                for _, candidate in ipairs(candidates) do
+                  if candidate.cdmAuraRenderUnit then unit = candidate.cdmAuraRenderUnit; break end
+                end
+              end
+              if unit then
+                local ids, seen = {}, {}
+                for _, candidate in ipairs(candidates) do
+                  if candidate.cdmAuraRenderUnit == unit and type(candidate.cdmAuraRenderSpellIDs) == "table" then
+                    for _, id in ipairs(candidate.cdmAuraRenderSpellIDs) do
+                      if not seen[id] then seen[id] = true; ids[#ids + 1] = id end
+                    end
+                  end
+                end
+                if #ids > 0 then
+                  state.cdmAuraRenderUnit, state.cdmAuraRenderSpellIDs = unit, ids
+                  state.cdmAuraFilter = state.cdmAuraFilter or bestAura.cdmAuraFilter
+                  -- The first entry's timer may belong to an aura that is not
+                  -- up; a static progress hands swipe and countdown to the
+                  -- native binding (CDMAuraProgress), which follows whichever
+                  -- of the IDs is on the unit.
+                  state.progressType, state.durationObject, state.duration, state.expirationTime = "static", nil, nil, nil
+                  state.value, state.total, state.cdmCountdownSource, state.cdmBarSource = nil, nil, nil, nil
+                end
+              end
+            end
             if state.progressType ~= "static" then state.value, state.total = nil, nil end
           else
           Private.CDMApplyAura(state, identity, info, frames[cooldownID], exactID, bindingIDs or selected.buffSpellIDs)
@@ -532,6 +599,13 @@ local function BuildCooldownViewerStates(allstates, selected, event, showGCD, tr
             local usable, insufficientResources = C_Spell.IsSpellUsable(spellID)
             state.isUsable = ReadBoolean(usable)
             state.insufficientResources = ReadBoolean(insufficientResources)
+          end
+          -- Spell Count, as on the spell Cooldown trigger (the count a spell
+          -- shows on its button: reagent-limited casts and the like).
+          local GetSpellCount = GetSpellCount or (C_Spell and C_Spell.GetSpellCastCount)
+          if GetSpellCount then
+            local ok, count = pcall(GetSpellCount, spellID)
+            state.spellCount = ok and IsReadable(count) and type(count) == "number" and count or nil
           end
           local onCooldown, hasCooldownFlags, onGCD = GetSpellCooldownState(spellID, event)
           -- Keep the GCD-free text source independent of native frame flags, which
@@ -635,7 +709,38 @@ local function BuildCooldownViewerStates(allstates, selected, event, showGCD, tr
             end
             if not known then state.show = false end
           end
-          if state.show and showMode == "cooldown" then state.show = state.onCooldown == true elseif state.show and showMode == "ready" then state.show = state.onCooldown == false elseif state.show and showMode == "active" then state.show = state.auraActive == true elseif state.show and showMode == "missing" then state.show = state.auraActive == false end
+          if state.show and showMode == "cooldown" then state.show = state.onCooldown == true elseif state.show and showMode == "ready" then state.show = state.onCooldown == false
+          elseif state.show and (showMode == "active" or showMode == "missing") then
+            -- Show If Unit Does Not Exist (no Require target): with no target
+            -- for a target aura the display stays, in its missing look, for
+            -- Found as for Missing; Require target hides it (above).
+            local unitGone = false
+            if state.cdmBuff and not requireTarget and event ~= "OPTIONS" then
+              -- Spell data decides (every rank: a Bane's listed spell alone
+              -- answers no), as the native slot's unit does; the viewer
+              -- frame's unit counts only once it was actually seen, since an
+              -- unseen frame reports the player for a target debuff.
+              local targetAura = state.cdmAuraSourceSeen and state.cdmAuraUnit == "target"
+              if not targetAura then targetAura = Private.CDMSpellsTargetEnemy(state.cdmAuraSpellIDs) end
+              if targetAura then
+                local exists = UnitExists("target")
+                unitGone = IsReadable(exists) and exists == false
+              end
+            end
+            if unitGone then
+              state.auraActive = false
+              -- Aura(s) Found: no target is no aura (the option belongs to
+              -- Missing and Always, as on an Aura trigger).
+              if showMode == "active" then state.show = false end
+            -- The aura cannot be read (in combat): the state stays shown and
+            -- the display's visibility follows the native aura slot instead
+            -- (CDMAuraProgress, cdmNativeShow), so the trigger works in combat
+            -- on its own. Readable auras decide here, as before.
+            elseif state.auraActive == nil and state.cdmBuff and not state.cdmTextPreview and not state.cdmAuraTotem then
+              state.cdmNativeShow = showMode
+            elseif showMode == "active" then state.show = state.auraActive == true
+            else state.show = state.auraActive == false end
+          end
         end
         state.hasTimer = state.durationObject ~= nil or state.progressType == "timed"
       end
@@ -694,8 +799,6 @@ function Private.CDMLastOutput(allstates)
   if not previous then return end
   for _, output in pairs(previous) do return output end
 end
--- Read-only view for the FAFlowProbe diagnostics addon.
-ForeverAurasProbe_LastOutput = Private.CDMLastOutput
 
 local function CommitStates(allstates, outputs)
   local previous = snapshots[allstates]
@@ -736,8 +839,23 @@ local function CommitStates(allstates, outputs)
   return changed
 end
 
-function Private.UpdateCooldownViewerStates(allstates, ...)
-  return CommitStates(allstates, GetOutputs(...))
+-- A target change is settled a frame later: targeting a unit while one is
+-- targeted (or re-targeting the same one) clears the target and sets it as
+-- two events in one frame, which hid and showed every target-aura display in
+-- between, re-laying out its group twice (a visible flicker). The states are
+-- left as they are on the event itself and updated once, from the settled
+-- target, on the frame after.
+local targetSettle
+local function SettleTarget()
+  if targetSettle then return end
+  targetSettle = C_Timer.NewTimer(0, function()
+    targetSettle = nil
+    if Private.ScanEvents then Private.ScanEvents("FA_CDM_TARGET_SETTLED") end
+  end)
+end
+function Private.UpdateCooldownViewerStates(allstates, selected, event, ...)
+  if event == "PLAYER_TARGET_CHANGED" then SettleTarget(); return false end
+  return CommitStates(allstates, GetOutputs(selected, event, ...))
 end
 
 Private.ExecEnv.UpdateCooldownViewerStates = Private.UpdateCooldownViewerStates
@@ -748,7 +866,74 @@ end
 
 local listOutputs = setmetatable({}, {__mode = "k"})
 local listClones = setmetatable({}, {__mode = "k"})
-function Private.ExecEnv.UpdateCDMSelectionList(allstates, queries, event)
+-- Auto-Clone off: the buff clones of a Names/IDs list fold into one state
+-- (key ""), as a legacy Aura trigger's Preferred Match does. Among readable
+-- active auras the preferred one is kept whole. When none is readable (in
+-- combat) the merged state is static and carries every clone's aura IDs, so
+-- the native binding (CDMAuraProgress) follows whichever of them is up.
+local function PreferredClone(a, b, mode)
+  local function Remaining(state)
+    local expiration = state.expirationTime
+    if type(expiration) ~= "number" or (issecretvalue and issecretvalue(expiration)) then return nil end
+    return expiration - GetTime()
+  end
+  -- First in the list: the clone of the earliest Names/IDs entry.
+  if mode ~= "showLowest" and mode ~= "showHighest" then
+    return (tonumber(b.index) or math.huge) < (tonumber(a.index) or math.huge) and b or a
+  end
+  local ra, rb = Remaining(a), Remaining(b)
+  if ra == nil then return rb ~= nil and b or a end
+  if rb == nil then return a end
+  if mode == "showHighest" then return rb > ra and b or a end
+  return rb < ra and b or a
+end
+
+local function MergeClones(outputs, mode)
+  local best, unknown, any = nil, {}, false
+  for key, state in pairs(outputs) do
+    if key ~= "" then
+      any = true
+      if state.auraActive == true and state.show then
+        best = best and PreferredClone(best, state, mode) or state
+      elseif state.auraActive == nil then
+        unknown[#unknown + 1] = state
+      end
+    end
+  end
+  if not any then return end
+  local merged = {}
+  if best then
+    for field, value in pairs(best) do merged[field] = value end
+  elseif #unknown > 0 then
+    for field, value in pairs(unknown[1]) do merged[field] = value end
+    local ids, renderIDs, seen, seenRender = {}, {}, {}, {}
+    for _, state in ipairs(unknown) do
+      for _, id in ipairs(type(state.cdmAuraSpellIDs) == "table" and state.cdmAuraSpellIDs or {}) do
+        if not seen[id] then seen[id] = true; ids[#ids + 1] = id end
+      end
+      if state.cdmAuraRenderUnit == merged.cdmAuraRenderUnit then
+        for _, id in ipairs(type(state.cdmAuraRenderSpellIDs) == "table" and state.cdmAuraRenderSpellIDs or {}) do
+          if not seenRender[id] then seenRender[id] = true; renderIDs[#renderIDs + 1] = id end
+        end
+      end
+    end
+    merged.cdmAuraSpellIDs = ids
+    if #renderIDs > 0 then merged.cdmAuraRenderSpellIDs = renderIDs end
+    -- One clone's timer may belong to an aura that is not up: static progress
+    -- hands swipe and countdown to the native binding.
+    merged.progressType, merged.durationObject, merged.duration, merged.expirationTime = "static", nil, nil, nil
+    merged.value, merged.total, merged.cdmCountdownSource, merged.cdmBarSource = nil, nil, nil, nil
+  else
+    -- Every clone is readable and none is active: the first one, hidden or
+    -- shown as its Show On setting decided.
+    for _, state in pairs(outputs) do for field, value in pairs(state) do merged[field] = value end break end
+  end
+  merged.index = nil
+  for key in pairs(outputs) do outputs[key] = nil end
+  outputs[""] = merged
+end
+
+function Private.ExecEnv.UpdateCDMSelectionList(allstates, queries, event, autoClone, combineMode)
   local outputs = listOutputs[allstates]
   if outputs then wipe(outputs) else outputs = {}; listOutputs[allstates] = outputs end
   local clones = listClones[allstates]
@@ -776,24 +961,30 @@ function Private.ExecEnv.UpdateCDMSelectionList(allstates, queries, event)
       if not outputs[key] or not outputs[key].show or state.show then outputs[key] = state end
     end
   end
+  if autoClone == false and queries[1] and queries[1].event == "Blizzard CDM Buff" then MergeClones(outputs, combineMode) end
   return CommitStates(allstates, outputs)
 end
 
 local function BooleanCondition(field)
   return function(state, needle)
-    return state and state.show and state[field] ~= nil and state[field] == (needle == 1)
+    if not state or not state.show then return false end
+    -- Aura Active with a secret aura (in combat): false, so the display takes
+    -- the missing look; Blizzard shows the present look over it while the
+    -- aura is up (CDMAuraProgress.UpdateSaturation).
+    if field == "auraActive" and state[field] == nil and state.cdmBuff and not state.cdmTextPreview then return needle == 0 end
+    return state[field] ~= nil and state[field] == (needle == 1)
   end
 end
 
 Private.CooldownViewerPrototype = {
   type = "cdm",
-  name = "Cooldown",
+  name = L["Cooldown"],
   statesParameter = "full",
   progressType = "timed",
   cooldownViewerProgress = true,
   automaticrequired = true,
   force_events = "PLAYER_ENTERING_WORLD",
-  internal_events = {"FA_CDM_REFRESH", "FA_CDM_LAYOUT_CHANGED"},
+  internal_events = {"FA_CDM_REFRESH", "FA_CDM_LAYOUT_CHANGED", "FA_CDM_TARGET_SETTLED"},
   GetNameAndIcon = function(trigger)
     local entries, frames = GetCatalog(), Private.CDMFrames()
     for _, id in ipairs(GetSelections(trigger)) do
@@ -824,6 +1015,20 @@ Private.CooldownViewerPrototype = {
       local source = Private.CooldownViewerPrototype.triggerFunction(base)
       return ("local update=(function() %s end)()\nlocal rawStates={}\nreturn function(allstates,event) update(rawStates,event); return Private.ExecEnv.UpdateCDMBuffFilters(allstates,rawStates,event,%q,%q,%q,%q,%q,%q,%q,%q) end"):format(source, trigger.cdmUseRemaining and tostring(trigger.cdmRemainingTime or 10) or "", trigger.cdmRemainingOperator or "<", trigger.cdmUseStacks and tostring(trigger.cdmStackCount or 1) or "", trigger.cdmStackOperator or ">=", trigger.cdmUseTotal and tostring(trigger.cdmTotalTime or 10) or "", trigger.cdmTotalOperator or "<", trigger.cdmUseElapsed and tostring(trigger.cdmElapsedTime or 10) or "", trigger.cdmElapsedOperator or ">=")
     end
+    -- The Cooldown trigger's Remaining Time / Charges filters wrap its states.
+    -- Remaining Time is out of sight and out of use with Show: Not on
+    -- Cooldown (a ready spell has nothing to measure), as on the spell trigger.
+    local useRemaining = trigger.cdmUseRemaining and trigger.cdmShow ~= "ready"
+    if trigger.event == "Blizzard Cooldown Manager" and (useRemaining or trigger.cdmUseCharges or trigger.cdmUseSpellCount) then
+      local base = {}
+      for key, value in pairs(trigger) do base[key] = value end
+      base.cdmUseRemaining, base.cdmUseCharges, base.cdmUseSpellCount = nil, nil, nil
+      local source = Private.CooldownViewerPrototype.triggerFunction(base)
+      return ("local update=(function() %s end)()\nlocal rawStates={}\nreturn function(allstates,event) update(rawStates,event); return Private.ExecEnv.UpdateCDMCooldownFilters(allstates,rawStates,event,%q,%q,%q,%q,%q,%q) end"):format(source,
+        useRemaining and tostring(trigger.cdmRemainingTime or 10) or "", trigger.cdmRemainingOperator or "<",
+        trigger.cdmUseCharges and tostring(trigger.cdmChargeCount or 1) or "", trigger.cdmChargeOperator or ">=",
+        trigger.cdmUseSpellCount and tostring(trigger.cdmSpellCount or 1) or "", trigger.cdmSpellCountOperator or ">=")
+    end
     local queries = Private.CDMSpellQueries(trigger)
     if queries then
       local serialized = {}
@@ -832,7 +1037,9 @@ Private.CooldownViewerPrototype = {
           query.event, query.cdmSpell, tostring(query.cdmExact), tostring(query.cdmItemExact), tostring(query.use_ignoreSpellKnown == true),
           tostring(query.showGCD), query.track, tostring(query.hideGCDText), query.showMode, tostring(query.requireTarget))
       end
-      return ("local queries={%s}\nreturn function(allstates,event) return Private.ExecEnv.UpdateCDMSelectionList(allstates,queries,event) end"):format(table.concat(serialized, ","))
+      -- Auto-Clone (buffs): unset means clones, as before the option existed.
+      return ("local queries={%s}\nreturn function(allstates,event) return Private.ExecEnv.UpdateCDMSelectionList(allstates,queries,event,%s,%q) end"):format(table.concat(serialized, ","),
+        tostring(not (trigger.event == "Blizzard CDM Buff" and trigger.cdmAutoClone == false)), trigger.cdmCombineMode or "showLowest")
     end
     if trigger.type == "cdm" then trigger.cdmSource = trigger.event == "Blizzard CDM Buff" and "buff" or "cooldown" end
     if trigger.cdmSpell ~= nil and tostring(trigger.cdmSpell):find("%S") and trigger.event ~= "Blizzard CDM Item" then
@@ -848,7 +1055,7 @@ Private.CooldownViewerPrototype = {
   args = {
     {
       name = "cdmSpells",
-      display = "Cooldown Manager entries",
+      display = L["Cooldown Manager entries"],
       type = "multiselect",
       required = true,
       multiNoSingle = true,
@@ -857,39 +1064,39 @@ Private.CooldownViewerPrototype = {
     },
     {
       name = "cdmShowGCD",
-      display = "Include global cooldown",
+      display = L["Include global cooldown"],
       type = "toggle",
     },
     {
       name = "spellId",
-      display = "Spell ID",
+      display = L["Spell ID"],
       hidden = true,
       conditionType = "number",
       operator_types = "only_equal",
     },
     {
       name = "name",
-      display = "Spell Name",
+      display = L["Spell Name"],
       hidden = true,
       conditionType = "string",
     },
     {
       name = "onCooldown",
-      display = "On Cooldown",
+      display = L["On Cooldown"],
       hidden = true,
       conditionType = "bool",
       conditionTest = BooleanCondition("onCooldown"),
     },
     {
       name = "isReady",
-      display = "Ready",
+      display = L["Is Ready"],
       hidden = true,
       conditionType = "bool",
       conditionTest = BooleanCondition("isReady"),
     },
     {
       name = "recharging",
-      display = "Recharging",
+      display = L["Recharging"],
       hidden = true,
       conditionType = "bool",
       conditionTest = BooleanCondition("recharging"),
@@ -897,7 +1104,7 @@ Private.CooldownViewerPrototype = {
   },
 }
 
-for _, field in ipairs({{"itemId", "Item ID", "number"}, {"cdmCategory", "CDM Category", "string"}, {"cdmDisplayed", "Displayed in CDM", "bool"}, {"auraActive", "Aura Active (when readable)", "bool"}, {"hasTimer", "Timer Available", "bool"}}) do
+for _, field in ipairs({{"itemId", L["Item ID"], "number"}, {"cdmCategory", L["CDM Category"], "string"}, {"cdmDisplayed", L["Displayed in CDM"], "bool"}, {"auraActive", L["Aura Active"], "bool"}, {"hasTimer", L["Timer Available"], "bool"}}) do
   local arg = {name = field[1], display = field[2], conditionType = field[3], hidden = true}
   if field[3] == "bool" then arg.conditionTest = BooleanCondition(field[1]) end
   if field[3] == "number" then arg.operator_types = "only_equal" end
@@ -915,15 +1122,24 @@ end
 
 Private.CooldownViewerBuffPrototype = {}
 for key, value in pairs(Private.CooldownViewerPrototype) do Private.CooldownViewerBuffPrototype[key] = value end
-Private.CooldownViewerBuffPrototype.name = "Buff/Debuff"
+Private.CooldownViewerBuffPrototype.name = L["Buff/Debuff"]
 
 local buffArgs, cooldownArgs = {}, {}
 for _, arg in ipairs(Private.CooldownViewerPrototype.args) do
   if arg.name ~= "hasTimer" then
-    if arg.name ~= "onCooldown" and arg.name ~= "isReady" and arg.name ~= "recharging" and arg.name ~= "cdmShowGCD" then
+    -- A Buff/Debuff trigger's conditions are about its aura: the cooldown
+    -- checks, the item ID and the CDM bookkeeping (category, displayed) are
+    -- left to the spell and item triggers.
+    if arg.name ~= "onCooldown" and arg.name ~= "isReady" and arg.name ~= "recharging" and arg.name ~= "cdmShowGCD"
+        and arg.name ~= "itemId" and arg.name ~= "cdmCategory" and arg.name ~= "cdmDisplayed" then
       buffArgs[#buffArgs + 1] = arg
     end
-    if arg.name ~= "auraActive" then cooldownArgs[#cooldownArgs + 1] = arg end
+    -- The Cooldown trigger's conditions follow the spell Cooldown trigger's
+    -- set: the CDM bookkeeping (category, displayed, timer available) is
+    -- left out, and Item ID belongs to the item trigger.
+    if arg.name ~= "auraActive" and arg.name ~= "cdmCategory" and arg.name ~= "cdmDisplayed" and arg.name ~= "hasTimer" and arg.name ~= "itemId" then
+      cooldownArgs[#cooldownArgs + 1] = arg
+    end
   end
 end
 Private.CooldownViewerBuffPrototype.args = buffArgs
@@ -949,7 +1165,7 @@ local function BuffRemainingTime(state)
 end
 local remainingCondition = {
   name = "cdmRemaining",
-  display = "Remaining Time (when readable)",
+  display = L["Remaining Time"],
   hidden = true,
   conditionType = "number",
   noProgressSource = true,
@@ -1016,6 +1232,57 @@ local function BuffTimeValue(state, elapsed)
     return math.max(0, value), timeScale
   end
 end
+-- Elapsed Time as a condition variable, like Remaining Time: evaluated here
+-- while the aura is readable; in combat a native gate on the timer slot
+-- draws its Glow changes (CDMAuraProgress, ElapsedDuration).
+local elapsedCondition = {
+  name = "cdmElapsed",
+  display = L["Elapsed Time"],
+  hidden = true,
+  conditionType = "number",
+  noProgressSource = true,
+  conditionTest = function(state, value, op)
+    local elapsed = BuffTimeValue(state, true)
+    value = tonumber(value)
+    if elapsed == nil or not value then return false end
+    if op == "<" then return elapsed < value
+    elseif op == "<=" then return elapsed <= value
+    elseif op == ">" then return elapsed > value
+    elseif op == ">=" then return elapsed >= value
+    elseif op == "==" then return math.abs(elapsed - value) < 0.05
+    elseif op == "~=" then return math.abs(elapsed - value) >= 0.05 end
+    return false
+  end,
+  conditionRecheckTime = function(state, value)
+    local elapsed, timeScale = BuffTimeValue(state, true)
+    local remaining = BuffRemainingTime(state)
+    value = tonumber(value)
+    if not elapsed or not remaining or remaining <= 0 or not value then return end
+    local delay = remaining * timeScale
+    for _, boundary in ipairs({value - 0.05, value, value + 0.05}) do
+      if boundary >= 0 and elapsed <= boundary then
+        delay = math.min(delay, (boundary - elapsed) * timeScale + 0.001)
+      end
+    end
+    return GetTime() + math.max(0.001, delay)
+  end,
+}
+buffArgs[#buffArgs + 1] = elapsedCondition
+-- Stack Count as a condition variable: the aura's applications while they
+-- are readable (in combat a native gate on the timer slot draws its Glow
+-- changes, CDMAuraProgress).
+buffArgs[#buffArgs + 1] = {
+  name = "stacks",
+  display = L["Stack Count"],
+  hidden = true,
+  conditionType = "number",
+  noProgressSource = true,
+  conditionTest = function(state, value, op)
+    value = tonumber(value)
+    if not value then return false end
+    return BuffStacksMatch(state, value, op)
+  end,
+}
 local function BuffTimeMatches(value, threshold, op)
   if value == nil then return false end
   if op == "<" then return value < threshold
@@ -1039,14 +1306,32 @@ function Private.ExecEnv.UpdateCDMBuffFilters(allstates, rawStates, event, value
     if output then wipe(output) else output = {} end
     for field, entry in pairs(state) do output[field] = entry end
     if event ~= "OPTIONS" then
+      -- A value the filter cannot read (in combat: the aura's presence may be
+      -- known from Blizzard's viewer item while its times and stacks are
+      -- secret, or the presence itself is secret): the state stays and the
+      -- native gate decides what is seen (CDMAuraProgress, cdmNativeRemaining),
+      -- as the Modern trigger's Remaining Time does. Readable values decide
+      -- here. Total Duration has no native gate and stays readable-only.
+      local maybeUp = state.show and state.cdmBuff and state.auraActive ~= false and not state.cdmTextPreview and not state.cdmAuraTotem
       if value then
-        output.show = state.show and remainingCondition.conditionTest(state, value, op) or false
-        local nextTime = remainingCondition.conditionRecheckTime(state, value)
-        if nextTime and (not nextCheck or nextTime < nextCheck) then nextCheck = nextTime end
+        if maybeUp and BuffRemainingTime(state) == nil then
+          output.cdmNativeRemaining = true
+        else
+          output.show = state.show and remainingCondition.conditionTest(state, value, op) or false
+          local nextTime = remainingCondition.conditionRecheckTime(state, value)
+          if nextTime and (not nextCheck or nextTime < nextCheck) then nextCheck = nextTime end
+        end
       end
-      if stackValue then output.show = output.show and BuffStacksMatch(state, stackValue, stackOp) or false end
+      if stackValue then
+        local stacksUnknown = not IsReadable(state.stacks) or type(state.stacks) ~= "number"
+        if maybeUp and stacksUnknown and Private.CDMNativeStackGate and Private.CDMNativeStackGate(stackOp, stackValue) then output.cdmNativeRemaining = true
+        else output.show = output.show and BuffStacksMatch(state, stackValue, stackOp) or false end
+      end
+      local secret = maybeUp and BuffTimeValue(state, true) == nil
       if totalValue then output.show = output.show and BuffTimeMatches(BuffTimeValue(state), totalValue, totalOp) or false end
-      if elapsedValue then
+      if elapsedValue and secret then
+        output.cdmNativeRemaining = true
+      elseif elapsedValue then
         local elapsed, timeScale = BuffTimeValue(state, true)
         output.show = output.show and BuffTimeMatches(elapsed, elapsedValue, elapsedOp) or false
         local remaining = BuffRemainingTime(state)
@@ -1079,6 +1364,153 @@ function Private.ExecEnv.UpdateCDMBuffFilters(allstates, rawStates, event, value
   end
   return CommitStates(allstates, outputs)
 end
+
+-- The time left on a cooldown state, in seconds, with the time scale of its
+-- ticking (1 unless the timer runs at a mod rate); nil when unreadable or
+-- not on cooldown.
+local function CooldownRemainingTime(state)
+  if not state or not state.show or state.cdmBuff then return end
+  if state.progressType == "durationObject" and state.durationObject then
+    local remaining = state.durationObject:GetRemainingDuration()
+    if IsReadable(remaining) and type(remaining) == "number" and remaining == remaining and remaining < math.huge then return math.max(0, remaining), 1 end
+    return
+  end
+  local duration, expiration, rate = state.duration, state.expirationTime, state.modRate
+  if not IsReadable(duration) or not IsReadable(expiration) or not IsReadable(rate) then return end
+  if type(duration) ~= "number" or duration <= 0 or type(expiration) ~= "number" or expiration == math.huge then return end
+  rate = rate or 1
+  if type(rate) ~= "number" or rate <= 0 then return end
+  return math.max(0, (expiration - GetTime()) / rate), rate
+end
+local function Compare(value, threshold, op)
+  if value == nil or threshold == nil then return false end
+  if op == "<" then return value < threshold
+  elseif op == "<=" then return value <= threshold
+  elseif op == ">" then return value > threshold
+  elseif op == ">=" then return value >= threshold
+  elseif op == "==" then return value == threshold
+  elseif op == "~=" then return value ~= threshold end
+  return false
+end
+-- Conditions as on the spell Cooldown trigger: Charges, Spell Count and
+-- Remaining Time here; Spell Usable, Insufficient Resources and Spell In
+-- Range are added with the spell-only arguments below (spellArgs).
+cooldownArgs[#cooldownArgs + 1] = {
+  name = "stacks",
+  display = L["Charges"],
+  hidden = true,
+  conditionType = "number",
+  noProgressSource = true,
+  conditionTest = function(state, value, op)
+    value = tonumber(value)
+    if not state or not state.show or not value or not IsReadable(state.stacks) or type(state.stacks) ~= "number" then return false end
+    return Compare(state.stacks, value, op)
+  end,
+}
+cooldownArgs[#cooldownArgs + 1] = {
+  name = "spellCount",
+  display = L["Spell Count"],
+  hidden = true,
+  conditionType = "number",
+  noProgressSource = true,
+  conditionTest = function(state, value, op)
+    value = tonumber(value)
+    if not state or not state.show or not value or type(state.spellCount) ~= "number" then return false end
+    return Compare(state.spellCount, value, op)
+  end,
+  conditionEvents = {"SPELL_UPDATE_USABLE", "BAG_UPDATE", "SPELL_UPDATE_CHARGES"},
+}
+cooldownArgs[#cooldownArgs + 1] = {
+  name = "cdmRemaining",
+  display = L["Remaining Time"],
+  hidden = true,
+  conditionType = "number",
+  noProgressSource = true,
+  conditionTest = function(state, value, op)
+    value = tonumber(value)
+    local remaining = CooldownRemainingTime(state)
+    if remaining == nil or not value then return false end
+    if op == "==" then return math.abs(remaining - value) < 0.05
+    elseif op == "~=" then return math.abs(remaining - value) >= 0.05 end
+    return Compare(remaining, value, op)
+  end,
+  conditionRecheckTime = function(state, value)
+    local remaining, timeScale = CooldownRemainingTime(state)
+    value = tonumber(value)
+    if not remaining or remaining <= 0 or not value then return end
+    local delay = remaining * timeScale
+    for _, boundary in ipairs({value + 0.05, value, value - 0.05}) do
+      if boundary >= 0 and remaining >= boundary then delay = math.min(delay, (remaining - boundary) * timeScale + 0.001) end
+    end
+    return GetTime() + math.max(0.001, delay)
+  end,
+}
+-- The Cooldown trigger's Remaining Time and Charges filters, as on the spell
+-- Cooldown trigger: a state outside the filter is hidden; a time filter
+-- re-evaluates itself when the time crosses the threshold.
+local cooldownWakeups = setmetatable({}, {__mode = "k"})
+local cooldownFilterOutputs = setmetatable({}, {__mode = "k"})
+function Private.ExecEnv.UpdateCDMCooldownFilters(allstates, rawStates, event, remainingValue, remainingOp, chargeValue, chargeOp, countValue, countOp)
+  remainingValue, chargeValue, countValue = tonumber(remainingValue), tonumber(chargeValue), tonumber(countValue)
+  local outputs = cooldownFilterOutputs[rawStates]
+  if not outputs then outputs = {}; cooldownFilterOutputs[rawStates] = outputs end
+  for key in pairs(outputs) do
+    if not rawStates[key] then outputs[key] = nil end
+  end
+  local nextCheck
+  for key, state in pairs(rawStates) do
+    local output = outputs[key]
+    if output then wipe(output) else output = {} end
+    for field, entry in pairs(state) do output[field] = entry end
+    if event ~= "OPTIONS" and state.show then
+      if remainingValue then
+        local remaining, timeScale = CooldownRemainingTime(state)
+        -- As on the spell trigger, a ready spell has 0 seconds left: with
+        -- Show: Always, "< X" shows a ready spell and its last X seconds,
+        -- "> X" only a longer cooldown. An unreadable time is left shown.
+        if remaining == nil and state.onCooldown == false then remaining, timeScale = 0, 1 end
+        if remaining ~= nil then
+          output.show = Compare(remaining, remainingValue, remainingOp)
+          if remaining > 0 then
+            local delay = remaining * timeScale
+            for _, boundary in ipairs({remainingValue + 0.001, remainingValue, remainingValue - 0.001}) do
+              if boundary >= 0 and remaining >= boundary then delay = math.min(delay, (remaining - boundary) * timeScale + 0.001) end
+            end
+            local nextTime = GetTime() + math.max(0.001, delay)
+            if not nextCheck or nextTime < nextCheck then nextCheck = nextTime end
+          end
+        end
+      end
+      if chargeValue and output.show then
+        if IsReadable(state.stacks) and type(state.stacks) == "number" then output.show = Compare(state.stacks, chargeValue, chargeOp)
+        else output.show = false end
+      end
+      if countValue and output.show then
+        output.show = type(state.spellCount) == "number" and Compare(state.spellCount, countValue, countOp) or false
+      end
+    end
+    outputs[key] = output
+  end
+  local pending = cooldownWakeups[rawStates]
+  if not pending or pending.at ~= nextCheck then
+    if pending and pending.timer and pending.timer.Cancel then pending.timer:Cancel() end
+    cooldownWakeups[rawStates] = nil
+    if nextCheck then
+      local wakeup = {at = nextCheck}
+      cooldownWakeups[rawStates] = wakeup
+      local function Refresh()
+        if cooldownWakeups[rawStates] == wakeup then
+          cooldownWakeups[rawStates] = nil
+          Private.QueueCDMRefresh()
+        end
+      end
+      local delay = math.max(0.001, nextCheck - GetTime())
+      if C_Timer.NewTimer then wakeup.timer = C_Timer.NewTimer(delay, Refresh)
+      else C_Timer.After(delay, Refresh) end
+    end
+  end
+  return CommitStates(allstates, outputs)
+end
 Private.CooldownViewerPrototype.args = cooldownArgs
 
 Private.ExecEnv.GetCDMPickerSelections = Private.GetCDMPickerSelections
@@ -1089,16 +1521,16 @@ for key, value in pairs(Private.CooldownViewerPrototype) do
   Private.CooldownViewerItemPrototype[key] = value
 end
 -- Support imports that are inspected before migration.
-Private.CooldownViewerUtilityPrototype.name = "Cooldown"
-Private.CooldownViewerItemPrototype.name = "Item"
+Private.CooldownViewerUtilityPrototype.name = L["Cooldown"]
+Private.CooldownViewerItemPrototype.name = L["Item"]
 local spellArgs = {}
 for i, arg in ipairs(Private.CooldownViewerPrototype.args) do spellArgs[i] = arg end
-spellArgs[#spellArgs + 1] = {name = "inRange", display = "Spell In Range", hidden = true,
+spellArgs[#spellArgs + 1] = {name = "inRange", display = L["Spell In Range"], hidden = true,
   conditionType = "bool", conditionTest = BooleanCondition("inRange")}
 -- Only spell cooldown triggers expose usability and resource checks; item and aura triggers retain their conditions.
-spellArgs[#spellArgs + 1] = {name = "isUsable", display = "Spell Usable", hidden = true,
+spellArgs[#spellArgs + 1] = {name = "isUsable", display = L["Spell Usable"], hidden = true,
   conditionType = "bool", conditionTest = BooleanCondition("isUsable")}
-spellArgs[#spellArgs + 1] = {name = "insufficientResources", display = "Insufficient Resources", hidden = true,
+spellArgs[#spellArgs + 1] = {name = "insufficientResources", display = L["Insufficient Resources"], hidden = true,
   conditionType = "bool", conditionTest = BooleanCondition("insufficientResources")}
 Private.CooldownViewerPrototype.args = spellArgs
 Private.CooldownViewerUtilityPrototype.args = spellArgs

@@ -339,12 +339,16 @@ local function modify(parent, region, parentData, data, first)
   function region:ConfigureTextUpdate()
     Private.CDMAuraProgress.HideText(region)
     local nativeKind, nativeTrigger = Private.ParseCDMText(region.text_text)
+    -- The placeholder's own Time Format settings, for countdowns Blizzard
+    -- formats from a duration object (CopyCDMCountdownText).
+    local token = type(region.text_text) == "string" and (region.text_text:match("^%%{(.-)}$") or region.text_text:match("^%%(.+)$"))
+    local timeFormat = (nativeKind == "bp" or nativeKind == "p") and Private.CDMTextFormat and Private.CDMTextFormat(data, token) or nil
     if nativeKind == "bp" or nativeKind == "bs" then
       region.Update = function()
         if not text:GetFont() then return end
         local state = nativeTrigger and parent.states and parent.states[nativeTrigger] or not nativeTrigger and parent.state
         if Private.CDMAuraProgress.UpdateText(parent, region, data, nativeKind, nativeTrigger) then return end
-        Private.CopyCDMCountdownText(text, state, nativeKind)
+        Private.CopyCDMCountdownText(text, state, nativeKind, timeFormat)
       end
       region.FrameTick = region.Update
       return
@@ -359,8 +363,10 @@ local function modify(parent, region, parentData, data, first)
         if Private.CDMAuraProgress.UpdateText(parent, region, data, nativeKind, nativeTrigger) then return end
         if nativeKind then
           local state = nativeTrigger and parent.states and parent.states[nativeTrigger] or not nativeTrigger and parent.state
-          if state and state.cdmBuff then
-            if text:GetFont() then Private.CopyCDMCountdownText(text, state, nativeKind) end
+          -- The options window's sample (cdmTextPreview) is formatted like
+          -- any %p below, so the Time Format settings show in the preview.
+          if state and state.cdmBuff and not state.cdmTextPreview then
+            if text:GetFont() then Private.CopyCDMCountdownText(text, state, nativeKind, timeFormat) end
             return
           end
         end
@@ -550,9 +556,22 @@ local function modify(parent, region, parentData, data, first)
 
   local textDegrees = data.rotateText == "LEFT" and 90 or data.rotateText == "RIGHT" and -90 or 0;
 
+  -- The native countdown sits where this text sits. In a Modern Aura Group
+  -- the text itself is parked off screen with its display and the stand-in's
+  -- copy of it is what shows, so the countdown follows that copy (or, when
+  -- the copy refuses a dependent, its own container, which already does).
   region.AnchorNativeText = function(self, nativeText)
     nativeText:ClearAllPoints()
-    nativeText:SetPoint(selfPoint, text, selfPoint)
+    local target = Private.CDMAuraProgress.NativeTextAnchor(self)
+    nativeText.faAnchorTarget = target
+    if target ~= text and not pcall(nativeText.SetPoint, nativeText, selfPoint, target, selfPoint) then
+      nativeText:ClearAllPoints()
+      local container = self.cdmAuraTimer and self.cdmAuraTimer.container
+      if container then nativeText:SetPoint(selfPoint, container, selfPoint)
+      else nativeText:SetPoint(selfPoint, text, selfPoint) end
+    elseif target == text then
+      nativeText:SetPoint(selfPoint, text, selfPoint)
+    end
   end
 
   region.Anchor = function(self)

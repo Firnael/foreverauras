@@ -1,6 +1,7 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
 -- Save class-pack CDM settings for Blizzard to apply on reload, after asking.
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 local _, Private = ...
 -- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
 local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("CDMSetup")
@@ -188,10 +189,10 @@ end
 local RunSetup
 
 StaticPopupDialogs["FOREVERAURAS_CDM_SETUP_ASK"] = {
-  text = "A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM and Edit Mode settings and needs a reload.",
-  button1 = "Apply",
-  button2 = "Not now",
-  button3 = "Don't ask again",
+  text = L["A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM and Edit Mode settings and needs a reload."],
+  button1 = L["Apply"],
+  button2 = L["Not now"],
+  button3 = L["Don't ask again"],
   OnAccept = function()
     confirmed, pending, attempts = true, true, 0
     if not timer then timer = C_Timer.NewTimer(0, RunSetup) end
@@ -207,8 +208,20 @@ StaticPopupDialogs["FOREVERAURAS_CDM_SETUP_ASK"] = {
   preferredIndex = 3,
 }
 
+-- The options window's Set Up CDM button: confirm, then run as /fa cdmsetup does.
+StaticPopupDialogs["FOREVERAURAS_CDM_SETUP_CONFIRM"] = {
+  text = L["Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM and Edit Mode settings (they are backed up) and needs a reload."],
+  button1 = L["Apply"],
+  button2 = CANCEL,
+  OnAccept = function() Private.RunCDMSetup() end,
+  timeout = 0,
+  whileDead = true,
+  hideOnEscape = true,
+  preferredIndex = 3,
+}
+
 StaticPopupDialogs["FOREVERAURAS_CDM_SETUP_RELOAD"] = {
-  text = "ForeverAuras has changed CDM settings. Reload to apply them.",
+  text = L["ForeverAuras has changed CDM settings. Reload to apply them."],
   button1 = RELOADUI,
   button2 = LATER,
   OnAccept = function() ReloadUI() end,

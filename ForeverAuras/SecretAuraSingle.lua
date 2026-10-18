@@ -13,6 +13,7 @@
 --   Total Duration: a hidden text formatted from the total duration sizes a
 --     clip that holds the whole aura button (StyleDurationGate).
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 local _, Private = ...
 -- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
 local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAuraSingle")
@@ -28,7 +29,7 @@ function Display.IsSingleUnit(trigger)
 end
 -- Stored in secret* fields, not the Aura (Legacy) ones, so auras converted from
 -- Legacy keep their behaviour.
-Display.showOnValues = {showOnActive = "Aura(s) Found", showOnMissing = "Aura(s) Missing", showAlways = "Always"}
+Display.showOnValues = {showOnActive = L["Aura(s) Found"], showOnMissing = L["Aura(s) Missing"], showAlways = L["Always"]}
 Display.remOperators = {["<"] = "<", ["<="] = "<=", [">"] = ">", [">="] = ">="}
 
 -- Keys of the extra native parts, unique within their containers.
@@ -259,10 +260,10 @@ function Display.SpellIDFilterNote(trigger)
   if (debuff and friendlyUnits[category]) or (not debuff and hostileUnits[category]) then
     -- What does work there: the aura's own properties.
     if debuff and Display.friendlyDebuffUnits[category] then
-      return "error", ("Blizzard hides debuffs on %s from spell ID filters in combat: filter by Total Duration =, dispel type and flags instead.")
+      return "error", (L["Blizzard hides debuffs on %s from spell ID filters in combat: filter by Total Duration =, dispel type and flags instead."])
         :format(label)
     end
-    return "error", ("Blizzard hides %s on %s from spell ID filters in combat.")
+    return "error", (L["Blizzard hides %s on %s from spell ID filters in combat."])
       :format(kind:lower(), label)
   end
   if not friendlyUnits[category] and not hostileUnits[category] then
@@ -281,13 +282,13 @@ function Display.TriggerStatus(data, trigger)
   if problem then return RED .. "Won't work:|r " .. problem end
   local severity, reason = Display.SpellIDFilterNote(trigger)
   -- Blizzard still plays Actions sounds for these spell IDs (AddAuraSound).
-  if severity == "error" then return RED .. "Won't work:|r " .. reason .. " " .. ORANGE .. "Sounds in Actions still play.|r" end
-  local text = GREEN .. "Works in combat.|r"
+  if severity == "error" then return RED .. L["Won't work:"] .. "|r " .. reason .. " " .. ORANGE .. L["Sounds in Actions still play."] .. "|r" end
+  local text = GREEN .. L["Works in combat."] .. "|r"
   if severity == "note" then
-    text = text .. " " .. ORANGE .. (trigger.debuffType == "HARMFUL" and "Hostile units only." or "Friendly units only.") .. "|r"
+    text = text .. " " .. ORANGE .. (trigger.debuffType == "HARMFUL" and L["Hostile units only."] or L["Friendly units only."]) .. "|r"
   end
   if Display.InDynamicGroup(data) then
-    text = text .. " " .. ORANGE .. "In a Dynamic Group it keeps a fixed position; a Modern Aura Group is recommended.|r"
+    text = text .. " " .. ORANGE .. L["In a Dynamic Group it keeps a fixed position; a Modern Aura Group is recommended."] .. "|r"
   end
   -- Only a list Icon with a Total Duration = / >= filter or a Remaining Time
   -- window still estimates the duration for its timed glow; the rest are exact.
@@ -296,7 +297,7 @@ function Display.TriggerStatus(data, trigger)
   local lateX = Display.LateGlowSpec(data, trigger)
   if lateX and data.regionType == "icon" and Display.RemainingWindow(trigger) and not Display.IsSingle(trigger, data) then
     local total = Display.LateGlowTotal(trigger)
-    if not (total and total > lateX) then text = text .. " " .. ORANGE .. "Glow starts once the aura's duration is known.|r" end
+    if not (total and total > lateX) then text = text .. " " .. ORANGE .. L["Glow starts once the aura's duration is known."] .. "|r" end
   end
   return text
 end
@@ -313,15 +314,15 @@ function Display.ValidateSingle(data, trigger)
   if fallbackProblem then return fallbackProblem end
   if not Display.IsSingle(trigger, data) then return end
   if not Display.IsSingleUnit(trigger) and not Display.UnitPlacedMissing(data, trigger) then
-    return "On the screen, Aura(s) Missing, Always and Remaining Time watch one unit: choose Player, Target, Focus, Pet, Target of Target, Target of Focus, Pet Target or a Specific Unit. Anchored to unit frames or nameplates, Missing and Always work for every unit."
+    return L["On the screen, Aura(s) Missing, Always and Remaining Time watch one unit: choose Player, Target, Focus, Pet, Target of Target, Target of Focus, Pet Target or a Specific Unit. Anchored to unit frames or nameplates, Missing and Always work for every unit."]
   end
   local showOn = Display.ShowOn(trigger)
   local op = Display.RemainingWindow(trigger)
   if UsesRemaining(trigger) and not op then
-    return "Remaining Time needs a comparison and a number of seconds of 0 or more."
+    return L["Remaining Time needs a comparison and a number of seconds of 0 or more."]
   end
   if NeedsMissing(trigger) or op then
-    local label = op and "Remaining Time" or ("Show On: " .. Display.showOnValues[showOn])
+    local label = op and L["Remaining Time"] or (L["Show On"] .. ": " .. Display.showOnValues[showOn])
     if op and data.regionType ~= "icon" then
       return label .. " is available for Icon displays. Use Show On: Aura(s) Found for other display types."
     end
@@ -336,14 +337,14 @@ function Display.ValidateSingle(data, trigger)
   -- are secret, so a Missing icon would show even with the debuff present.
   if NeedsMissing(trigger) and trigger.debuffType == "HARMFUL" and (trigger.unit == "player" or trigger.unit == "pet")
     and (Display.UsesSpellIDs(trigger) or Display.UsesRankSpellIDs(trigger)) then
-    return "Debuffs on you or your pet can't be found by spell ID in combat: filter by Total Duration =, dispel type and flags instead."
+    return L["Debuffs on you or your pet can't be found by spell ID in combat: filter by Total Duration =, dispel type and flags instead."]
   end
   if op then
     if not Display.SupportsDurationColorCondition() then
-      return "This client cannot limit auras by Remaining Time."
+      return L["This client cannot limit auras by Remaining Time."]
     end
     if HasRemainingPercentConditions(data) then
-      return "With Remaining Time, countdown conditions must use Remaining Time in seconds."
+      return L["With Remaining Time, countdown conditions must use Remaining Time in seconds."]
     end
   end
 end
@@ -517,7 +518,7 @@ end
 function Display.FallbackProblem(data)
   local choice = Display.FallbackChoice(data)
   if type(choice) == "number" and not Followable(data, choice) then
-    return "Trigger Combination: the trigger chosen for when Aura (Modern) filters are not met no longer exists or is an Aura (Modern) trigger."
+    return L["Trigger Combination: the trigger chosen for when Aura (Modern) filters are not met no longer exists or is an Aura (Modern) trigger."]
   end
 end
 
@@ -748,7 +749,7 @@ local function EnsurePresence(missing, region, data, filter, candidates, perUnit
     if not ok then
       presence:Hide()
       missing.presenceFailed = true
-      Warn(data, "Blizzard could not create the Modern Aura Group spacing: " .. tostring(err))
+      Warn(data, L["Blizzard could not create the Modern Aura Group spacing: %s"]:format(tostring(err)))
       return
     end
     missing.presence = presence
@@ -767,7 +768,7 @@ local function EnsurePresence(missing, region, data, filter, candidates, perUnit
   if not Display.AnchorFlowPresence(region, data, presence) then
     -- Refused: the display takes a fixed icon in the group instead.
     presence:SetEnabled(false); presence:Hide()
-    Warn(data, "Blizzard refused the Modern Aura Group spacing; this display keeps a fixed space.")
+    Warn(data, L["Blizzard refused the Modern Aura Group spacing; this display keeps a fixed space."])
     return
   end
   missing.presenceActive = true
@@ -852,7 +853,7 @@ local function EnsureMissing(single, region, data, trigger, instance)
     })
     if not ok then
       container:Hide()
-      single.missingFailed = "Blizzard could not create the Aura(s) Missing display: " .. tostring(err)
+      single.missingFailed = L["Blizzard could not create the Aura(s) Missing display: %s"]:format(tostring(err))
       Warn(data, single.missingFailed)
       return
     end
@@ -1056,7 +1057,7 @@ local function EnsureSlot(single, instance, region, key, trigger, data, init)
       end,
     })
     if not ok or not slot.button then
-      Warn(data, "Blizzard could not create the Remaining Time display: " .. tostring(err))
+      Warn(data, L["Blizzard could not create the Remaining Time display: %s"]:format(tostring(err)))
       return
     end
     single.slots[key] = slot
@@ -1924,15 +1925,15 @@ end
 -- Why the gate cannot be drawn for this display, or nil.
 local function GateProblem(data, trigger)
   if Display.FrameAnchorType(data) == "UNITFRAME" or Display.FrameAnchorType(data) == "NAMEPLATE" then
-    return "Total Duration = and >= can't anchor to unit frames or nameplates."
+    return L["Total Duration = and >= can't anchor to unit frames or nameplates."]
   end
   -- Without data: Remaining Time on any display type needs the clip too.
   if Display.IsSingle(trigger) then
-    return "Total Duration = and >= only work with Show On: Aura(s) Found, without Remaining Time."
+    return L["Total Duration = and >= only work with Show On: Aura(s) Found, without Remaining Time."]
   end
   if not (Enum.DurationTextBindingProperty and Enum.DurationTextBindingProperty.TotalDuration ~= nil
     and C_StringUtil and C_StringUtil.CreateNumericRuleFormatter and Display.SupportsDurationColorCondition()) then
-    return "This client can't check Total Duration = or >=."
+    return L["This client can't check Total Duration = or >=."]
   end
 end
 
@@ -2001,24 +2002,24 @@ function Display.StackFilterProblem(data, trigger)
   if type(trigger) ~= "table" or not trigger.secretUseStacks then return end
   local x = tonumber(trigger.secretStacks)
   if not x or x ~= math.floor(x) or x < 0 or x > Display.STACK_LIMIT then
-    return "Stack Count needs a whole number from 0 to " .. Display.STACK_LIMIT .. "."
+    return L["Stack Count needs a whole number from 0 to %d."]:format(Display.STACK_LIMIT)
   end
   local kind = Display.StackFilter(trigger)
-  if kind == "never" then return "Stack Count < 0 never matches." end
+  if kind == "never" then return L["Stack Count < 0 never matches."] end
   if not kind then return end
   if Display.FrameAnchorType(data) == "UNITFRAME" or Display.FrameAnchorType(data) == "NAMEPLATE" then
-    return "Stack Count can't anchor to unit frames or nameplates."
+    return L["Stack Count can't anchor to unit frames or nameplates."]
   end
   -- Without data: Remaining Time on any display type needs the clip too.
   if Display.IsSingle(trigger) then
-    return "Stack Count only works with Show On: Aura(s) Found, without Remaining Time."
+    return L["Stack Count only works with Show On: Aura(s) Found, without Remaining Time."]
   end
   -- Both filters need the one clip around the button.
   if Display.GateRange(data, trigger) then
-    return "Stack Count can't be combined with Total Duration = or >=."
+    return L["Stack Count can't be combined with Total Duration = or >=."]
   end
   if not (C_AuraContainerUtil and C_AuraContainerUtil.ProcessCustomAuraButtonApplicationBarOptions) then
-    return "This client can't check Stack Count."
+    return L["This client can't check Stack Count."]
   end
 end
 
@@ -2042,18 +2043,18 @@ function Display.RemainingGateProblem(data, trigger)
   trigger = trigger or Display.GetTrigger(data)
   if data.regionType == "icon" or not UsesRemaining(trigger) then return end
   if not Display.RemainingWindow(trigger) then
-    return "Remaining Time needs a comparison and a number of seconds of 0 or more."
+    return L["Remaining Time needs a comparison and a number of seconds of 0 or more."]
   end
   if Display.FrameAnchorType(data) == "UNITFRAME" or Display.FrameAnchorType(data) == "NAMEPLATE" then
-    return "Remaining Time can't anchor to unit frames or nameplates."
+    return L["Remaining Time can't anchor to unit frames or nameplates."]
   end
   -- The Total Duration gate would need the same clip.
   if Display.GateRange(data, trigger) then
-    return "On this display type, Remaining Time can't be combined with Total Duration = or >=."
+    return L["On this display type, Remaining Time can't be combined with Total Duration = or >=."]
   end
   if not (Enum.DurationTextBindingProperty and Enum.DurationTextBindingProperty.RemainingDuration ~= nil
     and C_StringUtil and C_StringUtil.CreateNumericRuleFormatter and Display.SupportsDurationColorCondition()) then
-    return "This client can't check Remaining Time on this display type."
+    return L["This client can't check Remaining Time on this display type."]
   end
 end
 
@@ -2405,7 +2406,7 @@ function Display.StyleDurationGate(native, data)
   local width, height = Display.Dimensions(data)
   local lower, upper = Display.DurationGate(data, trigger)
   -- Which time the gate text follows, and its name in warnings.
-  local property, label = "TotalDuration", "Total Duration"
+  local property, label = "TotalDuration", L["Total Duration"]
   if not lower then
     -- Remaining Time on bars, progress textures and texts: the same gate on
     -- the time left.
@@ -2468,7 +2469,7 @@ function Display.StyleDurationGate(native, data)
     })
   end
   if not ok then
-    Warn(data, "Blizzard refused the " .. label .. " check: " .. tostring(err))
+    Warn(data, L["Blizzard refused the %s check: %s"]:format(label, tostring(err)))
     return
   end
   gate:Show()
@@ -2484,7 +2485,7 @@ function Display.StyleDurationGate(native, data)
     -- A glow that could not share the text stays hidden rather than always on.
     if late and late.exact then
       late.clip:Hide()
-      Warn(data, "The Remaining Time glow could not be measured; it stays off.")
+      Warn(data, L["The Remaining Time glow could not be measured; it stays off."])
     end
   end
   -- Icons with Remaining Time are drawn by the single display, not this gate.

@@ -587,7 +587,7 @@ local function createOptions(parentData, data, index, subIndex)
 
   local order = 12
   local function addOption(key, option)
-    if data and OptionsPrivate.Private.IsCDMBuffText(data.text_text, parentData) then return end
+    -- CDM Buff countdowns follow these settings too (CopyCDMCountdownText).
     option.order = order
     order = order + 0.01
     if option.reloadOptions then

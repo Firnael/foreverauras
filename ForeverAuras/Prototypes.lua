@@ -4662,10 +4662,22 @@ Private.event_prototypes = {
         table.insert(ret, "if isSecret then genericShowOn = false end\n")
       end
       if(trigger.use_remaining and trigger.genericShowOn ~= "showOnReady") then
-        table.insert(ret, "if isSecret then genericShowOn = false end\n")
+        -- A secret cooldown's time left cannot be compared here: the state
+        -- stays shown and carries the window, and the display applies it as
+        -- an alpha the client evaluates from the cooldown's duration object
+        -- (RegionPrototype, secretRemainingWindow). `remaining` is given a
+        -- value that passes the comparison below for that case.
+        local remainingValue, remainingOp = tonumber(trigger.remaining or 0) or 0, trigger.remaining_operator or "<"
+        local passing = remainingValue
+        if remainingOp == "<" then passing = remainingValue - 1
+        elseif remainingOp == ">" or remainingOp == "~=" then passing = remainingValue + 1 end
         table.insert(ret, ([[
           local remaining = 0;
-          if (not isSecret and not paused and expirationTime and expirationTime > 0) then
+          state.secretRemainingWindow = nil
+          if isSecret and state.durationObject then
+            state.secretRemainingWindow = {op = %q, value = %s}
+            remaining = %s
+          elseif (not isSecret and not paused and expirationTime and expirationTime > 0) then
             remaining = expirationTime - GetTime();
             local remainingModRate = remaining / (modRate or 1);
             local remainingCheck = %s;
@@ -4674,7 +4686,7 @@ Private.event_prototypes = {
               Private.ExecEnv.ScheduleScan(expirationTime - remainingCheck * (modRate or 1), event);
             end
           end
-        ]]):format(tonumber(trigger.remaining or 0) or 0, spellName))
+        ]]):format(remainingOp, remainingValue, passing, remainingValue, spellName))
       end
 
       return table.concat(ret)

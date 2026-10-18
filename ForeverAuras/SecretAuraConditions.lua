@@ -1,6 +1,7 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
 -- Public trigger conditions can style native widgets without observing secret aura state.
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 local _, Private = ...
 -- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
 local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAuraConditions")
@@ -23,14 +24,14 @@ local elementProperties = {
 -- These checks are declarations consumed by Blizzard, never Lua state predicates.
 local durationVariables = {
   faAuraRemaining = {"RemainingDuration", "Remaining Time", 1},
-  faAuraRemainingPercent = {"RemainingPercent", "Remaining Time (%)", 100},
+  faAuraRemainingPercent = {"RemainingPercent", L["Remaining Time (%)"], 100},
   faAuraElapsed = {"ElapsedDuration", "Elapsed Time", 1},
-  faAuraElapsedPercent = {"ElapsedPercent", "Elapsed Time (%)", 100},
+  faAuraElapsedPercent = {"ElapsedPercent", L["Elapsed Time (%)"], 100},
   faAuraTotal = {"TotalDuration", "Total Duration", 1},
   -- Game-clock timestamps (GetTime), not countdowns. Offered only where a
   -- display already uses them (Display.FilterConditionTemplates).
-  faAuraStart = {"StartTime", "Start Time (game clock)", 1},
-  faAuraEnd = {"EndTime", "End Time (game clock)", 1},
+  faAuraStart = {"StartTime", L["Start Time (game clock)"], 1},
+  faAuraEnd = {"EndTime", L["End Time (game clock)"], 1},
 }
 -- True when a condition (or a nested check) on this trigger uses the variable.
 local function UsesVariable(check, trigger, variable)
@@ -453,13 +454,13 @@ end
 
 function Display.FilterConditionProperties(data, properties)
   if Display.Enabled(data) then
-    properties.faAuraHighlightColor = {display = "Aura Highlight Color", type = "color", default = {1, 0.82, 0, 1}}
-    properties.faAuraHighlightStyle = {display = "Aura Highlight Style", type = "list", default = "border",
-      values = {border = "Border", glow = "Glow (Static)", pulseBorder = "Border (Pulsing)", pulseGlow = "Glow (Pulsing)", overlay = "Overlay", texture = "Custom Texture"}}
+    properties.faAuraHighlightColor = {display = L["Aura Highlight Color"], type = "color", default = {1, 0.82, 0, 1}}
+    properties.faAuraHighlightStyle = {display = L["Aura Highlight Style"], type = "list", default = "border",
+      values = {border = L["Border"], glow = L["Glow (Static)"], pulseBorder = L["Border (Pulsing)"], pulseGlow = L["Glow (Pulsing)"], overlay = L["Overlay"], texture = L["Custom Texture"]}}
     -- A cycle is a complete fade out/in on the highlight's own parent frame.
-    properties.faAuraHighlightPulse = {display = "Aura Highlight Pulse Duration", type = "number", default = 1, min = 0.2, max = 5, step = 0.1}
-    properties.faAuraHighlightSize = {display = "Aura Highlight Thickness / Padding", type = "number", default = 2, min = 1, max = 64, step = 1}
-    properties.faAuraHighlightTexture = {display = "Aura Highlight Texture", type = "string", default = "Interface\\Buttons\\UI-ActionButton-Border"}
+    properties.faAuraHighlightPulse = {display = L["Aura Highlight Pulse Duration"], type = "number", default = 1, min = 0.2, max = 5, step = 0.1}
+    properties.faAuraHighlightSize = {display = L["Aura Highlight Thickness / Padding"], type = "number", default = 2, min = 1, max = 64, step = 1}
+    properties.faAuraHighlightTexture = {display = L["Aura Highlight Texture"], type = "string", default = "Interface\\Buttons\\UI-ActionButton-Border"}
   end
   return properties
 end
@@ -486,11 +487,11 @@ function Display.HighlightPropertyOptions(data, condition, property, definition)
   end
   local result = CopyTable(definition)
   if style == "pulseBorder" then style = "border" end
-  result.display = style == "border" and "Aura Highlight Border Thickness" or "Aura Highlight Padding"
+  result.display = style == "border" and L["Aura Highlight Border Thickness"] or L["Aura Highlight Padding"]
   result.max = style == "border" and Display.HighlightBorderLimit(data) or 64
   result.description = style == "border"
-    and "Border thickness in UI units, limited to one quarter of the aura's smaller dimension so the center stays visible. Set style and color in this same condition."
-    or "Extra space around a glow or custom texture, in UI units. Overlay always fills the aura and ignores padding. Set style and color in this same condition."
+    and L["Border thickness in UI units, limited to one quarter of the aura's smaller dimension so the center stays visible. Set style and color in this same condition."]
+    or L["Extra space around a glow or custom texture, in UI units. Overlay always fills the aura and ignores padding. Set style and color in this same condition."]
   return result
 end
 
@@ -501,13 +502,13 @@ function Display.FilterConditionTemplates(data, templates)
     -- Secret aura state cannot be used as a condition input.
     if trigger and trigger.type == 'secretAura' then
       local native = {
-        faAuraPandemic = {display = "In Pandemic Window", type = "alwaystrue"},
-        faAuraStealable = {display = "Buff Is Stealable", type = "alwaystrue"},
-        faAuraNotStealable = {display = "Buff Is Not Stealable", type = "alwaystrue"},
-        faAuraActive = {display = "Aura Active", type = "bool"},
-        faAuraType = {display = "Aura Type", type = "select", operator_types = "native_aura_dispel", values = {HELPFUL = "Buff", HARMFUL = "Debuff"}},
-        faAuraDispel = {display = "Dispel Type", type = "select", operator_types = "native_aura_dispel",
-          values = {Magic = "Magic", Curse = "Curse", Disease = "Disease", Poison = "Poison", Bleed = "Bleed", Enrage = "Enrage", None = "None"}},
+        faAuraPandemic = {display = L["In Pandemic Window"], type = "alwaystrue"},
+        faAuraStealable = {display = L["Buff Is Stealable"], type = "alwaystrue"},
+        faAuraNotStealable = {display = L["Buff Is Not Stealable"], type = "alwaystrue"},
+        faAuraActive = {display = L["Aura Active"], type = "bool"},
+        faAuraType = {display = L["Aura Type"], type = "select", operator_types = "native_aura_dispel", values = {HELPFUL = "Buff", HARMFUL = "Debuff"}},
+        faAuraDispel = {display = L["Dispel Type"], type = "select", operator_types = "native_aura_dispel",
+          values = {Magic = L["Magic"], Curse = L["Curse"], Disease = L["Disease"], Poison = L["Poison"], Bleed = L["Bleed"], Enrage = L["Enrage"], None = L["None"]}},
       }
       if Display.SupportsDurationColorCondition() then
         for key, definition in pairs(durationVariables) do
@@ -524,7 +525,7 @@ function Display.FilterConditionTemplates(data, templates)
         end
       end
       if C_StringUtil and C_StringUtil.CreateNumericRuleFormatter then
-        native.faAuraApplications = {display = "Stack Count", type = "number"}
+        native.faAuraApplications = {display = L["Stack Count"], type = "number"}
       end
       templates[index] = native
     else templates[index] = fields end
@@ -558,42 +559,42 @@ function Display.ValidateConditions(data)
       if combination then
         kind = select(2, Display.CombinationNative(data, condition.check))
       elseif not kind then
-        return "Only Aura Active can be combined with All of / Any of, once, with ordinary checks."
+        return L["Only Aura Active can be combined with All of / Any of, once, with ordinary checks."]
       end
       if condition.linked or (data.conditions[index + 1] and data.conditions[index + 1].linked) then
-        return "Aura (Modern) conditions cannot use Else If."
+        return L["Aura (Modern) conditions cannot use Else If."]
       end
       if durationVariables[kind] and condition.check.op and condition.check.op ~= "<" and condition.check.op ~= ">=" then
-        return "Aura (Modern) time conditions support < and >=."
+        return L["Aura (Modern) time conditions support < and >=."]
       end
       if (kind == "faAuraDispel" or kind == "faAuraType") and condition.check.op
         and condition.check.op ~= "==" and condition.check.op ~= "~=" then
-        return "Aura (Modern) type conditions support = and !=."
+        return L["Aura (Modern) type conditions support = and !=."]
       end
       for _, change in ipairs(condition.changes or {}) do
         if kind == "faAuraRemaining" and IsGlowProperty(data, change.property)
           and (condition.check.op ~= "<" or change.value ~= true) then
-          return "A Remaining Time glow condition must use < and turn the glow on."
+          return L["A Remaining Time glow condition must use < and turn the glow on."]
         end
         if kind == "faAuraPandemic" and IsGlowProperty(data, change.property) then
-          if change.value ~= true then return "An In Pandemic Window glow condition must turn the glow on." end
+          if change.value ~= true then return L["An In Pandemic Window glow condition must turn the glow on."] end
           -- One glow follows one timer: Remaining Time's clip or the pandemic frame.
           local _, _, lateIndex = Display.LateGlowSpec(data, Display.GetTrigger(data))
           if lateIndex and change.property == "sub." .. lateIndex .. ".glow" then
-            return "A Glow can follow Remaining Time or the pandemic window, not both."
+            return L["A Glow can follow Remaining Time or the pandemic window, not both."]
           end
         end
         if durationVariables[kind] and change.property then
           local target = TextProperty(data, change.property, "duration")
           if target then
             if timeProperties[target] and timeProperties[target] ~= kind then
-              return "Use one time basis per countdown text: seconds, percentage, elapsed, total, start, or end."
+              return L["Use one time basis per countdown text: seconds, percentage, elapsed, total, start, or end."]
             end
             timeProperties[target] = kind
           end
         end
         if change.property and not Display.NativeConditionAllowsProperty(data, condition.check, change.property) then
-          return "Incompatible condition."
+          return L["Incompatible condition."]
         end
       end
     end

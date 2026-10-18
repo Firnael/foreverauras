@@ -1,9 +1,10 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 local _, OptionsPrivate = ...
 local Warnings = {}
 OptionsPrivate.TriggerSecretWarnings = Warnings
-Warnings.text = "|cffff0000Secret detected. Some features may be restricted in combat.|r"
+Warnings.text = L["|cffff0000Secret detected. Some features may be restricted in combat.|r"]
 
 -- Missing or invalid secrecy queries leave the restriction unknown.
 local function Query(name, ...)
@@ -90,31 +91,31 @@ function Warnings.GetScope(data, triggernum)
     return
   elseif event == "Power" or event == "Alternate Power" then
     local powerType = event == "Alternate Power" and 10 or trigger.use_powertype and trigger.powertype or nil
-    if event == "Alternate Power" and powerType and Restricted(Query("GetPowerTypeSecrecy", powerType)) then return "Power value checks and calculations:" end
+    if event == "Alternate Power" and powerType and Restricted(Query("GetPowerTypeSecrecy", powerType)) then return L["Power value checks and calculations:"] end
     for unit in pairs(Units(trigger)) do
       local selected = powerType or UnitPowerType(unit)
       if not issecretvalue(selected) then
         if selected == 99 then
-          if issecretvalue(UnitStagger(unit)) or Query("ShouldUnitHealthMaxBeSecret", unit) == true then return "Stagger value checks and calculations:" end
+          if issecretvalue(UnitStagger(unit)) or Query("ShouldUnitHealthMaxBeSecret", unit) == true then return L["Stagger value checks and calculations:"] end
         elseif event == "Alternate Power" and (Restricted(Query("GetPowerTypeSecrecy", selected)) or Query("ShouldUnitPowerBeSecret", unit, selected) == true or Query("ShouldUnitPowerMaxBeSecret", unit, selected) == true) then
-          return "Power value checks and calculations:"
+          return L["Power value checks and calculations:"]
         end
       end
     end
     if event == "Power" then return end
   elseif event == "Character Stats" and next(fields) and Query("ShouldUnitStatsBeSecret") == true then
-    return "Character stat checks:"
+    return L["Character stat checks:"]
   elseif event == "Threat Situation" then
     if trigger.unit == "none" then
-      if Query("ShouldUnitThreatStateBeSecret", "player") == true then return "Threat checks:" end
+      if Query("ShouldUnitThreatStateBeSecret", "player") == true then return L["Threat checks:"] end
     else
       for unit in pairs(Units(trigger)) do
-        if Query("ShouldUnitThreatStateBeSecret", "player", unit) == true or Query("ShouldUnitThreatValuesBeSecret", "player", unit) == true then return "Threat checks:" end
+        if Query("ShouldUnitThreatStateBeSecret", "player", unit) == true or Query("ShouldUnitThreatValuesBeSecret", "player", unit) == true then return L["Threat checks:"] end
       end
     end
   elseif event == "Cast" and HasField(fields, "remaining duration spellId spell spellIds spellNames interruptible") then
     for unit in pairs(Units(trigger)) do
-      if Query("ShouldUnitSpellCastingBeSecret", unit) == true then return "Cast value checks:" end
+      if Query("ShouldUnitSpellCastingBeSecret", unit) == true then return L["Cast value checks:"] end
     end
   elseif event == "Cooldown Progress (Spell)" or event == "Cooldown Ready (Spell)" or event == "Charges Changed" or event == "Action Usable" then
     local id = SpellID(trigger.spellName)
@@ -124,20 +125,20 @@ function Warnings.GetScope(data, triggernum)
     end
     if not issecretvalue(id) and id then
       if HasField(fields, "remaining duration expirationTime chargeGainTime chargeLostTime") and (Restricted(Query("GetSpellCooldownSecrecy", id)) or Query("ShouldSpellCooldownBeSecret", id) == true) then
-        return "Cooldown time checks:"
+        return L["Cooldown time checks:"]
       end
       -- Cooldown secrecy does not establish that a charge/count value is secret.
       if HasField(fields, "charges maxCharges") and C_Spell and C_Spell.GetSpellCharges then
         local charges = C_Spell.GetSpellCharges(id)
-        if issecretvalue(charges) or (charges and (issecretvalue(charges.currentCharges) or issecretvalue(charges.maxCharges))) then return "Charge count checks:" end
+        if issecretvalue(charges) or (charges and (issecretvalue(charges.currentCharges) or issecretvalue(charges.maxCharges))) then return L["Charge count checks:"] end
       end
-      if fields.spellCount and C_Spell and C_Spell.GetSpellCastCount and issecretvalue(C_Spell.GetSpellCastCount(id)) then return "Spell count checks:" end
+      if fields.spellCount and C_Spell and C_Spell.GetSpellCastCount and issecretvalue(C_Spell.GetSpellCastCount(id)) then return L["Spell count checks:"] end
     end
   end
 
   if HasField(fields, "name namerealm unitname realm npcId guid") then
     for unit in pairs(Units(trigger)) do
-      if Query("ShouldUnitIdentityBeSecret", unit) == true then return "Unit identity checks:" end
+      if Query("ShouldUnitIdentityBeSecret", unit) == true then return L["Unit identity checks:"] end
     end
   end
   -- Check selected fields on existing states when no metadata query applies.
@@ -147,7 +148,7 @@ function Warnings.GetScope(data, triggernum)
       for _, state in pairs(states) do
         if not issecretvalue(state) and type(state) == "table" then
           for field in pairs(fields) do
-            if issecretvalue(state[field]) then return "Selected value checks:" end
+            if issecretvalue(state[field]) then return L["Selected value checks:"] end
           end
         end
       end
