@@ -400,6 +400,63 @@ local function SetOffsetAnim(self, xOffset, yOffset)
   UpdatePosition(self);
 end
 
+-- gate = {read = function() return <secret boolean: aura shown> end, mode =
+-- "active"|"missing"}, or nil to return the display's alpha to its own hands.
+-- Displays whose alpha follows a secret cooldown's time left. The curve
+-- evaluation is a value, not a binding, so it is applied again a few times a
+-- second while any such display is shown (a handful at most).
+local secretRemaining = setmetatable({}, {__mode = "k"})
+local secretRemainingTicker
+local remainingCurves = {}
+local function RemainingCurve(window, wanted)
+  local key = tostring(window.op) .. "|" .. tostring(window.value) .. "|" .. tostring(wanted)
+  local curve = remainingCurves[key]
+  if curve then return curve end
+  if not (C_CurveUtil and C_CurveUtil.CreateCurve) then return end
+  curve = C_CurveUtil.CreateCurve()
+  curve:SetType(Enum.LuaCurveType.Step)
+  local value, op = window.value, window.op
+  local eps = 0.001
+  -- Open where the comparison on the time left holds; a ready spell is 0.
+  if op == "<" then curve:AddPoint(0, wanted); curve:AddPoint(value, 0)
+  elseif op == "<=" then curve:AddPoint(0, wanted); curve:AddPoint(value + eps, 0)
+  elseif op == ">" then curve:AddPoint(0, 0); curve:AddPoint(value + eps, wanted)
+  elseif op == ">=" then curve:AddPoint(0, 0); curve:AddPoint(value, wanted)
+  elseif op == "==" then curve:AddPoint(0, 0); curve:AddPoint(value - 0.05, wanted); curve:AddPoint(value + 0.05, 0)
+  else curve:AddPoint(0, wanted); curve:AddPoint(value - 0.05, 0); curve:AddPoint(value + 0.05, wanted) end
+  remainingCurves[key] = curve
+  return curve
+end
+local function SecretRemainingTick()
+  local any = false
+  for region in pairs(secretRemaining) do
+    any = true
+    if region.secretRemainingWindow and region.RealSetAlpha then
+      region:SetAlpha(region.requestedAlpha or region.animAlpha or region.alpha or 1)
+    else
+      secretRemaining[region] = nil
+    end
+  end
+  if not any and secretRemainingTicker then secretRemainingTicker:Cancel(); secretRemainingTicker = nil end
+end
+function Private.SetRegionSecretRemaining(region, window)
+  if region.secretRemainingWindow == window then return end
+  region.secretRemainingWindow = window
+  if window then
+    secretRemaining[region] = true
+    if not secretRemainingTicker and C_Timer.NewTicker then secretRemainingTicker = C_Timer.NewTicker(0.1, SecretRemainingTick) end
+  else
+    secretRemaining[region] = nil
+  end
+  if region.RealSetAlpha then region:SetAlpha(region.requestedAlpha or region.animAlpha or region.alpha or 1) end
+end
+
+function Private.SetRegionNativeShow(region, gate)
+  if region.nativeShowGate == gate then return end
+  region.nativeShowGate = gate
+  if region.RealSetAlpha then region:SetAlpha(region.requestedAlpha or region.animAlpha or region.alpha or 1) end
+end
+
 function Private.SetRegionUnitGone(region, gone)
   gone = gone or nil
   if region.unitGone == gone then return end
@@ -477,6 +534,11 @@ local function UpdateProgressFromState(self, minMaxConfig, state, progressSource
   if progressType ~= "durationObject" then
     self.durationObject = nil
   end
+  -- A Remaining Time filter on a secret cooldown (the spell Cooldown
+  -- trigger, secretRemainingWindow): the display's alpha follows the
+  -- cooldown's duration object through a step curve the client evaluates,
+  -- 1 inside the window and 0 outside (Private.SetRegionSecretRemaining).
+  Private.SetRegionSecretRemaining(self, progressType == "durationObject" and state and state.secretRemainingWindow or nil)
 
   if not state then
     self.minProgress, self.maxProgress = nil, nil
@@ -497,6 +559,8 @@ local function UpdateProgressFromState(self, minMaxConfig, state, progressSource
     local inverse = inverseProperty and state[inverseProperty]
     self.durationObject = state.durationObject
     self.inverse = inverse
+    -- The Remaining Time window reads this duration object (above).
+    if self.secretRemainingWindow and self.RealSetAlpha then self:SetAlpha(self.requestedAlpha or self.animAlpha or self.alpha or 1) end
     -- A readable cooldown shown from its duration object (see the spell
     -- cooldown trigger) also carries timed values: animations and sub elements
     -- that only know timed progress keep working from them, with the adjusted
@@ -914,11 +978,51 @@ function Private.regionPrototype.create(region)
     region.RealSetAlpha, region.RealGetAlpha = region.SetAlpha, region.GetAlpha
     region.SetAlpha = function(self, alpha)
       self.requestedAlpha = alpha
-      return self:RealSetAlpha(self.unitGone and 0 or alpha)
+      local wanted = self.unitGone and 0 or alpha
+      -- A CDM Buff display whose aura is secret (Private.SetRegionNativeShow):
+      -- the engine decides between the asked-for alpha and 0 from the native
+      -- aura slot's visibility, a secret boolean Lua never tests.
+      local gate = self.nativeShowGate
+      -- A Modern Aura Group's stand-in draws this display: its frame takes
+      -- the same gate (its copies mirror plain alphas, not secret ones).
+      local normal = self.flowNormal
+      local stand = normal and normal.stand
+      local standFrame = stand and stand.active and stand.frame or nil
+      -- A gate that hides the display outright (Aura(s) Found with a secret
+      -- aura: the slot's copy of the display stands for it, CDMAuraProgress).
+      if gate and gate.hide then
+        if standFrame then pcall(standFrame.SetAlpha, standFrame, 0); standFrame.cdmGateApplied = true end
+        return self:RealSetAlpha(0)
+      end
+      -- A secret cooldown's Remaining Time window (SetRegionSecretRemaining).
+      local window = self.secretRemainingWindow
+      local duration = window and self.durationObject
+      if duration and duration.EvaluateRemainingDuration then
+        local curve = RemainingCurve(window, wanted)
+        local ok, alpha = pcall(duration.EvaluateRemainingDuration, duration, curve)
+        if ok and alpha ~= nil then
+          if standFrame then pcall(standFrame.SetAlpha, standFrame, alpha); standFrame.cdmGateApplied = true end
+          return self:RealSetAlpha(alpha)
+        end
+      end
+      if gate and self.SetAlphaFromBoolean then
+        local ok, shown = pcall(gate.read)
+        if ok and shown ~= nil then
+          local present, absent = wanted, 0
+          if gate.mode == "missing" then present, absent = 0, wanted end
+          if standFrame and standFrame.SetAlphaFromBoolean then pcall(standFrame.SetAlphaFromBoolean, standFrame, shown, present, absent) end
+          if pcall(self.SetAlphaFromBoolean, self, shown, present, absent) then return end
+        end
+      elseif standFrame and standFrame.cdmGateApplied then
+        standFrame.cdmGateApplied = nil
+        pcall(standFrame.SetAlpha, standFrame, 1)
+      end
+      if standFrame and gate then standFrame.cdmGateApplied = true end
+      return self:RealSetAlpha(wanted)
     end
     -- Animations read the alpha they start from: the asked-for one, not the fade.
     region.GetAlpha = function(self)
-      if self.unitGone and self.requestedAlpha then return self.requestedAlpha end
+      if (self.unitGone or (self.nativeShowGate and self.nativeShowGate.hide) or self.secretRemainingWindow) and self.requestedAlpha then return self.requestedAlpha end
       return self:RealGetAlpha()
     end
   end

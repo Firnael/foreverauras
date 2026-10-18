@@ -83,14 +83,19 @@ local function NumPoints(source)
   return ok and type(count) == "number" and count or 0
 end
 
-local function CopyPoints(stand, source, copy)
+-- The copy takes the source's anchors, each relative frame mapped by `map`
+-- (a frame it stands for, or nil for `fallback`); no anchors fill the fallback.
+local function CopyPointsMapped(source, copy, map, fallback)
   pcall(copy.ClearAllPoints, copy)
   local count = NumPoints(source)
   for index = 1, count do
     local ok, point, relative, relativePoint, x, y = pcall(source.GetPoint, source, index)
-    if ok and point then pcall(copy.SetPoint, copy, point, Map(stand, relative) or stand.frame, relativePoint, x, y) end
+    if ok and point then pcall(copy.SetPoint, copy, point, map(relative) or fallback, relativePoint, x, y) end
   end
-  if count == 0 then pcall(copy.SetAllPoints, copy, stand.frame) end
+  if count == 0 then pcall(copy.SetAllPoints, copy, fallback) end
+end
+local function CopyPoints(stand, source, copy)
+  CopyPointsMapped(source, copy, function(value) return Map(stand, value) end, stand.frame)
 end
 
 local function Try(target, method, ...)
@@ -139,6 +144,9 @@ local function MatchBorderScale(sub, copy)
   if shown then copy:Show() end
 end
 
+-- The copy helpers, for copies made elsewhere (the CDM slot look in
+-- CDMAuraProgress.lua draws a display inside its aura slot the same way).
+Display.CopyElementPoints, Display.CopyTextureLook, Display.MatchBorderScale = CopyPointsMapped, CopyTexture, MatchBorderScale
 local function CopyFont(source, copy)
   Pass(copy, "SetFont", source, "GetFont")
   Pass(copy, "SetJustifyH", source, "GetJustifyH")
@@ -150,6 +158,7 @@ local function CopyFont(source, copy)
   Pass(copy, "SetText", source, "GetText")
 end
 
+Display.CopyFontLook = CopyFont
 local function CopyCooldown(stand, source, copy, data)
   Try(copy, "SetDrawBling", false)
   Pass(copy, "SetReverse", source, "GetReverse")

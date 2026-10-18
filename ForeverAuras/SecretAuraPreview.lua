@@ -76,7 +76,7 @@ function Display.FillSampleBindings(button, iconID, name, data, timed)
       if kind == "Icon" then widget:SetTexture(iconID)
       elseif kind == "SpellName" then widget:SetText(name)
       elseif kind == "ApplicationCount" then widget:SetText(timed and "3" or "")
-      elseif kind == "DurationText" then widget:SetText(timed and "6" or "")
+      elseif kind == "DurationText" then widget:SetText(timed and (widget.faPreviewFormat and widget.faPreviewFormat(6) or "6") or "")
       elseif kind == "DurationBar" then
         widget:SetMinMaxValues(0, 6)
         widget:SetValue(timed and (data.inverse and 0 or 6) or 0)
@@ -117,8 +117,11 @@ local function CreateSample(region)
     local remaining = math.max(0, self.expires - now)
     -- Highlights follow the same six-second sample cycle as the countdown.
     if native.conditionData then Display.UpdateConditionPreview(native, native.conditionData, remaining) end
+    -- Each countdown in the element's own Time Format (faPreviewFormat,
+    -- SecretAuraAppearance BindText); the plain rounding otherwise.
     for _, entry in ipairs(self.bindings.DurationText or {}) do
-      entry.widget:SetText(remaining < 3 and string.format("%.1f", remaining) or tostring(math.ceil(remaining)))
+      local format = entry.widget.faPreviewFormat
+      entry.widget:SetText(format and format(remaining) or (remaining < 3 and string.format("%.1f", remaining) or tostring(math.ceil(remaining))))
     end
     for _, entry in ipairs(self.bindings.DurationBar or {}) do
       entry.widget:SetValue(self.inverse and 6 - remaining or remaining)

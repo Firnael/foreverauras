@@ -238,8 +238,14 @@ loadedFrame:SetScript("OnEvent", function(self, event, addon)
       odb.spellCache = odb.spellCache or {};
       spellCache.Load(odb);
 
+      -- Magnetic alignment is off by default. Once, existing profiles are
+      -- switched off too (the old default was on); turning it back on sticks.
+      if not odb.magnetAlignDefaultOff then
+        odb.magnetAlignDefaultOff = true
+        odb.magnetAlign = false
+      end
       if odb.magnetAlign == nil then
-        odb.magnetAlign = true
+        odb.magnetAlign = false
       end
 
       if db.import_disabled then

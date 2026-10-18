@@ -1,6 +1,7 @@
 -- Modified for ForeverAuras
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 local _, Private = ...
 -- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
 local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAuraGrid")
@@ -68,11 +69,11 @@ end
 function Display.GridProblem(data)
   local trigger = Display.GetTrigger(data)
   if not trigger then return end
-  if Display.ShowOn(trigger) ~= "showOnActive" then return "In a Grid layout, use Show On: Aura(s) Found. This aura is shown at its own position." end
+  if Display.ShowOn(trigger) ~= "showOnActive" then return L["In a Grid layout, use Show On: Aura(s) Found. This aura is shown at its own position."] end
   if Display.RemainingWindow(trigger) or Display.UsesGate(data) then
-    return "In a Grid layout, Remaining Time, Total Duration and Stack Count filters are not available. This aura is shown at its own position."
+    return L["In a Grid layout, Remaining Time, Total Duration and Stack Count filters are not available. This aura is shown at its own position."]
   end
-  if not Display.IsSingleUnit(trigger) then return "In a Grid layout, choose one unit (Player, Target, Focus, Pet...). This aura is shown at its own position." end
+  if not Display.IsSingleUnit(trigger) then return L["In a Grid layout, choose one unit (Player, Target, Focus, Pet...). This aura is shown at its own position."] end
 end
 
 local function Members(group)
@@ -84,7 +85,7 @@ local function Members(group)
       local problem = Display.GridProblem(data)
       local childUnit = not problem and Display.GetTrigger(data).unit
       if childUnit and unit and childUnit ~= unit then
-        problem = "In a Grid layout, every aura watches the same unit as the first one. This aura is shown at its own position."
+        problem = L["In a Grid layout, every aura watches the same unit as the first one. This aura is shown at its own position."]
       end
       if not problem then
         unit = unit or childUnit

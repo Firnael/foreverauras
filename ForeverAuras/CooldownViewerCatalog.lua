@@ -402,6 +402,12 @@ function Private.CDMApplyItem(state, identity)
   end
 end
 
+-- The unit and filter a viewer frame last reported while readable. In
+-- combat the frame's unit is secret; the remembered one lets the native aura
+-- binding watch the right unit (a player buff or a target debuff).
+local knownSources = setmetatable({}, {__mode = "k"})
+Private.CDMKnownSources = knownSources
+
 local function ApplyAuraSource(state, unit, aura)
   state.cdmAuraFilter = "HELPFUL"
   if Readable(unit) and (unit == "player" or unit == "target") then state.cdmAuraUnit = unit end
@@ -422,6 +428,18 @@ local function ApplyCachedAura(state, identity, info, frame, exactID, buffSpellI
   state.cdmAuraUnit, state.cdmAuraFilter, state.cdmAuraTotem = "player", "HELPFUL", false
   if frame then aura, unit = frame.auraDataCached, frame.auraDataUnit end
   ApplyAuraSource(state, unit, aura)
+  -- cdmAuraSourceSeen: the unit and filter were reported by the frame (now
+  -- or earlier), not defaulted; the native binding may trust them.
+  state.cdmAuraSourceSeen = nil
+  if frame then
+    if Readable(unit) and (unit == "player" or unit == "target") and aura and Readable(aura.isHarmful) then
+      knownSources[frame] = {unit = state.cdmAuraUnit, filter = state.cdmAuraFilter}
+      state.cdmAuraSourceSeen = true
+    elseif not Readable(unit) and knownSources[frame] then
+      state.cdmAuraUnit, state.cdmAuraFilter = knownSources[frame].unit, knownSources[frame].filter
+      state.cdmAuraSourceSeen = true
+    end
+  end
   local nativeMatches = frame and not exactID
   if frame and exactID then
     local spellID = Number(frame.auraSpellID) or (aura and Number(aura.spellId))
@@ -432,6 +450,15 @@ local function ApplyCachedAura(state, identity, info, frame, exactID, buffSpellI
     if Readable(instance) then
       if instance ~= nil then state.auraActive = true
       elseif not aura then state.auraActive = false end
+    end
+    -- An entry that stands for several auras (Blizzard's "Curses" entry, say)
+    -- shows the icon of the aura that is up: the frame's auraSpellID names it
+    -- while readable. In combat the native copy binds the aura's own icon
+    -- instead (CDMAuraProgress, cdmLiveIcon).
+    local activeSpell = Number(frame.auraSpellID)
+    if activeSpell and activeSpell > 0 then
+      local spell = C_Spell.GetSpellInfo(activeSpell)
+      if spell and spell.iconID then state.icon = spell.iconID end
     end
   end
   if exactID and aura and not nativeMatches then aura, unit = nil, nil end
@@ -569,6 +596,89 @@ local function ApplyCachedAura(state, identity, info, frame, exactID, buffSpellI
   end
 end
 
+-- Whether a spell's aura lands on an enemy (the player's debuff on the
+-- target): spell data, checked for the spell and each of its ranks, since
+-- some auras answer only through a rank other than the one listed (a Bane's
+-- cast spell is not its aura's). Cached per spell; never secret.
+local directHarmful = {}
+function Private.CDMSpellTargetsEnemy(spellID)
+  spellID = Number(spellID)
+  if not spellID then return false end
+  local known = directHarmful[spellID]
+  if known ~= nil then return known end
+  local harmful = false
+  if C_Spell and C_Spell.IsSpellHarmful then
+    for _, rankID in ipairs(Private.GetAuraSpellRanks and Private.GetAuraSpellRanks(spellID) or {spellID}) do
+      local ok, result = pcall(C_Spell.IsSpellHarmful, rankID)
+      if ok and Readable(result) and result == true then harmful = true; break end
+    end
+  end
+  directHarmful[spellID] = harmful
+  return harmful
+end
+-- Any of a list of spells targets an enemy.
+function Private.CDMSpellsTargetEnemy(ids)
+  for _, id in ipairs(type(ids) == "table" and ids or {}) do
+    if Private.CDMSpellTargetsEnemy(id) then return true end
+  end
+  return false
+end
+local function DirectAuraRead(state, ids)
+  if not C_UnitAuras or not C_UnitAuras.GetAuraDataByIndex then return end
+  local wanted, harmful, any = {}, false, false
+  for _, id in ipairs(ids or {}) do
+    id = Number(id)
+    if id then
+      for _, rankID in ipairs(Private.GetAuraSpellRanks and Private.GetAuraSpellRanks(id) or {id}) do
+        if type(rankID) == "number" then wanted[rankID] = true; any = true end
+      end
+      if Private.CDMSpellTargetsEnemy(id) then harmful = true end
+    end
+  end
+  if not any then return end
+  local unit = harmful and "target" or "player"
+  if unit == "target" then
+    local exists = UnitExists("target")
+    if not Readable(exists) then return end
+    if not exists then state.auraActive = false; return end
+  end
+  local filter = harmful and "HARMFUL|PLAYER" or "HELPFUL|PLAYER"
+  for index = 1, 40 do
+    local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, index, filter)
+    if not ok or not aura then
+      if ok then state.auraActive = false end
+      return
+    end
+    local spellID = aura.spellId
+    -- Secret aura data: the answer stays unknown.
+    if not Readable(spellID) then return end
+    if wanted[spellID] then
+      state.auraActive = true
+      state.cdmAuraUnit, state.cdmAuraFilter = unit, filter
+      state.cdmAuraSourceSeen = true
+      state.cdmAuraRenderUnit, state.cdmAuraRenderSpellIDs = unit, {spellID}
+      local spell = C_Spell.GetSpellInfo(spellID)
+      if spell and spell.iconID then state.icon = spell.iconID end
+      if Readable(aura.dispelName) and type(aura.dispelName) == "string" then state.cdmDispelName = aura.dispelName end
+      state.stacks = Number(aura.applications)
+      local instance = aura.auraInstanceID
+      if Readable(instance) and instance ~= nil and C_UnitAuras.GetAuraDuration then
+        local okD, duration = pcall(C_UnitAuras.GetAuraDuration, unit, instance)
+        if okD and WeakAuras.IsDurationObject(duration) then
+          state.progressType, state.durationObject = "durationObject", duration
+          state.value, state.total = nil, nil
+        end
+      end
+      local duration, expiration = Number(aura.duration), Number(aura.expirationTime)
+      if duration and expiration then
+        if not state.durationObject then SetTimes(state, expiration - duration, duration, aura.timeMod) end
+        state.auraActive = duration == 0 or expiration > GetTime()
+      end
+      return
+    end
+  end
+end
+
 function Private.CDMApplyAura(state, identity, info, frame, exactID, buffSpellIDs)
   ApplyCachedAura(state, identity, info, frame, exactID, buffSpellIDs)
 
@@ -590,6 +700,14 @@ function Private.CDMApplyAura(state, identity, info, frame, exactID, buffSpellID
         else state.auraActive = nil end
       end
     end
+  end
+  -- No viewer frame answers for the entry (it is in no displayed viewer, as
+  -- a Bane's can be): while the unit's auras are readable (out of combat),
+  -- the aura is looked up directly, by its spell IDs with every rank, on the
+  -- target for a harmful spell and on the player otherwise. Secret aura data
+  -- leaves the answer unknown, for the native bindings to draw.
+  if state.auraActive == nil then
+    DirectAuraRead(state, exactID and {exactID} or buffSpellIDs or {identity.spellID})
   end
   if state.auraActive == false then
     state.progressType, state.value, state.total = "static", 1, 1
@@ -628,7 +746,28 @@ function Private.IsCDMBuffText(value, data)
   return trigger and trigger.type == "cdm" and trigger.event == "Blizzard CDM Buff" or false
 end
 
-function Private.CopyCDMCountdownText(destination, state, kind)
+-- The Time Format settings of a text element (its %p placeholder), for a
+-- countdown Blizzard formats from a duration object. Defaults match the
+-- element's own formatter (Types.lua, timed.CreateFormatter).
+local timeStyles = {[0] = true, [99] = true, [1] = -3, [2] = -4}
+function Private.CDMTextFormat(data, token)
+  if not data or not token then return nil end
+  local prefix = "text_text_format_" .. token .. "_time_"
+  local format = data[prefix .. "format"] or 0
+  local legacy = data[prefix .. "legacy_floor"] == true
+  if format == 0 and not legacy then format = 99 end
+  if timeStyles[format] == nil then format = 99 end
+  local threshold = data[prefix .. "dynamic_threshold"]
+  if threshold == nil then threshold = 60 end
+  local precision = data[prefix .. "precision"]
+  if precision == nil then precision = 1 end
+  local modRate = data[prefix .. "mod_rate"]
+  if modRate == nil then modRate = true end
+  return {format = format == 0 and 0 or 99, threshold = threshold, precision = precision, modRate = modRate,
+    tint = data[prefix .. "tint"], style = timeStyles[format]}
+end
+
+function Private.CopyCDMCountdownText(destination, state, kind, settings)
   if kind == "caster" then destination:SetText(""); return end
   if kind == "dispel" then destination:SetText(state and state.show and state.cdmDispelName or ""); return end
   if kind == "s" then kind = "bs" end
@@ -636,9 +775,19 @@ function Private.CopyCDMCountdownText(destination, state, kind)
   -- after its timer finished. Let Blizzard format the duration directly: the
   -- native rules blank zero without inspecting restricted times or strings.
   -- Keep stack counts and the editor's sample on their existing paths.
+  -- The text element's Time Format settings (Increase Precision Below,
+  -- Precision, Blizzard Cooldown Reduction, Old/Modern Blizzard formats)
+  -- apply, as they do to a %p formatted by the element itself; without
+  -- settings the plain whole-second format is used.
   if kind ~= "bs" and state and state.cdmBuff and state.show and not state.cdmTextPreview
       and WeakAuras.IsDurationObject(state.durationObject) then
-    destination:SetText(Private.FormatDurationText(state.durationObject, false, 99, 0, 0))
+    if settings then
+      local ok, text = pcall(Private.FormatDurationText, state.durationObject, false, settings.format, settings.threshold,
+        settings.precision, settings.modRate, settings.tint, settings.style)
+      destination:SetText(ok and text or "")
+    else
+      destination:SetText(Private.FormatDurationText(state.durationObject, false, 99, 0, 0))
+    end
     return
   end
   local source = state and state.show and (kind == "bs" and state.cdmStackSource or kind ~= "bs" and state.cdmCountdownSource)

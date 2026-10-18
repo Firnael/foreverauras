@@ -773,7 +773,7 @@ function OptionsPrivate.CreateFrame()
   if C_CooldownViewer then
     local hideCDM = AceGUI:Create("CheckBox")
     hideCDM:SetLabel("Hide Blizzard's CDM")
-    hideCDM:SetWidth(190)
+    hideCDM:SetWidth(150)
     hideCDM:SetValue(OptionsPrivate.Private.db.cdmHideBlizzard == true)
     hideCDM:SetCallback("OnValueChanged", function(_, _, value)
       OptionsPrivate.Private.db.cdmHideBlizzard = value
@@ -791,6 +791,31 @@ function OptionsPrivate.CreateFrame()
     hideCDM.frame:HookScript("OnShow", function() hideCDM:SetValue(OptionsPrivate.Private.db.cdmHideBlizzard == true) end)
     hideCDM.frame:SetPoint("LEFT", magnetButton.frame, "RIGHT", 10, 0)
     hideCDM.frame:Show()
+
+    -- Runs the class-pack CDM setup (/fa cdmsetup) from the toolbar: every
+    -- catalog buff tracked, hidden spell cooldowns restored, viewers always
+    -- visible, Blizzard's CDM hidden, then a reload. It asks before changing
+    -- anything, out of combat only.
+    local setupCDM = AceGUI:Create("WeakAurasToolbarButton")
+    setupCDM:SetText(L["Set Up CDM"])
+    setupCDM:SetTexture("Interface\\AddOns\\ForeverAuras\\Media\\Textures\\gear")
+    setupCDM:SetCallback("OnClick", function()
+      if InCombatLockdown() then
+        WeakAuras.prettyPrint(L["CDM setup runs out of combat."])
+        return
+      end
+      StaticPopup_Show("FOREVERAURAS_CDM_SETUP_CONFIRM")
+    end)
+    setupCDM:SetCallback("OnEnter", function(widget)
+      GameTooltip:SetOwner(widget.frame, "ANCHOR_RIGHT")
+      GameTooltip:SetText(L["Set Up CDM"])
+      GameTooltip:AddLine(L["Sets up Blizzard's Cooldown Manager for ForeverAuras: tracks every buff and spell cooldown it lists, sets the viewers to Always visible, hides Blizzard's own display and reloads. Your current CDM and Edit Mode settings are backed up. Same as /fa cdmsetup."], 1, 1, 1, true)
+      GameTooltip:Show()
+    end)
+    setupCDM:SetCallback("OnLeave", function() GameTooltip:Hide() end)
+    setupCDM.frame:SetParent(toolbarContainer)
+    setupCDM.frame:SetPoint("LEFT", hideCDM.frame, "RIGHT", 0, 0)
+    setupCDM.frame:Show()
   end
 
   local loadProgress = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")

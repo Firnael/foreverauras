@@ -1,6 +1,7 @@
 -- Modified for ForeverAuras
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 ---@class OptionsPrivate
 local OptionsPrivate = select(2, ...)
 
@@ -17,7 +18,7 @@ end
 OptionsPrivate.IconLibrary = {
   root = "Interface\\AddOns\\ForeverAuras\\Media\\Icons\\",
   folders = {
-    { name = "Assets", path = "Assets\\", files = {
+    { name = L["Assets"], path = "Assets\\", files = {
       "arrow_down.tga", "arrow_left.tga", "arrow_right.tga", "arrow_up.tga", "check.tga", "chevron.tga",
       "clock.tga", "cross.tga", "diamond.tga", "dot.tga", "exclamation.tga", "gear.tga",
       "play.tga", "reset.tga", "ring.tga", "role_damage.tga", "role_damage_badge.tga", "role_damage_color.tga",
@@ -38,7 +39,7 @@ OptionsPrivate.IconLibrary = {
       { "Ready Check Waiting", 136815 },
     },
     },
-    { name = "Emojis", path = "Emojis\\", files = {
+    { name = L["Emojis"], path = "Emojis\\", files = {
       "0Head.tga", "1Head.tga", "2Head.tga", "3Head.tga", "3Lass.tga", "4HEad.tga",
       "4HEader.tga", "4House.tga", "4Mansion.tga", "4peepo.tga", "4Shrug.tga", "4Weird.tga",
       "4WeirdW.tga", "5Champ.tga", "5Hard.tga", "5Head.tga", "AMAZINGA.tga", "ANGERY.tga",
@@ -172,7 +173,7 @@ OptionsPrivate.IconLibrary = {
       "zxGary.tga", "ZXSaiko.tga",
     },
     },
-    { name = "FojjiCore", root = FOJJI_ROOT, addon = "FojjiCore", path = "", files = {
+    { name = L["FojjiCore"], root = FOJJI_ROOT, addon = "FojjiCore", path = "", files = {
       "arcane_missiles.blp", "arcane_missiles_1.blp", "arcane_missiles_2.blp", "arcane_missiles_3.blp", "art_of_war.blp", "Back_1_Overlay.png",
       "Back_2_Overlay.png", "backlash.blp", "backlash_green.blp", "bandits_guile.blp", "Bashful.blp", "berserk.blp",
       "Berserk.tga", "blood_boil.blp", "Blood_Boil.tga", "blood_surge.blp", "Bowling.blp", "brain_freeze.blp",
@@ -195,7 +196,7 @@ OptionsPrivate.IconLibrary = {
       "sword_and_board.blp", "t_star3.blp", "Terrorists.blp", "Tetsuhands.blp", "TetsuPog.blp", "thrill_of_the_hunt_1.blp",
       "thrill_of_the_hunt_2.blp", "thrill_of_the_hunt_3.blp", "tooth_and_claw.blp", "ultimatum.blp", "Weapon_c4.blp", "white_tiger.blp",
     } },
-    { name = "FojjiCore: BTTV+FFZ", root = FOJJI_ROOT, addon = "FojjiCore", path = "BTTV+FFZ\\", files = {
+    { name = L["FojjiCore: BTTV+FFZ"], root = FOJJI_ROOT, addon = "FojjiCore", path = "BTTV+FFZ\\", files = {
       "4HEad.tga", "BBona.tga", "bUrself.tga", "ChogPamp.tga", "CiGrip.tga", "ConcernDoge.tga",
       "DogeWitIt.tga", "emDface.tga", "eShrug.tga", "FapFapFap.tga", "FishMoley.tga", "ForeverAlone.tga",
       "FuckYea.tga", "GabeN.tga", "gachiBASS.tga", "gachiGASM.tga", "haHAA.tga", "HammerTime.tga",
@@ -206,7 +207,7 @@ OptionsPrivate.IconLibrary = {
       "PotFriend.tga", "PowerUpL.tga", "PowerUpR.tga", "Thonk.tga", "tooDank.tga", "VapeNation.tga",
       "weSmart.tga", "Wowee.tga", "ZULOL.tga", "ZULUL.tga",
     } },
-    { name = "FojjiCore: DungeonJournal", root = FOJJI_ROOT, addon = "FojjiCore", path = "DungeonJournal\\", files = {
+    { name = L["FojjiCore: DungeonJournal"], root = FOJJI_ROOT, addon = "FojjiCore", path = "DungeonJournal\\", files = {
       "mark-aoe.tga", "mark-arrow.tga", "mark-chest.tga", "mark-cross.tga", "mark-door.tga", "mark-eye.tga",
       "mark-finish.tga", "mark-flag.tga", "mark-heal.tga", "mark-patrol.tga", "mark-question.tga", "mark-shield.tga",
       "mark-skull.tga", "mark-sleep.tga", "mark-stairs.tga", "mark-star.tga", "mark-swords.tga", "mark-warn.tga",
@@ -215,10 +216,10 @@ OptionsPrivate.IconLibrary = {
       "ui-ring.tga", "ui-route.tga", "ui-stamp.tga", "ui-trash.tga", "ui-undo.tga", "ui-waypoint.tga",
       "ui-wowpin.tga",
     } },
-    { name = "FojjiCore: DungeonMaps", root = FOJJI_ROOT, addon = "FojjiCore", path = "DungeonMaps\\", files = {
+    { name = L["FojjiCore: DungeonMaps"], root = FOJJI_ROOT, addon = "FojjiCore", path = "DungeonMaps\\", files = {
       "Dalaran1.tga", "Dalaran2.tga", "Excavation1.tga", "WailingCaverns1.tga",
     } },
-    { name = "FojjiCore: FojjiIcons", root = FOJJI_ROOT, addon = "FojjiCore", path = "FojjiIcons\\", files = {
+    { name = L["FojjiCore: FojjiIcons"], root = FOJJI_ROOT, addon = "FojjiCore", path = "FojjiIcons\\", files = {
       "F_icon_blue.png", "F_icon_blue_flat.png", "F_icon_brown.png", "F_icon_brown_flat.png", "F_icon_green.png", "F_icon_ink.png",
       "F_icon_lightblue.png", "F_icon_lightblue.tga", "F_icon_minimap.tga", "F_icon_minimap_arc.tga", "F_icon_minimap_base.tga", "F_icon_orange.png",
       "F_icon_pink.png", "F_icon_purple.png", "F_icon_red.png", "F_icon_teal.png", "F_icon_yellow.png", "F_logo_arc.tga",
@@ -228,7 +229,7 @@ OptionsPrivate.IconLibrary = {
       "nuLogo_GOLDRED.png", "nuLogo_GREEN.png", "nuLogo_HORDE.png", "nuLogo_LIGHTBLUE.png", "nuLogo_ORGRIMMAR.png", "nuLogo_SHAGREEN.png",
       "nuLogo_WHITE.png", "nuLogo_WHITERED.jpg",
     } },
-    { name = "FojjiCore: GuildEmotes", root = FOJJI_ROOT, addon = "FojjiCore", path = "GuildEmotes\\", files = {
+    { name = L["FojjiCore: GuildEmotes"], root = FOJJI_ROOT, addon = "FojjiCore", path = "GuildEmotes\\", files = {
       "0Head.tga", "1Head.tga", "2Head.tga", "3Head.tga", "3Lass.tga", "4HEader.tga",
       "4House.tga", "4Mansion.tga", "4Shrug.tga", "4Town.tga", "4Weird.tga", "4WeirdW.tga",
       "5Champ.tga", "5Hard.tga", "5Head.tga", "AMAZINGA.tga", "ANGERY.tga", "AngeryCry.tga",
@@ -266,15 +267,15 @@ OptionsPrivate.IconLibrary = {
       "ZFeral.tga", "ZkkOna.tga", "ZOINKS.tga", "Zoomer.tga", "ZShelia.tga", "zxEpic.tga",
       "zxGary.tga", "ZXSaiko.tga",
     } },
-    { name = "FojjiCore: MemeArt", root = FOJJI_ROOT, addon = "FojjiCore", path = "MemeArt\\", files = {
+    { name = L["FojjiCore: MemeArt"], root = FOJJI_ROOT, addon = "FojjiCore", path = "MemeArt\\", files = {
       "JurassicPark.png", "JurassicParkFull.png",
     } },
-    { name = "FojjiCore: Naxx Pack Icons", root = FOJJI_ROOT, addon = "FojjiCore", path = "Naxx Pack Icons\\", files = {
+    { name = L["FojjiCore: Naxx Pack Icons"], root = FOJJI_ROOT, addon = "FojjiCore", path = "Naxx Pack Icons\\", files = {
       "1107-icon.tga", "1108-icon.tga", "1109-icon.tga", "1110-icon.tga", "1111-icon.tga", "1112-icon.tga",
       "1113-icon.tga", "1114-icon.tga", "1115-icon.tga", "1116-icon.tga", "1117-icon.tga", "1118-icon.tga",
       "1119-icon.tga", "1120-icon.tga", "1121-icon.tga",
     } },
-    { name = "FojjiCore: Pepes", root = FOJJI_ROOT, addon = "FojjiCore", path = "Pepes\\", files = {
+    { name = L["FojjiCore: Pepes"], root = FOJJI_ROOT, addon = "FojjiCore", path = "Pepes\\", files = {
       "4peepo.tga", "Awakge.tga", "Bedge.tga", "Bedges.tga", "BedgeTogether.tga", "binocs.tga",
       "Blushge.tga", "BOOFA.tga", "Boolin.tga", "Borpa.tga", "BorpaL.tga", "BorpaU.tga",
       "Catge.tga", "ClownBall.tga", "Clownge.tga", "ClownPain.tga", "COGGERS.tga", "Copege.tga",
@@ -364,7 +365,7 @@ OptionsPrivate.IconLibrary = {
       "Wipege.tga", "WOAW.tga", "Wokege.tga", "Wokegesus.tga", "YEP.tga", "Yepge.tga",
       "YIKERS.tga",
     } },
-    { name = "FojjiCore: Speedrun", root = FOJJI_ROOT, addon = "FojjiCore", path = "Speedrun\\", files = {
+    { name = L["FojjiCore: Speedrun"], root = FOJJI_ROOT, addon = "FojjiCore", path = "Speedrun\\", files = {
       "boss\\akama.tga", "boss\\akilzon.tga", "boss\\alar.tga", "boss\\anetheron.tga", "boss\\archimonde.tga", "boss\\azgalor.tga",
       "boss\\brutallus.tga", "boss\\council.tga", "boss\\felmyst.tga", "boss\\gruul.tga", "boss\\gurtogg.tga", "boss\\hydross.tga",
       "boss\\illidan.tga", "boss\\janalai.tga", "boss\\kaelthas.tga", "boss\\kalecgos.tga", "boss\\karathress.tga", "boss\\kazrogal.tga",
@@ -385,7 +386,7 @@ OptionsPrivate.IconLibrary = {
       "instance\\558.tga", "instance\\560.tga", "instance\\564.tga", "instance\\565.tga", "instance\\568.tga", "instance\\580.tga",
       "instance\\585.tga", "instance\\70.tga", "instance\\90.tga", "play.tga", "reset.tga", "stop.tga",
     } },
-    { name = "FojjiCore: TBC Icon", root = FOJJI_ROOT, addon = "FojjiCore", path = "TBC Icon\\", files = {
+    { name = L["FojjiCore: TBC Icon"], root = FOJJI_ROOT, addon = "FojjiCore", path = "TBC Icon\\", files = {
       "Abomination.png", "akama.jpg", "akilzon.jpg", "alar.jpg", "anetheron.jpg", "archimonde.jpg",
       "azgalor.jpg", "Banshee.png", "brutallus.jpg", "council.jpg", "CryptFiend.png", "felmyst.jpg",
       "FrostWyrm.png", "Gargoyle.png", "Ghoul.png", "gruul.jpg", "gurtogg.jpg", "hydross.jpg",
@@ -395,17 +396,17 @@ OptionsPrivate.IconLibrary = {
       "ragewinterchill.jpg", "reliquary.jpg", "shahraz.jpg", "solarian.jpg", "supremus.jpg", "teron.jpg",
       "Thrall.png", "tidewalker.jpg", "twins.jpg", "vashj.jpg", "voidreaver.jpg", "zuljin.jpg",
     } },
-    { name = "FojjiCore: Themes", root = FOJJI_ROOT, addon = "FojjiCore", path = "Themes\\", files = {
+    { name = L["FojjiCore: Themes"], root = FOJJI_ROOT, addon = "FojjiCore", path = "Themes\\", files = {
       "glow-radial.tga", "pat-diag.tga", "pat-dots.tga", "pat-grid.tga", "pat-hex.tga", "pat-leaves.tga",
       "pat-scales.tga", "pat-sparkle.tga", "pat-stars.tga",
     } },
-    { name = "FojjiCore: Throne of Thunder", root = FOJJI_ROOT, addon = "FojjiCore", path = "Throne of Thunder\\", files = {
+    { name = L["FojjiCore: Throne of Thunder"], root = FOJJI_ROOT, addon = "FojjiCore", path = "Throne of Thunder\\", files = {
       "ArcaneSnek.png", "ArrowDown.png", "ArrowDownWhite.png", "ArrowDownWhite.tga", "ArrowUp.png", "ArrowUpWhite.png",
       "ArrowUpWhite.tga", "FireSnek.png", "FrostSnek.png", "GarySnail.png", "MarioKart1.png", "MarioKart2.png",
       "MarioKart3.png", "MarioKartGraphicsGo.png", "NatureSnek.png", "Shell-Green-icon.png", "TwinsOverlayChiji.png", "TwinsOverlayNiuzao.png",
       "TwinsOverlayXuen.png", "TwinsOverlayYulon.png", "TwinsRoom.png",
     } },
-    { name = "FojjiCore: UI", root = FOJJI_ROOT, addon = "FojjiCore", path = "UI\\", files = {
+    { name = L["FojjiCore: UI"], root = FOJJI_ROOT, addon = "FojjiCore", path = "UI\\", files = {
       "anchor.blp", "arrow-down.blp", "arrow-up-down.blp", "arrow-up.blp", "badge-disc.tga", "badge-glow.tga",
       "badge-ring.tga", "bell.blp", "calendar.blp", "check.blp", "chevron-down.blp", "chevron-left.blp",
       "chevron-right.blp", "chevron-up.blp", "clock.blp", "close-cross.tga", "copy.blp", "download.blp",

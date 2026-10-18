@@ -20,6 +20,7 @@
 -- unit. The shadows are chained backwards from the centre point; their far
 -- end is where the visible row starts, so the row stays centred.
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 local _, Private = ...
 -- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
 local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("SecretAuraFlow")
@@ -67,8 +68,8 @@ local function FreshFrame(flow, key, sizeKey, region)
   return frame
 end
 
-Display.flowGrowths = {RIGHT = "Right", LEFT = "Left", DOWN = "Down", UP = "Up",
-  CENTER_HORIZONTAL = "Centered Horizontal", CENTER_VERTICAL = "Centered Vertical"}
+Display.flowGrowths = {RIGHT = L["Right"], LEFT = L["Left"], DOWN = L["Down"], UP = L["Up"],
+  CENTER_HORIZONTAL = L["Centered Horizontal"], CENTER_VERTICAL = L["Centered Vertical"]}
 
 -- Per growth: the corner a child's content starts from, the corner of an
 -- Aura(s) Found container where the next child starts (with the pixel an
@@ -175,7 +176,7 @@ function Display.FlowGrowth(data)
   return GrowthKey(group), Display.FlowSpacing(group, region, (g.sign[1] ~= 0) and width or height)
 end
 
-Display.flowFrameModes = {SCREEN = "Screen", UNITFRAME = "Unit Frames", NAMEPLATE = "Nameplates"}
+Display.flowFrameModes = {SCREEN = L["Screen"], UNITFRAME = L["Unit Frames"], NAMEPLATE = L["Nameplates"]}
 
 -- "UNITFRAME" or "NAMEPLATE" when the group places its displays on each
 -- unit's frame, else nil.
@@ -187,7 +188,7 @@ end
 
 Display.flowSortModes = {
   none = "None", ascending = "Ascending", descending = "Descending",
-  expiration = "Remaining time (Blizzard priority)", name = "Name", namePriority = "Name (Blizzard priority)",
+  expiration = "Remaining time (Blizzard priority)", name = L["Name"], namePriority = "Name (Blizzard priority)",
   blizzard = "Blizzard default", important = "Importance only", bigDefensive = "Big defensives", applied = "Order applied",
 }
 Display.flowSortOrder = {"ascending", "descending", "expiration", "name", "namePriority", "blizzard", "important", "bigDefensive", "applied", "none"}
@@ -244,13 +245,13 @@ end
 -- Why this display cannot join its Modern Aura Group's growth, or nil.
 function Display.FlowProblem(data, trigger)
   if not Display.FlowGroup(data) then return end
-  if not Display.missingTypes[data.regionType] then return "In a Modern Aura Group, use an Icon, Progress Bar, Progress Texture or Text display." end
-  if Display.RemainingWindow(trigger) and Display.FlowGrid(Display.FlowGroup(data)) then return "In a Grid, Remaining Time is not available." end
+  if not Display.missingTypes[data.regionType] then return L["In a Modern Aura Group, use an Icon, Progress Bar, Progress Texture or Text display."] end
+  if Display.RemainingWindow(trigger) and Display.FlowGrid(Display.FlowGroup(data)) then return L["In a Grid, Remaining Time is not available."] end
   local mode = Display.FlowFrameMode(data)
   if mode then
-    if Display.IsSingle(trigger) and not Display.NeedsMissing(trigger) then return "Grouped by unit frame or nameplate, use Show On: Aura(s) Found." end
-    if mode == "NAMEPLATE" and trigger.unit ~= "nameplate" then return "Grouped by nameplate, choose the Nameplate unit." end
-    if mode == "UNITFRAME" and trigger.unit == "nameplate" then return "Grouped by unit frame, choose a unit other than Nameplate." end
+    if Display.IsSingle(trigger) and not Display.NeedsMissing(trigger) then return L["Grouped by unit frame or nameplate, use Show On: Aura(s) Found."] end
+    if mode == "NAMEPLATE" and trigger.unit ~= "nameplate" then return L["Grouped by nameplate, choose the Nameplate unit."] end
+    if mode == "UNITFRAME" and trigger.unit == "nameplate" then return L["Grouped by unit frame, choose a unit other than Nameplate."] end
   end
 end
 
@@ -1159,12 +1160,12 @@ function Display.FlowNormalProblem(data)
     if type(entry) == "table" and type(entry.trigger) == "table" and entry.trigger.type == "secretAura" then return end
   end
   if data.regionType == "group" or data.regionType == "dynamicgroup" then
-    return "Groups inside a Modern Aura Group keep their own position."
+    return L["Groups inside a Modern Aura Group keep their own position."]
   end
   if group.blizzardFlowFrames ~= nil or Display.FlowGrid(group) then
-    return "With Grid or Group by Frame, only Aura (Modern) displays line up. This display keeps its own position."
+    return L["With Grid or Group by Frame, only Aura (Modern) displays line up. This display keeps its own position."]
   end
-  return "Anchored to a unit frame, nameplate, the mouse or a custom anchor, this display keeps its own position."
+  return L["Anchored to a unit frame, nameplate, the mouse or a custom anchor, this display keeps its own position."]
 end
 
 local function NormalSize(region, data)
@@ -1976,7 +1977,7 @@ function Display.RechainFlow(group)
         modernFlows[#modernFlows + 1] = flow
         if flow.stand then NormalWarning(normal, nil); Display.SyncStandSecure(region, normal); PlaceNormalRegion(region, normal) end
       elseif g.shadow then
-        NormalWarning(normal, "With Centered growth, only icons and texts line up. This display keeps its own position.")
+        NormalWarning(normal, L["With Centered growth, only icons and texts line up. This display keeps its own position."])
         PlaceNormalRegion(region, normal)
       else
         NormalWarning(normal, nil)

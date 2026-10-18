@@ -1,6 +1,7 @@
 -- Modified for ForeverAuras, 2026-10-08.
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 local _, Private = ...
 -- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
 local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("BlizzardAuraDisplay")
@@ -30,10 +31,10 @@ end
 local unitGlowFrameLevel = 8
 
 Display.units = {
-  player = "Player", target = "Target", focus = "Focus", pet = "Pet", mouseover = "Mouseover",
-  targettarget = "Target of Target", focustarget = "Target of Focus", pettarget = "Pet Target", group = "Smart Group",
-  party = "Party", raid = "Raid", boss = "Boss", arena = "Arena", nameplate = "Nameplate",
-  member = "Specific Unit",
+  player = L["Player"], target = L["Target"], focus = L["Focus"], pet = L["Pet"], mouseover = L["Mouseover"],
+  targettarget = L["Target of Target"], focustarget = L["Target of Focus"], pettarget = L["Pet Target"], group = L["Smart Group"],
+  party = L["Party"], raid = L["Raid"], boss = L["Boss"], arena = L["Arena"], nameplate = L["Nameplate"],
+  member = L["Specific Unit"],
 }
 
 local specificUnitPatterns = {
@@ -61,15 +62,15 @@ function Display.UnitCategory(trigger)
 end
 
 Display.booleanFilters = {
-  {"isFromPlayerOrPlayerPet", "Cast by a Player", "Auras cast by any player or player pet, not only yours. For your own auras, use Own Only."},
-  {"canApplyAura", "Can Apply Aura", "Auras Blizzard says your character can apply."},
-  {"isStealable", "Is Stealable", "Buffs that can be stolen with abilities such as Spellsteal."},
-  {"isBossAura", "Is Boss Aura", "Auras Blizzard identifies as boss auras."},
-  {"isRoleAura", "Role aura", "Auras Blizzard marks as relevant to your role."},
-  {"isBossOrRoleAura", "Boss or role aura", "Auras Blizzard identifies as boss auras or marks as relevant to your role."},
-  {"isPriorityAura", "Priority debuff", "Debuffs Blizzard marks as high priority."},
-  {"nameplateShowAll", "Marked for all nameplates", "Auras Blizzard marks for display on all nameplates."},
-  {"nameplateShowPersonal", "Marked for personal debuff display", "Auras Blizzard marks for its personal-debuff display on nameplates."},
+  {"isFromPlayerOrPlayerPet", L["Cast by a Player"], L["Auras cast by any player or player pet, not only yours. For your own auras, use Own Only."]},
+  {"canApplyAura", L["Can Apply Aura"], L["Auras Blizzard says your character can apply."]},
+  {"isStealable", L["Is Stealable"], L["Buffs that can be stolen with abilities such as Spellsteal."]},
+  {"isBossAura", L["Is Boss Aura"], L["Auras Blizzard identifies as boss auras."]},
+  {"isRoleAura", L["Role aura"], L["Auras Blizzard marks as relevant to your role."]},
+  {"isBossOrRoleAura", L["Boss or role aura"], L["Auras Blizzard identifies as boss auras or marks as relevant to your role."]},
+  {"isPriorityAura", L["Priority debuff"], L["Debuffs Blizzard marks as high priority."]},
+  {"nameplateShowAll", L["Marked for all nameplates"], L["Auras Blizzard marks for display on all nameplates."]},
+  {"nameplateShowPersonal", L["Marked for personal debuff display"], L["Auras Blizzard marks for its personal-debuff display on nameplates."]},
 }
 
 -- The saved Aura (Modern) trigger that drives the display. Options write to
@@ -125,18 +126,18 @@ end
 local function IsNameplateFilter(key)
   return key == "nameplateShowAll" or key == "nameplateShowPersonal"
 end
-Display.dispelTypes = {Magic = "Magic", Curse = "Curse", Disease = "Disease", Poison = "Poison", Bleed = "Bleed", [""] = "Enrage"}
+Display.dispelTypes = {Magic = L["Magic"], Curse = L["Curse"], Disease = L["Disease"], Poison = L["Poison"], Bleed = L["Bleed"], [""] = L["Enrage"]}
 Display.nativeFilters = {
-  {"PLAYER", "Own Only", "Auras cast by you, your pet or your vehicle."},
-  {"RAID", "Can apply / dispel", "Buffs you can apply, or debuffs you can dispel."},
-  {"CANCELABLE", "Cancelable", "Auras that the player can cancel."},
-  {"EXTERNAL_DEFENSIVE", "External defensive", "Auras Blizzard classifies as external defensives."},
-  {"CROWD_CONTROL", "Crowd control", "Auras with a crowd-control effect, such as a stun or fear."},
-  {"RAID_IN_COMBAT", "Shown on raid frames in combat", "Auras flagged by Blizzard for raid-frame display in combat."},
-  {"RAID_PLAYER_DISPELLABLE", "Dispellable by someone in your raid", "Includes helpful enrages on enemies."},
-  {"BIG_DEFENSIVE", "Big defensive", "Auras Blizzard classifies as big defensives."},
-  {"IMPORTANT", "Important aura", "Blizzard's important-aura flag, including non-stealable enemy buffs shown on nameplates."},
-  {"DISPELLABLE", "Dispellable", "Dispellable regardless of your or your raid's current abilities."},
+  {L["PLAYER"], L["Own Only"], L["Auras cast by you, your pet or your vehicle."]},
+  {L["RAID"], L["Can apply / dispel"], L["Buffs you can apply, or debuffs you can dispel."]},
+  {L["CANCELABLE"], L["Cancelable"], L["Auras that the player can cancel."]},
+  {L["EXTERNAL_DEFENSIVE"], L["External defensive"], L["Auras Blizzard classifies as external defensives."]},
+  {L["CROWD_CONTROL"], L["Crowd control"], L["Auras with a crowd-control effect, such as a stun or fear."]},
+  {L["RAID_IN_COMBAT"], L["Shown on raid frames in combat"], L["Auras flagged by Blizzard for raid-frame display in combat."]},
+  {L["RAID_PLAYER_DISPELLABLE"], L["Dispellable by someone in your raid"], L["Includes helpful enrages on enemies."]},
+  {L["BIG_DEFENSIVE"], L["Big defensive"], L["Auras Blizzard classifies as big defensives."]},
+  {L["IMPORTANT"], L["Important aura"], L["Blizzard's important-aura flag, including non-stealable enemy buffs shown on nameplates."]},
+  {L["DISPELLABLE"], L["Dispellable"], L["Dispellable regardless of your or your raid's current abilities."]},
 }
 
 function Display.FilterApplies(key, trigger)
@@ -155,17 +156,17 @@ local function FilterString(trigger)
   return table.concat(filters, "|")
 end
 Display.sortMethods = {
-  Default = "Blizzard default", BigDefensive = "Big defensives", UnitFrameDebuff = "Blizzard debuff order",
-  ImportantOnly = "Importance only", Expiration = "Remaining time (Blizzard priority)",
-  ExpirationOnly = "Remaining time", Name = "Name (Blizzard priority)", NameOnly = "Name",
-  AuraInstanceIDOnly = "Order applied",
+  Default = L["Blizzard default"], BigDefensive = L["Big defensives"], UnitFrameDebuff = L["Blizzard debuff order"],
+  ImportantOnly = L["Importance only"], Expiration = L["Remaining time (Blizzard priority)"],
+  ExpirationOnly = L["Remaining time"], Name = L["Name (Blizzard priority)"], NameOnly = L["Name"],
+  AuraInstanceIDOnly = L["Order applied"],
 }
-Display.processedTypes = {any = "Any (no classification)", Buff = "Buff", Debuff = "Debuff", Dispel = "Dispellable raid debuff"}
+Display.processedTypes = {any = L["Any (no classification)"], Buff = L["Buff"], Debuff = L["Debuff"], Dispel = L["Dispellable raid debuff"]}
 Display.processingOptions = {
-  {"displayOnlyDispellableDebuffs", "Use dispellable-debuff classification"},
-  {"ignoreBuffs", "Ignore buff classification"},
-  {"ignoreDebuffs", "Ignore debuff classification"},
-  {"ignoreDispelDebuffs", "Ignore dispel classification"},
+  {"displayOnlyDispellableDebuffs", L["Use dispellable-debuff classification"]},
+  {"ignoreBuffs", L["Ignore buff classification"]},
+  {"ignoreDebuffs", L["Ignore debuff classification"]},
+  {"ignoreDispelDebuffs", L["Ignore dispel classification"]},
 }
 
 -- Spell Lists: a trigger can take its spell IDs (and a name, icon and label)
@@ -445,60 +446,60 @@ end
 function Display.Validate(data)
   if not Display.Eligible(data) then
     if Display.HasTrigger(data) and data.regionType ~= "icon" and data.regionType ~= "aurabar" and data.regionType ~= "text" and data.regionType ~= "progresstexture" then
-      return "Aura (Modern) works on Icon, Progress Bar, Progress Texture and Text displays."
+      return L["Aura (Modern) works on Icon, Progress Bar, Progress Texture and Text displays."]
     end
-    return "Set Dynamic Information to this trigger."
+    return L["Set Dynamic Information to this trigger."]
   end
   if data.regionType == "progresstexture" and Private.ProgressTextureNative.IsCircular(data.orientation) and not Enum.StatusBarRenderMode then
-    return "This client does not support native circular Progress Textures."
+    return L["This client does not support native circular Progress Textures."]
   end
   local appearanceProblem = Display.ValidateAppearance(Display.PrepareConditionAppearance(data))
   if appearanceProblem then return appearanceProblem end
   local trigger = Display.GetTrigger(data, true)
-  if Display.UsesSpellIDs(trigger) and #(trigger.auraspellids or {}) == 0 and not Display.UsesSpellList(trigger) then return "Enter an exact spell ID, or untick Exact Spell IDs to show all matching auras." end
-  if Display.UsesRankSpellIDs(trigger) and #(trigger.auraRankSpellIDs or {}) == 0 then return "Enter a spell ID, or untick Spell ID(s) (All Ranks)." end
-  if Display.UsesExcludedSpellIDs(trigger) and #(trigger.excludedAuraSpellIDs or {}) == 0 then return "Enter an ignored spell ID, or untick Ignored Exact Spell IDs." end
+  if Display.UsesSpellIDs(trigger) and #(trigger.auraspellids or {}) == 0 and not Display.UsesSpellList(trigger) then return L["Enter an exact spell ID, or untick Exact Spell IDs to show all matching auras."] end
+  if Display.UsesRankSpellIDs(trigger) and #(trigger.auraRankSpellIDs or {}) == 0 then return L["Enter a spell ID, or untick Spell ID(s) (All Ranks)."] end
+  if Display.UsesExcludedSpellIDs(trigger) and #(trigger.excludedAuraSpellIDs or {}) == 0 then return L["Enter an ignored spell ID, or untick Ignored Exact Spell IDs."] end
   if not Display.units[trigger.unit] or (trigger.debuffType ~= "HELPFUL" and trigger.debuffType ~= "HARMFUL") then
-    return "Choose a supported unit and Buff or Debuff."
+    return L["Choose a supported unit and Buff or Debuff."]
   end
   if trigger.unit == "member" and not Display.SpecificUnit(trigger) then
-    return "Enter a Specific Unit such as party1, raid5, boss1 or arena2."
+    return L["Enter a Specific Unit such as party1, raid5, boss1 or arena2."]
   end
   if trigger.unit == "nameplate" and (not C_NamePlate or not C_NamePlate.GetNamePlateForUnit) then
-    return "This client does not expose nameplate frames."
+    return L["This client does not expose nameplate frames."]
   end
   for _, list in ipairs({trigger.auraspellids or {}, trigger.auraRankSpellIDs or {}, trigger.excludedAuraSpellIDs or {}}) do
     for _, value in ipairs(list) do
       local id = tonumber(value)
       if not id or id <= 0 or id == math.huge or id ~= math.floor(id) then
-        return "Each aura spell ID must be a positive whole number."
+        return L["Each aura spell ID must be a positive whole number."]
       end
     end
   end
   for _, field in ipairs(Display.booleanFilters) do
-    if trigger[field[1]] ~= nil and type(trigger[field[1]]) ~= "boolean" then return "Invalid aura filter: " .. field[2] end
+    if trigger[field[1]] ~= nil and type(trigger[field[1]]) ~= "boolean" then return L["Invalid aura filter: %s"]:format(field[2]) end
   end
   for _, field in ipairs(Display.processingOptions) do
-    if trigger[field[1]] ~= nil and type(trigger[field[1]]) ~= "boolean" then return "Invalid classification option: " .. field[2] end
+    if trigger[field[1]] ~= nil and type(trigger[field[1]]) ~= "boolean" then return L["Invalid classification option: %s"]:format(field[2]) end
   end
   if trigger.maxDuration ~= nil and (type(trigger.maxDuration) ~= "number" or trigger.maxDuration <= 0
-    or trigger.maxDuration == math.huge or trigger.maxDuration ~= trigger.maxDuration) then return "Maximum total duration must be a positive number." end
-  if trigger.sortMethod and not Display.sortMethods[trigger.sortMethod] then return "Choose a supported sort order." end
+    or trigger.maxDuration == math.huge or trigger.maxDuration ~= trigger.maxDuration) then return L["Maximum total duration must be a positive number."] end
+  if trigger.sortMethod and not Display.sortMethods[trigger.sortMethod] then return L["Choose a supported sort order."] end
   if trigger.sortMethod == "UnitFrameDebuff" and trigger.processedAuraType ~= "Debuff" and trigger.processedAuraType ~= "Dispel" then
-    return "Unit-frame debuff sorting requires the Debuff or Dispellable raid debuff classification."
+    return L["Unit-frame debuff sorting requires the Debuff or Dispellable raid debuff classification."]
   end
-  if trigger.processedAuraType and not Display.processedTypes[trigger.processedAuraType] then return "Choose a supported Blizzard classification." end
+  if trigger.processedAuraType and not Display.processedTypes[trigger.processedAuraType] then return L["Choose a supported Blizzard classification."] end
   local nativeKeys = {}
   for _, field in ipairs(Display.nativeFilters) do nativeKeys[field[1]] = true end
   for key, value in pairs(trigger.nativeFilters or {}) do
-    if not nativeKeys[key] or type(value) ~= "boolean" then return "Choose supported Blizzard aura filters." end
+    if not nativeKeys[key] or type(value) ~= "boolean" then return L["Choose supported Blizzard aura filters."] end
   end
   if AuraUtil and AuraUtil.IsValidFilterString and not AuraUtil.IsValidFilterString(FilterString(trigger)) then
-    return "This client does not support the selected Blizzard aura filters."
+    return L["This client does not support the selected Blizzard aura filters."]
   end
   for _, field in ipairs({"includeDispelTypes", "excludeDispelTypes"}) do
     for name, value in pairs(trigger[field] or {}) do
-      if not Display.dispelTypes[name] or value ~= true then return "Choose supported dispel types." end
+      if not Display.dispelTypes[name] or value ~= true then return L["Choose supported dispel types."] end
     end
   end
   -- Show On and Remaining Time have their own unit and display rules.
@@ -514,17 +515,17 @@ function Display.Validate(data)
     if when ~= "init" then
       for key, value in pairs(action) do
         if key:match("^do_") and key ~= "do_sound" and key ~= "do_message" and value then
-          return "Secret Aura trigger detected. Only Chat Message, Play Sound and Hide Glows are supported in On Show/On Hide. Custom Init is available."
+          return L["Secret Aura trigger detected. Only Chat Message, Play Sound and Hide Glows are supported in On Show/On Hide. Custom Init is available."]
         end
       end
       if action.stop_sound or (action.do_sound and action.sound == " KitID") then
-        return "Secret aura sounds support sound files, not Sound Kit IDs or Stop Sound."
+        return L["Secret aura sounds support sound files, not Sound Kit IDs or Stop Sound."]
       end
     end
   end
   for _, animation in pairs(data.animation or {}) do
     if animation.type and animation.type ~= "none" then
-      return "Secret Aura trigger detected. You cannot use Animations on this aura."
+      return L["Secret Aura trigger detected. You cannot use Animations on this aura."]
     end
   end
 end
@@ -556,13 +557,13 @@ end
 function Private.ResolveFojjiRecordedSound(value)
   local db = FojjiCoreDB
   if not FojjiCore or not db then return nil, "FojjiCore is not loaded." end
-  if db.disableTTS then return nil, "Speech is disabled in FojjiCore." end
+  if db.disableTTS then return nil, L["Speech is disabled in FojjiCore."] end
   if db.ttsVoiceType ~= "custom" or db.ttsRandomFavorites then
-    return nil, "Select one recorded voice pack in FojjiCore. Recorded sounds cannot use synthesized TTS or random favorites."
+    return nil, L["Select one recorded voice pack in FojjiCore. Recorded sounds cannot use synthesized TTS or random favorites."]
   end
   local pack = FojjiCore.voicePacks and FojjiCore.voicePacks[db.ttsVoicePack]
   local file = pack and pack[value]
-  if not file then return nil, "No recording for '" .. value .. "' in the selected FojjiCore voice pack." end
+  if not file then return nil, L["No recording for '%s' in the selected FojjiCore voice pack."]:format(value) end
   return file
 end
 
@@ -641,7 +642,7 @@ local function SyncSounds(region)
   if not ((actions.start or {}).do_sound or (actions.finish or {}).do_sound) then return end
   if not C_UnitAuras or not C_UnitAuras.AddAuraSound or not C_UnitAuras.RemoveAuraSound
     or not Enum.UnitAuraSoundTrigger then
-    SoundWarning(data, "This client does not provide native aura sound registration.")
+    SoundWarning(data, L["This client does not provide native aura sound registration."])
     return
   end
   local trigger = Display.GetTrigger(data)
@@ -657,7 +658,7 @@ local function SyncSounds(region)
     end
   end
   if not next(spellIDs) then
-    SoundWarning(data, "Enable Spell ID(s) or Exact Spell ID(s) in Trigger and enter an ID that is not ignored to use aura sounds.")
+    SoundWarning(data, L["Enable Spell ID(s) or Exact Spell ID(s) in Trigger and enter an ID that is not ignored to use aura sounds."])
     return
   end
   local failure
@@ -679,7 +680,7 @@ local function SyncSounds(region)
       end
       if not file or file == "" or file == 1 then
         file = nil
-        message = message or "Choose a sound file in Actions."
+        message = message or L["Choose a sound file in Actions."]
       end
       if file then
         for _, unit in ipairs(units) do
@@ -693,7 +694,7 @@ local function SyncSounds(region)
             if ok and id then
               native.soundIDs[#native.soundIDs + 1] = id
             else
-              failure = "Blizzard could not register the " .. event:lower() .. " sound for spell " .. spellID .. "."
+              failure = L["Blizzard could not register the %s sound for spell %s."]:format(event:lower(), spellID)
             end
           end
         end
@@ -712,7 +713,7 @@ local function UpdatePreviewNotice(region)
   -- Same rule as the trigger's status line: only a selection Blizzard always
   -- refuses (not never-secret spells) gets the notice.
   if trigger and Display.SpellIDFilterNote(trigger) == "error" then
-    warning = "Preview only: these auras will not display in combat with spell ID filters.\nConfigured sounds in Actions can still play."
+    warning = L["Preview only: these auras will not display in combat with spell ID filters.\nConfigured sounds in Actions can still play."]
   end
   if warning then
     if not region.secretAuraPreviewNotice then
@@ -1036,8 +1037,8 @@ end
 -- auras are all assigned at once and play Start together, as a display's own
 -- Start plays when it first shows. There is no hook for an aura ending, so
 -- there is no Finish.
-Display.auraStartTypes = {none = "None", fade = "Fade In", zoom = "Zoom In", spin = "Spin In", bounce = "Bounce In"}
-Display.auraMainTypes = {none = "None", pulse = "Pulse", spin = "Spin", wobble = "Wobble", bounce = "Bounce"}
+Display.auraStartTypes = {none = L["None"], fade = L["Fade In"], zoom = L["Zoom In"], spin = L["Spin In"], bounce = L["Bounce In"]}
+Display.auraMainTypes = {none = L["None"], pulse = L["Pulse"], spin = L["Spin"], wobble = L["Wobble"], bounce = L["Bounce"]}
 function Display.AuraAnimation(data, kind)
   local settings = data.blizzardAuraDisplay and data.blizzardAuraDisplay[kind == "start" and "auraStart" or "auraMain"]
   if type(settings) ~= "table" then return "none", 0 end
@@ -1776,7 +1777,7 @@ end
 
 -- The display's frames stay shown (their contents cannot be known in combat),
 -- so a Dynamic Group keeps its place even when no aura is there.
-Display.dynamicGroupWarning = "Aura (Modern) in a Dynamic Group: It keeps its position even when no aura is shown. Use a Modern Aura Group to keep dynamic behaviour."
+Display.dynamicGroupWarning = L["Aura (Modern) in a Dynamic Group: It keeps its position even when no aura is shown. Use a Modern Aura Group to keep dynamic behaviour."]
 local function DynamicGroupWarning(data)
   local inGroup = Display.Enabled(data) and Display.InDynamicGroup(data)
   Private.AuraWarnings.UpdateWarning(data.uid, "blizzard_aura_dynamicgroup", inGroup and "warning" or nil,
@@ -1946,12 +1947,12 @@ function ApplyDisplay(region, data)
   end
   if Restricted() then
     pending[region] = data
-    Warn(data, "Display > Secret Aura Settings changes will apply when aura restrictions end.")
+    Warn(data, L["Display > Secret Aura Settings changes will apply when aura restrictions end."])
     return
   end
   if not C_AddOns.IsAddOnLoaded("Blizzard_AuraContainer") then
     local loaded, reason = C_AddOns.LoadAddOn("Blizzard_AuraContainer")
-    if not loaded then Warn(data, "Cannot load Blizzard_AuraContainer: " .. tostring(reason)); return end
+    if not loaded then Warn(data, L["Cannot load Blizzard_AuraContainer: %s"]:format(tostring(reason))); return end
   end
   local native = region.blizzardAuraDisplay
   if not native then

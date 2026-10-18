@@ -376,7 +376,9 @@ function Private.ValidateSpellCooldownSupport(data)
     local trigger = entry.trigger
     if trigger.type == "spell" and trigger.event == "Cooldown Progress (Spell)" then
       triggers[index] = true
-      comparisons = comparisons or trigger.use_remaining or trigger.use_charges or trigger.use_spellCount
+      -- The Remaining Time filter is applied natively on a restricted
+      -- cooldown (RegionPrototype, secretRemainingWindow): no warning for it.
+      comparisons = comparisons or trigger.use_charges or trigger.use_spellCount
       chargeIndex = chargeIndex or trigger.use_trackcharge
       progressTexture = progressTexture or data.regionType == "progresstexture"
     end
@@ -397,7 +399,7 @@ function Private.ValidateSpellCooldownSupport(data)
 
   local messages = {}
   if comparisons then
-    table.insert(messages, "Cooldown time and charge-count comparisons cannot be evaluated while the client restricts their values. Timers can still be displayed, and On Cooldown uses the public cooldown status.")
+    table.insert(messages, "Charge and spell count comparisons, and conditions on cooldown times, cannot be evaluated while the client restricts their values. Timers and the Remaining Time filter still work, and On Cooldown uses the public cooldown status.")
   end
   if chargeIndex then
     table.insert(messages, "Tracking a specific numbered charge requires readable charge counts and is unavailable while cooldown values are restricted. Tracking the current recharge is supported.")

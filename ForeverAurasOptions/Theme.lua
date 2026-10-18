@@ -1,5 +1,6 @@
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 ---@type string
 local AddonName = ...
 ---@class OptionsPrivate
@@ -383,9 +384,9 @@ function Theme.ShowFontMenu(anchor)
     }
   end
   local menu = {
-    {text = "Font", isTitle = true, notCheckable = true},
+    {text = L["Font"], isTitle = true, notCheckable = true},
     {
-      text = ("Automatic (%s)"):format(AutomaticKey()),
+      text = L["Automatic (%s)"]:format(AutomaticKey()),
       checked = function() return saved == nil end,
       func = function() Theme.SetFontKey(nil); LibDD:CloseDropDownMenus() end,
     },
@@ -426,7 +427,7 @@ function Theme.ShowLayoutMenu(anchor)
     }
   end
   ToggleMenu({
-    {text = "Layout", isTitle = true, notCheckable = true},
+    {text = L["Layout"], isTitle = true, notCheckable = true},
     Style("classic", "Classic"),
     Style("modern", "Modern"),
   }, anchor)

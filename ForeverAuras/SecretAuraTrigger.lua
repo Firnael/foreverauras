@@ -1,6 +1,7 @@
 -- Modified for ForeverAuras, 2026-09-30.
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 local _, Private = ...
 -- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
 local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SecretAuraTrigger")
@@ -229,7 +230,7 @@ function Trigger.SetToolTip() return false end
 function Trigger.GetOverlayInfo() return {} end
 function Trigger.GetAdditionalProperties() return {} end
 function Trigger.GetProgressSources(data, triggernum, values)
-  table.insert(values, {trigger = triggernum, property = "value", type = "number", display = "Aura (Modern)", total = "total"})
+  table.insert(values, {trigger = triggernum, property = "value", type = "number", display = L["Aura (Modern)"], total = "total"})
 end
 function Trigger.GetTriggerConditions() return {} end
 
@@ -365,31 +366,31 @@ end
 -- The hover summary uses unwrapped double-column rows. Bound each ID list here
 -- so large selections cannot stretch it off-screen; the editor retains the full list.
 local function SpellIDSummary(ids, enabled)
-  if not enabled or not ids or #ids == 0 then return "None" end
+  if not enabled or not ids or #ids == 0 then return L["None"] end
   local shown = {}
   for index = 1, math.min(#ids, 3) do
     shown[#shown + 1] = tostring(ids[index])
   end
   local summary = table.concat(shown, ", ")
   if #ids > #shown then
-    summary = summary .. " (+" .. (#ids - #shown) .. " more)"
+    summary = summary .. L[" (+%d more)"]:format(#ids - #shown)
   end
   return summary
 end
 
 function Trigger.GetTriggerDescription(data, triggernum, lines)
   local trigger = data.triggers[triggernum].trigger
-  lines[#lines + 1] = {"Secret Auras", trigger.unit == "member" and (Display.SpecificUnit(trigger) or "Specific Unit") or Display.units[trigger.unit] or trigger.unit}
+  lines[#lines + 1] = {L["Secret Auras"], trigger.unit == "member" and (Display.SpecificUnit(trigger) or L["Specific Unit"]) or Display.units[trigger.unit] or trigger.unit}
   -- What makes the display appear.
   local showOn = Display.showOnValues[Display.ShowOn(trigger)]
   local gained = Display.GainedSeconds and Display.GainedSeconds(trigger) or 0
-  if gained > 0 then showOn = "Aura(s) Gained, shown " .. gained .. " s" end
+  if gained > 0 then showOn = L["Aura(s) Gained, shown %s s"]:format(gained) end
   local op, seconds = Display.RemainingWindow(trigger)
-  if op then showOn = showOn .. ", remaining " .. op .. " " .. seconds .. " s" end
-  lines[#lines + 1] = {"Show On", showOn}
+  if op then showOn = showOn .. L[", remaining %s %s s"]:format(op, seconds) end
+  lines[#lines + 1] = {L["Show On"], showOn}
   -- Describe both modes without relabelling existing exact selections.
-  lines[#lines + 1] = {"Spell IDs (All Ranks)", SpellIDSummary(trigger.auraRankSpellIDs, Display.UsesRankSpellIDs(trigger))}
-  lines[#lines + 1] = {"Exact Spell IDs", SpellIDSummary(trigger.auraspellids, Display.UsesSpellIDs(trigger))}
+  lines[#lines + 1] = {L["Spell IDs (All Ranks)"], SpellIDSummary(trigger.auraRankSpellIDs, Display.UsesRankSpellIDs(trigger))}
+  lines[#lines + 1] = {L["Exact Spell IDs"], SpellIDSummary(trigger.auraspellids, Display.UsesSpellIDs(trigger))}
 end
 
 WeakAuras.RegisterTriggerSystem({"secretAura"}, Trigger)

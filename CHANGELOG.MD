@@ -1,5 +1,30 @@
 # Changelog
 ## VERSIONS
+## 0.92.6
+### Cooldown Manager Triggers
+**Spell Cooldown trigger**
+- Remaining Time now works on secret cooldowns in combat (the display follows the cooldown’s own timer, same semantics as readable ones)
+
+**Buff/Debuff trigger**
+- The trigger now works on its own, in and out of combat, with no fallback trigger needed. Visibility, swipe, countdown text and stack count are drawn by the games own aura slots when the aura is secret, so a target debuff keeps updating through a fight and survives a reload in combat. Show On: Aura(s) Found hides correctly when there is no target, and in combat the display is drawn through its slot so the game decides when it appears.
+- The options are laid out like the Aura (Modern) trigger: Spell Selection Filters, then Aura Filters (Remaining Time, Elapsed Time, Stack Count), then Show On, Show If Unit Does Not Exist, Auto-Clone and Preferred Match. Total Duration was removed (your own auras only vary by rank). The filters work natively in combat too - Remaining Time, Elapsed Time and Stack Count each gate the display through the slot while the values are secret.
+- Conditions: Aura Active, Remaining Time, Elapsed Time and Stack Count. Remaining Time, Elapsed Time and Stack Count > Glow work in combat natively; Aura Active conditions on colour, desaturation and element visibility are drawn by the slot while the aura is secret. The odd bookkeeping conditions (Displayed in CDM, CDM Category, Item ID) were dropped from the Buff/Debuff trigger
+- Entries Blizzard’s Cooldown Manager marks as unknown (Bane of Agony is one, despite the spell being known) get a note in the trigger options: their aura cant be read in combat, so Aura(s) Missing can’t be told with a target until Blizzard fixes the entry
+
+**Cooldown trigger**
+- Laid out and conditioned like the spell Cooldown/Charges/Count trigger: Extra Options (Track Cooldowns, Show Global Cooldown, Show Global Cooldown Text, Disable Spell Known Check), Remaining Time, Charges and Spell Count filters, and Show: On Cooldown / Not on Cooldown / Always. Remaining Time disappears with Not on Cooldown, as on the spell trigger. Conditions: On Cooldown, Is Ready, Recharging, Charges, Spell Count, Remaining Time, Spell Usable, Insufficient Resources, Spell In Range, Spell ID, Spell Name
+
+**Modern Aura Groups and dynamic groups**
+- CDM displays now draw correctly inside a Modern Aura Group (swipe, countdown and glow follow the group’s stand-in) and target swaps no longer flicker the group. Dynamic groups hold a displays space during a secret filter window in combat - the game cant tell the group when the window opens - so those filters suit standalone displays or Modern Aura Groups best.
+
+### Other fixes
+- Warning cleanup
+- Native swipe direction matches the display’s Inverse setting. `%s` stack texts show in combat. Icon Inset works (Masque).
+- Option previews - CDM and Modern - format countdowns with the text’s own Time Format settings.
+- The CDM load hitch from spec detection is gone.
+- New option strings are translatable, and a “Set Up CDM” button sits next to Hide Blizzard’s CDM.
+- Magnetic align is now off by default
+
 ## 0.90.67
 - Fix memory issue causing combat hitch via load condition bug
 

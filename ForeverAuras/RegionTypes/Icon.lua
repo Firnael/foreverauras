@@ -385,6 +385,14 @@ local function modify(parent, region, data)
       button:SetWidth(width);
       button:SetHeight(height);
       button:SetAllPoints();
+      -- Icon Inset (a Masque option): the icon drawn that much smaller
+      -- inside the skinned button, the inset shared by the four edges, so a
+      -- skin's border is not covered. The option existed without effect.
+      local inset = tonumber(data.iconInset) or 0
+      if inset < 0 then inset = 0 elseif inset > 0.98 then inset = 0.98 end
+      icon:ClearAllPoints()
+      icon:SetPoint("TOPLEFT", button, "TOPLEFT", width * inset / 2, -height * inset / 2)
+      icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -width * inset / 2, height * inset / 2)
     end
     region:UpdateTexCoords();
   end

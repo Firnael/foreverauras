@@ -1,6 +1,7 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
 -- Shared Display settings rendered by Blizzard's native aura widgets.
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 local _, Private = ...
 -- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
 local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("SecretAuraAppearance")
@@ -230,8 +231,8 @@ function Display.ValidateAppearance(data)
   local function CheckText(value, visible)
     if visible == false then return end
     local kind = Display.TextKind(value)
-    if not kind then return "You can only use %p, %s, %n, %l or hardcoded text. Put each code in its own text element. Custom text (%c) is not supported." end
-    if kind ~= "literal" and used[kind] then return "Secret auras support one text element for each of %p, %s and %n. Remove the duplicate or turn off Show Text." end
+    if not kind then return L["You can only use %p, %s, %n, %l or hardcoded text. Put each code in its own text element. Custom text (%c) is not supported."] end
+    if kind ~= "literal" and used[kind] then return L["Secret auras support one text element for each of %p, %s and %n. Remove the duplicate or turn off Show Text."] end
     used[kind] = true
   end
   if data.regionType == "text" then
@@ -239,16 +240,16 @@ function Display.ValidateAppearance(data)
     if problem then return problem end
   end
   for _, element in ipairs(data.subRegions or {}) do
-    if element.type ~= "subborder" and not Display.supportedElements[element.type] then return "This sub element is not supported by Secret Auras. Use Text, Texture or Glow." end
+    if element.type ~= "subborder" and not Display.supportedElements[element.type] then return L["This sub element is not supported by Secret Auras. Use Text, Texture or Glow."] end
     if Display.IsDetachedElement(data, element) then
       if element.type == "subtext" and Display.TextKind(element.text_text) ~= "literal" then
-        return "Detached Text uses hardcoded text. Use other triggers and Conditions to control when it appears."
+        return L["Detached Text uses hardcoded text. Use other triggers and Conditions to control when it appears."]
       end
     elseif element.type == "subtext" then
       local problem = CheckText(element.text_text, element.text_visible)
       if problem then return problem end
     elseif element.type == "subglow" and element.glow and not ({Proc = true, buttonOverlay = true, Pixel = true, ACShine = true})[element.glowType or "Proc"] then
-      return "Choose Action Button Glow, Pixel Glow, Autocast Shine or Proc Glow."
+      return L["Choose Action Button Glow, Pixel Glow, Autocast Shine or Proc Glow."]
     end
   end
 end
@@ -272,6 +273,23 @@ local function BindText(button, text, value, config, prefix, data, baseColor, pr
   end
   if kind == "duration" then
     local format = config[prefix .. "p_time_format"]
+    -- The options window's sample (SecretAuraPreview) formats its countdown
+    -- with the element's own Time Format settings, through the same
+    -- formatter a %p uses, so the preview shows what the live text shows.
+    if button.bindings and Private.format_types and Private.format_types.timed then
+      local okF, formatter = pcall(Private.format_types.timed.CreateFormatter, "p", function(key, default)
+        local setting = config[prefix .. key]
+        if setting == nil then return default end
+        return setting
+      end, true, data)
+      if okF and type(formatter) == "function" then
+        local sample = {progressType = "timed"}
+        text.faPreviewFormat = function(remaining)
+          local okT, result = pcall(formatter, remaining, sample, nil)
+          return okT and type(result) == "string" and result or tostring(math.ceil(remaining))
+        end
+      end
+    end
     local options
     if format ~= nil and format ~= -1 then
       options = {textFormatter = Private.GetDurationTextFormatter(config[prefix .. "p_time_legacy_floor"] and 0 or 99,
