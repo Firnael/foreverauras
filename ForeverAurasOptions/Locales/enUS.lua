@@ -971,9 +971,9 @@ WeakAuras will always run custom grow code if you include 'changed' in this list
 	L["Zoom Out"] = "Zoom Out"
 
 -- ForeverAuras: Aura (Modern), CDM and options window
-L["Allow External Display Changes"] = true
-L["Lets another aura or an addon scale this display or set its sizes with ForeverAuras.SetDisplayScale(id, factor) and ForeverAuras.SetDisplayOverrides(id, values). The changes are never saved: the editor always shows the authored values."] = true
-L["Pasted onto an Aura (Modern): %d unsupported element(s) removed, %d text(s) switched off (only %%p, %%s, %%n, %%l or plain text, once each)."] = true
+L["Allow External Display Changes"] = "Allow External Display Changes"
+L["Lets another aura or an addon scale this display or set its sizes with ForeverAuras.SetDisplayScale(id, factor) and ForeverAuras.SetDisplayOverrides(id, values). The changes are never saved: the editor always shows the authored values."] = "Lets another aura or an addon scale this display or set its sizes with ForeverAuras.SetDisplayScale(id, factor) and ForeverAuras.SetDisplayOverrides(id, values). The changes are never saved: the editor always shows the authored values."
+L["Pasted onto an Aura (Modern): %d unsupported element(s) removed, %d text(s) switched off (only %%p, %%s, %%n, %%l or plain text, once each)."] = "Pasted onto an Aura (Modern): %d unsupported element(s) removed, %d text(s) switched off (only %%p, %%s, %%n, %%l or plain text, once each)."
 L["Spell Count"] = "Spell Count"
 L["Track Cooldowns"] = "Track Cooldowns"
 L["Show Global Cooldown"] = "Show Global Cooldown"
@@ -1149,3 +1149,8 @@ L["Usable"] = "Usable"
 L["Usable follows Blizzard's spell requirements; it is not a cooldown or range check."] = "Usable follows Blizzard's spell requirements; it is not a cooldown or range check."
 L["One display per listed aura; unticked, one display for whichever matches."] = "One display per listed aura; unticked, one display for whichever matches."
 L["First in the list"] = "First in the list"
+
+-- ForeverAuras: see the end of ForeverAuras/Locales/enUS.lua; the same guard for this file.
+for key, value in pairs(WeakAuras.L) do
+  if value == true then WeakAuras.L[key] = key end
+end

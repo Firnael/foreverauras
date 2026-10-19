@@ -1565,8 +1565,8 @@ L["Zul'Gurub"] = "Zul'Gurub"
 L["Raid Leader"] = "Raid Leader"
 
 -- ForeverAuras: Aura (Modern), CDM and options window
-L["Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM settings (backed up) and works on a copy of your Edit Mode layout named \"<layout>-FA\"; your own layout is left as it is. Needs a reload."] = true
-L["A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM settings and makes a copy of your Edit Mode layout named \"<layout>-FA\" with the viewers always visible; your own layout is left as it is. Needs a reload."] = true
+L["Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM settings (backed up) and works on a copy of your Edit Mode layout named \"<layout>-FA\"; your own layout is left as it is. Needs a reload."] = "Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM settings (backed up) and works on a copy of your Edit Mode layout named \"<layout>-FA\"; your own layout is left as it is. Needs a reload."
+L["A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM settings and makes a copy of your Edit Mode layout named \"<layout>-FA\" with the viewers always visible; your own layout is left as it is. Needs a reload."] = "A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM settings and makes a copy of your Edit Mode layout named \"<layout>-FA\" with the viewers always visible; your own layout is left as it is. Needs a reload."
 L["Is Ready"] = "Is Ready"
 L["Elapsed Time"] = "Elapsed Time"
 L[" (+%d more)"] = " (+%d more)"
@@ -1786,3 +1786,9 @@ setmetatable(WeakAuras.L, {__index = function(self, key)
 end})
 
 
+
+-- ForeverAuras: an entry written as L["Text"] = true (AceLocale style) would
+-- hand the boolean to the UI, which this client's SetText refuses; use the key.
+for key, value in pairs(WeakAuras.L) do
+  if value == true then WeakAuras.L[key] = key end
+end

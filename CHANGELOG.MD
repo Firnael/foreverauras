@@ -1,5 +1,10 @@
 # Changelog
 ## VERSIONS
+## 0.92.16
+- CDM fixes
+- LUA error fixes
+- Frame:Hide fixes
+
 ## 0.92.12
 - Fix for Ace error in options preview
 - Added new backend APIs

@@ -1,7 +1,8 @@
 --[[-----------------------------------------------------------------------------
 Checkbox Widget
 -------------------------------------------------------------------------------]]
-local Type, Version = "CheckBox", 27
+-- ForeverAuras: version raised so this copy, with the label guard, is the one registered.
+local Type, Version = "CheckBox", 28
 local AceGUI = LibStub and LibStub("AceGUI-3.0", true)
 if not AceGUI or (AceGUI:GetWidgetVersion(Type) or 0) >= Version then return end
 
@@ -189,6 +190,15 @@ local methods = {
 	end,
 
 	["SetLabel"] = function(self, label)
+		-- ForeverAuras: this client's FontString:SetText refuses nil; the first bad label of the
+		-- session is reported with its call stack so the option that produced it can be fixed.
+		if type(label) ~= "string" and type(label) ~= "number" then
+			if not AceGUI.ForeverAurasBadLabelReported and WeakAuras and WeakAuras.prettyPrint then
+				AceGUI.ForeverAurasBadLabelReported = true
+				WeakAuras.prettyPrint(("Checkbox label is %s:\n%s"):format(type(label), debugstack(2, 6, 0)))
+			end
+			label = ""
+		end
 		self.text:SetText(label)
 	end,
 
