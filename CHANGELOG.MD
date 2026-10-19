@@ -1,5 +1,11 @@
 # Changelog
 ## VERSIONS
+## 0.92.12
+- Fix for Ace error in options preview
+- Added new backend APIs
+- Fix for Frame:Hidden errors
+- Paste Display onto Aura (Modern): pasting Display settings from an ordinary aura onto an Aura (Modern) icon, progress bar, progress texture or text now copies the whole display; even if it breaks the Auras functionality.
+
 ## 0.92.6
 ### Cooldown Manager Triggers
 **Spell Cooldown trigger**

@@ -124,19 +124,23 @@ local function nameHead(data, option, phrase)
   return phrase
 end
 
+-- An option without a name (an import or hand-edited option) labels as "":
+-- this client's FontString:SetText refuses nil, which took the whole options
+-- panel down with it.
 local function nameUser(option)
   local firstValue
+  local header = option.name or ""
   for id, optionData in pairs(option.references) do
     local childConfig = optionData.config
     if not childConfig then
-      return option.name
+      return header
     elseif firstValue == nil then
       firstValue = childConfig[option.key]
     elseif neq(firstValue, childConfig[option.key]) then
-      return conflictBlue .. option.name
+      return conflictBlue .. header
     end
   end
-  return option.name
+  return header
 end
 
 local function nameUserDesc(option)
@@ -416,6 +420,58 @@ local function set(data, option, key)
   end
 end
 
+-- A slider or colour picker calls its setter on every tick of a drag, and
+-- each call used to rebuild every display that shares the option and then the
+-- whole options panel. While the mouse button is held the value is stored at
+-- once but the displays rebuild at most ten times a second and the panel not
+-- at all; the release (its own setter call) rebuilds everything once.
+local dragPending = {}
+local dragPanel
+local dragTimer
+local function FlushDrag()
+  dragTimer = nil
+  local pending = dragPending
+  dragPending = {}
+  for _, childData in pairs(pending) do
+    WeakAuras.Add(childData)
+  end
+  if IsMouseButtonDown("LeftButton") then
+    -- Still dragging: look again, so a release the slider never reports
+    -- (the mouse let go elsewhere) still ends with the panel rebuilt.
+    dragTimer = C_Timer.NewTimer(0.1, FlushDrag)
+  elseif dragPanel then
+    local panel = dragPanel
+    dragPanel = nil
+    WeakAuras.ClearAndUpdateOptions(panel.id, true)
+  end
+end
+local function ApplyUserChange(data, changed)
+  if IsMouseButtonDown("LeftButton") then
+    for _, childData in ipairs(changed) do
+      dragPending[childData.id] = childData
+    end
+    dragPanel = data
+    if not dragTimer then
+      dragTimer = C_Timer.NewTimer(0.1, FlushDrag)
+    end
+    return
+  end
+  dragPanel = nil
+  if dragTimer then
+    dragTimer:Cancel()
+    dragTimer = nil
+  end
+  for _, childData in ipairs(changed) do
+    dragPending[childData.id] = nil
+    WeakAuras.Add(childData)
+  end
+  for _, childData in pairs(dragPending) do
+    WeakAuras.Add(childData)
+  end
+  dragPending = {}
+  WeakAuras.ClearAndUpdateOptions(data.id, true)
+end
+
 local function setUser(data, option)
   return function(_, value)
     for _, optionData in pairs(option.references) do
@@ -443,6 +499,7 @@ end
 
 local function setNum(data, option, key, required)
   return function(_, value)
+    local changed = {}
     if value ~= "" then
       local num = tonumber(value)
       if not num or math.abs(num) == math.huge or tostring(num) == "nan" then
@@ -452,17 +509,17 @@ local function setNum(data, option, key, required)
         local childOption = optionData.options[optionData.index]
         local childData = optionData.data
         childOption[key] = num
-        WeakAuras.Add(childData)
+        changed[#changed + 1] = childData
       end
     elseif not required then
       for id, optionData in pairs(option.references) do
         local childOption = optionData.options[optionData.index]
         local childData = optionData.data
         childOption[key] = nil
-        WeakAuras.Add(childData)
+        changed[#changed + 1] = childData
       end
     end
-    WeakAuras.ClearAndUpdateOptions(data.id, true)
+    ApplyUserChange(data, changed)
   end
 end
 
@@ -471,13 +528,14 @@ local function setUserNum(data, option)
     if value ~= "" then
       local num = tonumber(value)
       if not num or math.abs(num) == math.huge or tostring(num) == "nan" then return end
+      local changed = {}
       for _, optionData in pairs(option.references) do
         local childData = optionData.data
         local childConfig = optionData.config
         childConfig[option.key] = num
-        WeakAuras.Add(childData)
+        changed[#changed + 1] = childData
       end
-      WeakAuras.ClearAndUpdateOptions(data.id, true)
+      ApplyUserChange(data, changed)
     end
   end
 end
@@ -485,26 +543,28 @@ end
 local function setColor(data, option, key)
   return function(_, r, g, b, a)
     local color = {r, g, b, a}
+    local changed = {}
     for id, optionData in pairs(option.references) do
       local childOption = optionData.options[optionData.index]
       local childData = optionData.data
       childOption[key] = color
-      WeakAuras.Add(childData)
+      changed[#changed + 1] = childData
     end
-    WeakAuras.ClearAndUpdateOptions(data.id, true)
+    ApplyUserChange(data, changed)
   end
 end
 
 local function setUserColor(data, option)
   return function(_, r, g, b, a)
     local color = {r, g, b, a}
+    local changed = {}
     for id, optionData in pairs(option.references) do
       local childData = optionData.data
       local childConfig = optionData.config
       childConfig[option.key] = color
-      WeakAuras.Add(childData)
+      changed[#changed + 1] = childData
     end
-    WeakAuras.ClearAndUpdateOptions(data.id, true)
+    ApplyUserChange(data, changed)
   end
 end
 

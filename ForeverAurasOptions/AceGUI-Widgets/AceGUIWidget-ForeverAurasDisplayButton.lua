@@ -89,11 +89,70 @@ local function CopyNativeAppearance(source, destination)
   end
 end
 
+-- The display types an Aura (Modern) trigger can drive (Display.Validate).
+local modernRegionTypes = {icon = true, aurabar = true, progresstexture = true, text = true}
+local modernGlowTypes = {Proc = true, buttonOverlay = true, Pixel = true, ACShine = true}
+
+-- A display pasted from an ordinary aura onto an Aura (Modern), brought
+-- within what the native display can draw (Display.ValidateAppearance):
+-- unsupported elements go, a text that is not one of %p, %s, %n, %l or plain
+-- text (or repeats a code) is switched off rather than lost, and a glow of an
+-- unsupported style falls back to Proc Glow. Returns the number of elements
+-- removed and of texts switched off.
+local function FitDisplayToNativeAura(destination)
+  local Display = OptionsPrivate.Private.BlizzardAuraDisplay
+  local kept, used, removed, hidden = {}, {}, 0, 0
+  for _, element in ipairs(destination.subRegions or {}) do
+    local supported = element.type == "subborder" or Display.supportedElements[element.type]
+    if not supported then
+      removed = removed + 1
+    else
+      if element.type == "subtext" and element.text_visible ~= false and element.secretAuraDetached ~= true then
+        local kind = Display.TextKind(element.text_text)
+        if not kind or (kind ~= "literal" and used[kind]) then
+          element.text_visible = false
+          hidden = hidden + 1
+        elseif kind ~= "literal" then
+          used[kind] = true
+        end
+      elseif element.type == "subglow" and not modernGlowTypes[element.glowType or "Proc"] then
+        element.glowType = "Proc"
+      end
+      kept[#kept + 1] = element
+    end
+  end
+  destination.subRegions = kept
+  if destination.regionType == "text" and not Display.TextKind(destination.displayText) then
+    destination.displayText = "%p"
+  end
+  return removed, hidden
+end
+
 local function copyAuraPart(source, destination, part)
   local all = (part == "all");
   local sourceKind, destinationKind = NativeDisplayKind(source), NativeDisplayKind(destination)
   local sameNative = sourceKind ~= nil and sourceKind == destinationKind and source.regionType == destination.regionType
-  if part == "display" and (destinationKind or sourceKind) and not sameNative then
+  -- An ordinary aura's display onto an Aura (Modern) of a type it can drive:
+  -- the whole display (elements, offsets and all), then fitted to the native
+  -- rules, so the paste looks like the source rather than keeping the old
+  -- elements with new colours.
+  local fullOntoModern = part == "display" and sourceKind == nil and destinationKind == "aura"
+    and modernRegionTypes[source.regionType]
+  if fullOntoModern then
+    for k, v in pairs(source) do
+      if (not ignoreForCopyingDisplay[k]) then
+        if (type(v) == "table") then
+          destination[k] = CopyTable(v);
+        else
+          destination[k] = v;
+        end
+      end
+    end
+    local removed, hidden = FitDisplayToNativeAura(destination)
+    if removed > 0 or hidden > 0 then
+      WeakAuras.prettyPrint(L["Pasted onto an Aura (Modern): %d unsupported element(s) removed, %d text(s) switched off (only %%p, %%s, %%n, %%l or plain text, once each)."]:format(removed, hidden))
+    end
+  elseif part == "display" and (destinationKind or sourceKind) and not sameNative then
     CopyNativeAppearance(source, destination)
     -- Between two Aura (Modern) displays, also their Aura (Modern) Settings
     -- (layout, swipe colour, Missing look, unit-frame glow) and sort order.

@@ -64,16 +64,44 @@ local function StageLayout()
   return count + cooldownCount > 0 and serializer:SerializeLayouts() or nil, count, cooldownCount
 end
 
+-- The setup never edits the layout the player uses. It works on a copy named
+-- "<that layout>-FA" (the player's placements and settings included, taken
+-- fresh each run so later changes to their own layout carry over), makes the
+-- copy active, and adjusts the viewers there. A run while the "-FA" layout is
+-- already active adjusts it in place.
+local SUFFIX = "-FA"
+
 local function StageVisibility()
   local saved = C_EditMode.GetLayouts()
   local presets = EditModePresetLayoutManager:GetCopyOfPresetLayouts()
   local layouts = CopyTable(presets)
   for _, layout in ipairs(saved.layouts) do layouts[#layouts + 1] = CopyTable(layout) end
-  local active = layouts[saved.activeLayout]
-  if not active then error("The active Edit Mode layout is not ready.") end
+  local source = layouts[saved.activeLayout]
+  if not source then error("The active Edit Mode layout is not ready.") end
+  local count = 0
+  local active
+  if source.layoutType ~= Enum.EditModeLayoutType.Preset and source.layoutName:sub(-#SUFFIX) == SUFFIX then
+    active = source
+  else
+    local name = source.layoutName .. SUFFIX
+    active = CopyTable(source)
+    active.layoutName = name
+    if active.layoutType == Enum.EditModeLayoutType.Preset then active.layoutType = Enum.EditModeLayoutType.Character end
+    local index
+    for i = #presets + 1, #layouts do
+      if layouts[i].layoutName == name then index = i break end
+    end
+    if index then
+      layouts[index] = active
+    else
+      layouts[#layouts + 1] = active
+      index = #layouts
+    end
+    saved.activeLayout = index
+    count = count + 1
+  end
   local settings = Enum.EditModeCooldownViewerSetting
   local always = Enum.CooldownViewerVisibleSetting.Always
-  local count = 0
   local found = {}
   local indices = Enum.EditModeCooldownViewerSystemIndices
   local viewers = {[indices.Essential] = true, [indices.Utility] = true, [indices.BuffIcon] = true, [indices.BuffBar] = true}
@@ -119,20 +147,6 @@ local function StageVisibility()
     end
   end
   if count == 0 then return end
-  -- Built-in presets require a character copy before saving changes.
-  if active.layoutType == Enum.EditModeLayoutType.Preset then
-    local name = "ForeverAuras"
-    local index = 1
-    local used = {}
-    for _, layout in ipairs(layouts) do used[layout.layoutName] = true end
-    while used[name] do index = index + 1; name = "ForeverAuras " .. index end
-    local copy = CopyTable(active)
-    copy.layoutType = Enum.EditModeLayoutType.Character
-    copy.layoutName = name
-    layouts[saved.activeLayout] = presets[saved.activeLayout]
-    layouts[#layouts + 1] = copy
-    saved.activeLayout = #layouts
-  end
   saved.layouts = layouts
   return saved
 end
@@ -181,7 +195,7 @@ local function ApplySetup()
   Private.db.cdmHideBlizzard = true
   if enable then C_CVar.SetCVar("cooldownViewerEnabled", "1") end
   Private.ApplyCDMBackground()
-  print("ForeverAuras: CDM setup saved. " .. count .. " buffs and " .. cooldownCount .. " spell cooldowns added; viewers set to Always visible with tooltips off. Reload to apply.")
+  print("ForeverAuras: CDM setup saved. " .. count .. " buffs and " .. cooldownCount .. " spell cooldowns added; viewers set to Always visible with tooltips off on a copy of your Edit Mode layout (\"" .. (editLayouts and editLayouts.layouts[editLayouts.activeLayout].layoutName or "current") .. "\"). Reload to apply.")
   StaticPopup_Show("FOREVERAURAS_CDM_SETUP_RELOAD")
   return true
 end
@@ -189,7 +203,7 @@ end
 local RunSetup
 
 StaticPopupDialogs["FOREVERAURAS_CDM_SETUP_ASK"] = {
-  text = L["A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM and Edit Mode settings and needs a reload."],
+  text = L["A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM settings and makes a copy of your Edit Mode layout named \"<layout>-FA\" with the viewers always visible; your own layout is left as it is. Needs a reload."],
   button1 = L["Apply"],
   button2 = L["Not now"],
   button3 = L["Don't ask again"],
@@ -210,7 +224,7 @@ StaticPopupDialogs["FOREVERAURAS_CDM_SETUP_ASK"] = {
 
 -- The options window's Set Up CDM button: confirm, then run as /fa cdmsetup does.
 StaticPopupDialogs["FOREVERAURAS_CDM_SETUP_CONFIRM"] = {
-  text = L["Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM and Edit Mode settings (they are backed up) and needs a reload."],
+  text = L["Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM settings (backed up) and works on a copy of your Edit Mode layout named \"<layout>-FA\"; your own layout is left as it is. Needs a reload."],
   button1 = L["Apply"],
   button2 = CANCEL,
   OnAccept = function() Private.RunCDMSetup() end,
