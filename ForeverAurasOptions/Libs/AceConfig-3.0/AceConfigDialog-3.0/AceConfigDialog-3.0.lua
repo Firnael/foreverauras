@@ -163,6 +163,10 @@ local allIsLiteral = {
 	imageHeight = true,
 }
 
+-- ForeverAuras: option paths whose nameless toggle has been reported this session.
+local ForeverAurasNamelessReported = {}
+local tconcat = table.concat
+
 --gets the value for a member that could be a function
 --function refs are called with an info arg
 --every other type is returned
@@ -1198,7 +1202,16 @@ local function FeedOptions(appName, options,container,rootframe,path,group,inlin
 				elseif v.type == "toggle" then
 					control = CreateControl(v.dialogControl or v.control, "CheckBox")
 					-- ForeverAuras: this client's FontString:SetText refuses nil; a nameless toggle labels as "".
-					control:SetLabel(name or "")
+					if type(name) ~= "string" and type(name) ~= "number" then
+						-- ForeverAuras: the option is reported once per session so the real cause can be found.
+						local where = appName .. "/" .. tconcat(path, ".")
+						if not ForeverAurasNamelessReported[where] and WeakAuras and WeakAuras.prettyPrint then
+							ForeverAurasNamelessReported[where] = true
+							WeakAuras.prettyPrint(("Nameless toggle option: %s (name is %s, option name is %s)"):format(tconcat(path, "."), type(name), type(v.name)))
+						end
+						name = ""
+					end
+					control:SetLabel(name)
 					control:SetTriState(v.tristate)
 					local value = GetOptionsMemberValue("get",v, options, path, appName)
 					control:SetValue(value)

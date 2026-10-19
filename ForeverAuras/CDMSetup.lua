@@ -165,6 +165,11 @@ local function ApplySetup()
   local enable = not C_CVar.GetCVarBool("cooldownViewerEnabled")
   local hide = Private.db.cdmHideBlizzard ~= true
   if not serialized and not editLayouts and not enable and not hide then return true end
+  -- An unprompted run only asks when the pack has entries to add or the CDM is
+  -- off. Viewer visibility and the "-FA" layout copy are the player's call
+  -- once their layout is set up the way they like; /fa cdmsetup and the
+  -- options button still apply them.
+  if not confirmed and not serialized and not enable then return true end
 
   -- Preserve the character's original settings for recovery.
   local character = UnitGUID("player")
