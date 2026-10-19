@@ -1197,7 +1197,8 @@ local function FeedOptions(appName, options,container,rootframe,path,group,inlin
 
 				elseif v.type == "toggle" then
 					control = CreateControl(v.dialogControl or v.control, "CheckBox")
-					control:SetLabel(name)
+					-- ForeverAuras: this client's FontString:SetText refuses nil; a nameless toggle labels as "".
+					control:SetLabel(name or "")
 					control:SetTriState(v.tristate)
 					local value = GetOptionsMemberValue("get",v, options, path, appName)
 					control:SetValue(value)

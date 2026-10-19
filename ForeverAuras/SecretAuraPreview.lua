@@ -130,9 +130,36 @@ local function CreateSample(region)
   return native
 end
 
+-- A sample inside a region whose anchor is a protected frame (a display
+-- parented to a secure button, say) is protected itself, and hiding it during
+-- combat is blocked (ADDON_ACTION_BLOCKED: a display unloading on death). Such
+-- a sample goes invisible at once and hides when combat ends.
+local protectedHides = {}
+local protectedHideFrame
+local function HideSample(button)
+  if InCombatLockdown() and button:IsProtected() then
+    button:SetAlpha(0)
+    protectedHides[button] = true
+    if not protectedHideFrame then
+      protectedHideFrame = CreateFrame("Frame")
+      protectedHideFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+      protectedHideFrame:SetScript("OnEvent", function()
+        for pending in pairs(protectedHides) do
+          pending:Hide()
+          pending:SetAlpha(1)
+        end
+        wipe(protectedHides)
+      end)
+    end
+    return
+  end
+  protectedHides[button] = nil
+  button:Hide()
+end
+
 function Display.HidePreview(region)
   region.secretAuraSamplesActive = false
-  for _, sample in ipairs(region.secretAuraSamples or {}) do sample.button:Hide() end
+  for _, sample in ipairs(region.secretAuraSamples or {}) do HideSample(sample.button) end
 end
 
 function Display.ShowPreview(region, data, StyleSample)
@@ -198,6 +225,9 @@ function Display.ShowPreview(region, data, StyleSample)
     button.staticSample = missingLook
     Display.FillSampleBindings(button, missingLook and Display.SingleIcon(data) or sample.iconID, sample.name, data, not missingLook)
     if missingLook then Display.StyleMissingIcon(sample, data) end
+    -- Shown again after a deferred combat hide (HideSample).
+    protectedHides[button] = nil
+    button:SetAlpha(1)
     button:Show()
   end
 end

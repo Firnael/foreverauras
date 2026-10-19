@@ -140,6 +140,8 @@ function CompressDisplay(data, version)
   end
 
   local copiedData = CopyTable(data)
+  -- External Display Changes (ExternalDisplay.lua) are session state: the export carries authored values.
+  if Private.ExternalDisplayRestore then Private.ExternalDisplayRestore(copiedData) end
   local non_transmissable_fields = version >= 2000 and Private.non_transmissable_fields_v2000
                                                        or Private.non_transmissable_fields
   stripNonTransmissableFields(copiedData, non_transmissable_fields)

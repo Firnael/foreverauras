@@ -1565,11 +1565,12 @@ L["Zul'Gurub"] = "Zul'Gurub"
 L["Raid Leader"] = "Raid Leader"
 
 -- ForeverAuras: Aura (Modern), CDM and options window
+L["Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM settings (backed up) and works on a copy of your Edit Mode layout named \"<layout>-FA\"; your own layout is left as it is. Needs a reload."] = true
+L["A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM settings and makes a copy of your Edit Mode layout named \"<layout>-FA\" with the viewers always visible; your own layout is left as it is. Needs a reload."] = true
 L["Is Ready"] = "Is Ready"
 L["Elapsed Time"] = "Elapsed Time"
 L[" (+%d more)"] = " (+%d more)"
 L[", remaining %s %s s"] = ", remaining %s %s s"
-L["A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM and Edit Mode settings and needs a reload."] = "A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM and Edit Mode settings and needs a reload."
 L["A Glow can follow Remaining Time or the pandemic window, not both."] = "A Glow can follow Remaining Time or the pandemic window, not both."
 L["A Remaining Time glow condition must use < and turn the glow on."] = "A Remaining Time glow condition must use < and turn the glow on."
 L["An In Pandemic Window glow condition must turn the glow on."] = "An In Pandemic Window glow condition must turn the glow on."
@@ -1774,7 +1775,6 @@ L["Works in combat."] = "Works in combat."
 L["You can only use %p, %s, %n, %l or hardcoded text. Put each code in its own text element. Custom text (%c) is not supported."] = "You can only use %p, %s, %n, %l or hardcoded text. Put each code in its own text element. Custom text (%c) is not supported."
 L["Zoom In"] = "Zoom In"
 
-L["Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM and Edit Mode settings (they are backed up) and needs a reload."] = "Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM and Edit Mode settings (they are backed up) and needs a reload."
 L["Apply"] = "Apply"
 L["Not now"] = "Not now"
 L["Don't ask again"] = "Don't ask again"

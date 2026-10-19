@@ -971,6 +971,9 @@ WeakAuras will always run custom grow code if you include 'changed' in this list
 	L["Zoom Out"] = "Zoom Out"
 
 -- ForeverAuras: Aura (Modern), CDM and options window
+L["Allow External Display Changes"] = true
+L["Lets another aura or an addon scale this display or set its sizes with ForeverAuras.SetDisplayScale(id, factor) and ForeverAuras.SetDisplayOverrides(id, values). The changes are never saved: the editor always shows the authored values."] = true
+L["Pasted onto an Aura (Modern): %d unsupported element(s) removed, %d text(s) switched off (only %%p, %%s, %%n, %%l or plain text, once each)."] = true
 L["Spell Count"] = "Spell Count"
 L["Track Cooldowns"] = "Track Cooldowns"
 L["Show Global Cooldown"] = "Show Global Cooldown"

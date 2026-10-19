@@ -1562,6 +1562,15 @@ local function PositionOptions(id, data, _, hideWidthHeight, disableSelfPoint, g
       order = 81,
       values = OptionsPrivate.Private.frame_strata_types
     },
+    -- External Display Changes (ExternalDisplay.lua): the opt-in for
+    -- ForeverAuras.SetDisplayScale / SetDisplayOverrides on this display.
+    allowExternalDisplay = {
+      type = "toggle",
+      width = WeakAuras.doubleWidth,
+      name = L["Allow External Display Changes"],
+      desc = L["Lets another aura or an addon scale this display or set its sizes with ForeverAuras.SetDisplayScale(id, factor) and ForeverAuras.SetDisplayOverrides(id, values). The changes are never saved: the editor always shows the authored values."],
+      order = 81.5,
+    },
     anchorFrameSpace = {
       type = "execute",
       width = WeakAuras.normalWidth,
