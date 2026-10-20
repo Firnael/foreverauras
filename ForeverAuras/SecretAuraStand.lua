@@ -139,7 +139,11 @@ local function MatchBorderScale(sub, copy)
       piece:SetTexelSnappingBias(0)
     end
   end)
+  -- ForeverAuras: a copy drawn inside a Blizzard aura slot (CDMAuraProgress)
+  -- reports a secret shown state, which cannot be tested; its pieces were
+  -- hidden and shown above, which is what the scale change needs.
   local shown = copy:IsShown()
+  if issecretvalue(shown) then return end
   copy:Hide()
   if shown then copy:Show() end
 end

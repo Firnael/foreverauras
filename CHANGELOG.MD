@@ -1,5 +1,9 @@
 # Changelog
 ## VERSIONS
+## 0.92.35
+- Fix LUA error on CDM Auras going into Combat
+- Speed up process of mass editing URL / descriptions
+
 ## 0.92.33
 **Modern Aura Groups**
 - Fixed members flickering or sliding in from the side when the group re-laid out
