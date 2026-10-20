@@ -4,7 +4,7 @@
 **Modern Aura Groups**
 - Fixed members flickering or sliding in from the side when the group re-laid out
 - Fixed a display removed from a group still snapping back to its old group position
-- Centred growth now places members correctly, including displays that load on conditions
+- Centered growth now places members correctly, including displays that load on conditions
 - Members keep their size when the row is re-laid out during combat
 - Glow elements on ordinary Icons inside a Modern Aura Group now follow the sub element
   order (a Glow listed above a Border draws beneath it), as in the preview
@@ -22,7 +22,7 @@
 - The "Aura (Modern) in a Dynamic Group" notice is now informational instead of a warning
 - The "Secure frame detected" note stays on the clickable aura itself instead of marking the
   groups above it. Combat lockdown errors still climb to the group
-- Fixed a crash when opening options caused by boolean locale entries
+- Fixed a crash when opening options caused by Boolean locale entries
 
 ## 0.92.16
 - CDM fixes
