@@ -1779,6 +1779,10 @@ L["Apply"] = "Apply"
 L["Not now"] = "Not now"
 L["Don't ask again"] = "Don't ask again"
 
+L["Hitch capture armed for the next reload: frames slower than %dms are reported from addon load until %d s after entering the world."] = "Hitch capture armed for the next reload: frames slower than %dms are reported from addon load until %d s after entering the world."
+L["Entered the world; hitch capture continues for %d s."] = "Entered the world; hitch capture continues for %d s."
+L["/wa phitch login [ms] [seconds] - Run the hitch capture through the next reload and login, then print the load time and profile"] = "/wa phitch login [ms] [seconds] - Run the hitch capture through the next reload and login, then print the load time and profile"
+
 -- Make missing translations available
 setmetatable(WeakAuras.L, {__index = function(self, key)
   self[key] = (key or "")

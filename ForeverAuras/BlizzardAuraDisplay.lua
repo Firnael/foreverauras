@@ -1311,6 +1311,9 @@ local function Layout(native, region, data)
   -- An aura slot's button is placed here, where the group's one button would
   -- be laid out; a slot has no group layout or count to set.
   if native.slotMain then
+    -- The button hangs from the region, never from its container: a container
+    -- the client has locked keeps its old place, and a button anchored to it
+    -- stayed where the display used to be after the display moved.
     for _, entry in ipairs(native.buttons) do
       local button = entry.button
       if not pcall(function()
@@ -1425,7 +1428,10 @@ local function Create(region, data)
   container:SetPoint("TOPLEFT", region, "TOPLEFT")
   local function initializeFrame(button)
     local native = BuildButton(container, button)
-    Style(native, display.data, region)
+    -- The buttons made with the container are styled by ApplyInstance right
+    -- after, once; only a button the client adds later (a raised frame count)
+    -- is styled here. Styling twice was a fifth of every display's build.
+    if display.applied then Style(native, display.data, region) end
     display.buttons[#display.buttons + 1] = native
   end
   if WantsSlot(data, inFlow, container) then
@@ -1778,9 +1784,12 @@ end
 -- The display's frames stay shown (their contents cannot be known in combat),
 -- so a Dynamic Group keeps its place even when no aura is there.
 Display.dynamicGroupWarning = L["Aura (Modern) in a Dynamic Group: It keeps its position even when no aura is shown. Use a Modern Aura Group to keep dynamic behaviour."]
+-- Information, not a warning: a Modern display in a Dynamic Group is a
+-- deliberate layout in the class packs, and a warning there climbed up to
+-- every pack's icon and hid real ones. The note stays in the tooltip.
 local function DynamicGroupWarning(data)
   local inGroup = Display.Enabled(data) and Display.InDynamicGroup(data)
-  Private.AuraWarnings.UpdateWarning(data.uid, "blizzard_aura_dynamicgroup", inGroup and "warning" or nil,
+  Private.AuraWarnings.UpdateWarning(data.uid, "blizzard_aura_dynamicgroup", inGroup and "info" or nil,
     inGroup and Display.dynamicGroupWarning or nil)
 end
 
@@ -1789,8 +1798,13 @@ local function ApplyInstance(region, data, index, instance)
   -- New settings may place the container elsewhere: RefreshUnits anchors again.
   instance.anchored = nil
   instance.container:SetEnabled(false)
+  -- Timed per phase for the profiler (see ApplyDisplay).
+  Private.StartProfileSystem("aura (modern) - build: style buttons")
   for _, button in ipairs(instance.buttons) do Style(button, data, region) end
+  Private.StopProfileSystem("aura (modern) - build: style buttons")
+  Private.StartProfileSystem("aura (modern) - build: layout")
   Layout(instance, region, data)
+  Private.StopProfileSystem("aura (modern) - build: layout")
   local trigger = Display.GetTrigger(data)
   ConfigureProcessing(instance.container, trigger)
   if instance.slotMain then
@@ -1803,13 +1817,20 @@ local function ApplyInstance(region, data, index, instance)
     instance.container:SetAuraGroupCandidateFilters("Auras", CandidateFilters(data))
   end
   ConfigureUnitGlow(instance, region, data)
+  Private.StartProfileSystem("aura (modern) - build: single")
   Display.ConfigureSingle(instance, region, data, index)
+  Private.StopProfileSystem("aura (modern) - build: single")
+  -- From here on, buttons the client adds are styled as they are made (Create).
+  instance.applied = true
 end
 
 local EDITOR_INSTANCES_NOW, EDITOR_INSTANCES_PER_FRAME = 2, 4
 -- Only the units present now are built at once; the rest of the reserve
 -- follows in the background, a few milliseconds per frame.
-local BACKGROUND_BUDGET = 4
+-- ForeverAuras: 2 ms rather than 4. The builds after login ran beside other
+-- addons' work in the same frames; a smaller slice per frame keeps those
+-- frames shorter and spreads the builds over a few more.
+local BACKGROUND_BUDGET = 2
 local instanceQueues = {}
 local instanceDraining = false
 
@@ -2015,9 +2036,13 @@ function ApplyDisplay(region, data)
     now = math.min(total, UnitsNow(trigger))
     background = true
   end
+  -- Phases are timed separately (/fa phitch, /fa pprint) so a slow build can
+  -- be read: container creation, per-instance styling, the finishing pass.
+  Private.StartProfileSystem("aura (modern) - build: create")
   for index = 1, now do
     if not native.instances[index] then native.instances[index] = Create(region, data) end
   end
+  Private.StopProfileSystem("aura (modern) - build: create")
   Display.ClearSingleWarning(data)
   native.instanceQueue, instanceQueues[region] = nil, nil
   if now < total then
@@ -2028,7 +2053,9 @@ function ApplyDisplay(region, data)
   native.active = true
   native.appliedTrigger = Display.GetSavedTrigger(data)
   activeRegions[region] = true
+  Private.StartProfileSystem("aura (modern) - build: finish")
   FinishApply(region, data)
+  Private.StopProfileSystem("aura (modern) - build: finish")
   if native.instanceQueue and not instanceDraining then
     instanceDraining = true
     C_Timer.After(0, DrainInstanceQueues)

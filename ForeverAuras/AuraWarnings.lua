@@ -167,17 +167,31 @@ function Private.AuraWarnings.GetAllWarnings(uid)
   local data = Private.GetDataByUID(uid)
   if data.regionType == "group" or data.regionType == "dynamicgroup" then
     thisWarnings = {}
-    for child in Private.TraverseLeafs(data) do
+    -- ForeverAuras: a group reports its own children's warnings; a warning
+    -- inside a nested group stays on that group, where it can be acted on,
+    -- instead of marking every pack above it. Errors still climb all the way.
+    local function Collect(child, direct)
       local childWarnings = warnings[child.uid]
-      if childWarnings then
-        for key, warning in pairs(childWarnings) do
-          if not thisWarnings[key] then
-            thisWarnings[key] = {
-              severity = warning.severity,
-              message = warning.message,
-              auraId = child.id
-            }
-          end
+      if not childWarnings then return end
+      for key, warning in pairs(childWarnings) do
+        -- A secure (clickable) display is a property of that display alone:
+        -- the note stays on it and never marks the groups above it.
+        if key ~= "protected_frame" and (direct or warning.severity == "error") and not thisWarnings[key] then
+          thisWarnings[key] = {
+            severity = warning.severity,
+            message = warning.message,
+            auraId = child.id
+          }
+        end
+      end
+    end
+    for _, childId in ipairs(data.controlledChildren or {}) do
+      local child = WeakAuras.GetData(childId)
+      if child then
+        if child.regionType == "group" or child.regionType == "dynamicgroup" then
+          for leaf in Private.TraverseLeafs(child) do Collect(leaf, false) end
+        else
+          Collect(child, true)
         end
       end
     end
