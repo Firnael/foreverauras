@@ -84,14 +84,24 @@ function OptionsPrivate.GetInformationOptions(data)
     set = function(info, v)
       OptionsPrivate.Private.TimeMachine:StartTransaction()
       for child in traverseForUrl(data) do
+        -- ForeverAuras: the URL is metadata that no display reads, so the
+        -- change skips the rebuild (Add) every record would otherwise run,
+        -- which froze the editor for seconds on a group with hundreds of
+        -- members. The options and list buttons are refreshed once, below.
         OptionsPrivate.Private.TimeMachine:Append({
           uid = child.uid,
           actionType = "set",
           path = {"url"},
-          payload = v
+          payload = v,
+          suppressAutoEffects = {add = true, options_cu = true}
         })
       end
       OptionsPrivate.Private.TimeMachine:Commit()
+      for child in traverseForUrl(data) do
+        local button = OptionsPrivate.GetDisplayButton(child.id)
+        if button and button.SetNormalTooltip then button:SetNormalTooltip() end
+      end
+      WeakAuras.ClearAndUpdateOptions(data.id, true)
     end,
     desc = sameURL and "" or desc,
     order = order
