@@ -1,5 +1,9 @@
 # Changelog
 ## VERSIONS
+## 0.92.38
+- Force Modern Auras to rebuild on combat end to avoid stales
+- Leave CDM configuration when called if EllesmereUI is in control of the CDM.
+
 ## 0.92.35
 - Fix LUA error on CDM Auras going into Combat
 - Speed up process of mass editing URL / descriptions
