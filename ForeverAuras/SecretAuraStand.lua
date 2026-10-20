@@ -191,6 +191,17 @@ local function MirrorGlow(copy)
   local sub = copy.faGlowSource
   copy.faGlowEntry = copy.faGlowEntry or {}
   local width, height = copy:GetSize()
+  -- ForeverAuras: a copy laid out by the aura container can report a secret
+  -- size, which cannot be compared. The glow then takes the size of the
+  -- element it mirrors, whose display is drawn off screen at its own size.
+  if issecretvalue(width) or issecretvalue(height) then
+    local okSize, sourceWidth, sourceHeight = pcall(sub and sub.GetSize or function() end, sub)
+    width, height = nil, nil
+    if okSize and type(sourceWidth) == "number" and type(sourceHeight) == "number"
+      and not issecretvalue(sourceWidth) and not issecretvalue(sourceHeight) then
+      width, height = sourceWidth, sourceHeight
+    end
+  end
   if not sub or not sub.glow or not (width and width >= 1 and height and height >= 1) then
     Display.ClearElementGlow(copy.faGlowEntry)
     return
@@ -380,11 +391,19 @@ function Display.EnsureStand(region, normal)
     Link(stand, region.text, text, FONT)
     CopyFont(region.text, text)
   end
+  -- ForeverAuras: the copies are levelled in sub element order, as
+  -- Private.ApplyFrameLevel levels the display's own elements. Left at the
+  -- chain frame's level plus one, every copy shared one level and a Glow
+  -- (drawn in a child frame of its copy) sat above Borders listed after it.
+  -- Two levels per element leave room for that child frame.
+  local okLevel, baseLevel = pcall(frame.GetFrameLevel, frame)
+  if not okLevel or type(baseLevel) ~= "number" or issecretvalue(baseLevel) then baseLevel = nil end
   for index, sub in ipairs(region.subRegions or {}) do
     if mirrorTypes[sub.type] then
       local copy = Pooled(stand, sub.type .. index, function()
         return CreateFrame("Frame", nil, frame, sub.type == "subborder" and "BackdropTemplateWeakAuras" or nil)
       end)
+      if baseLevel then pcall(copy.SetFrameLevel, copy, baseLevel + 2 + index * 2) end
       local methods = FRAME
       if sub.type == "subborder" then
         methods = {}

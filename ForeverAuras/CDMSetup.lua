@@ -98,7 +98,6 @@ local function StageVisibility()
       index = #layouts
     end
     saved.activeLayout = index
-    count = count + 1
   end
   local settings = Enum.EditModeCooldownViewerSetting
   local always = Enum.CooldownViewerVisibleSetting.Always
@@ -146,6 +145,9 @@ local function StageVisibility()
       end
     end
   end
+  -- Only viewer settings count as a change; the "-FA" copy is made for them,
+  -- never for its own sake, so a layout that already shows the viewers as
+  -- wanted needs nothing.
   if count == 0 then return end
   saved.layouts = layouts
   return saved
@@ -163,13 +165,13 @@ local function ApplySetup()
   local serialized, count, cooldownCount = StageLayout()
   local editLayouts = StageVisibility()
   local enable = not C_CVar.GetCVarBool("cooldownViewerEnabled")
-  local hide = Private.db.cdmHideBlizzard ~= true
-  if not serialized and not editLayouts and not enable and not hide then return true end
-  -- An unprompted run only asks when the pack has entries to add or the CDM is
-  -- off. Viewer visibility and the "-FA" layout copy are the player's call
-  -- once their layout is set up the way they like; /fa cdmsetup and the
-  -- options button still apply them.
-  if not confirmed and not serialized and not enable then return true end
+  -- "Hide Blizzard's CDM" is ForeverAuras' own setting: a class pack turns it
+  -- on by itself, with no prompt and no reload.
+  if Private.db.cdmHideBlizzard ~= true then
+    Private.db.cdmHideBlizzard = true
+    Private.ApplyCDMBackground()
+  end
+  if not serialized and not editLayouts and not enable then return true end
 
   -- Preserve the character's original settings for recovery.
   local character = UnitGUID("player")
@@ -185,7 +187,7 @@ local function ApplySetup()
     cooldownLayout = C_CooldownViewer.GetLayoutData(),
     editLayouts = C_EditMode.GetLayouts(),
     enabled = not enable,
-    hideBlizzard = not hide,
+    hideBlizzard = true,
   }
   needsReload = true
   if serialized then

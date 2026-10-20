@@ -383,6 +383,23 @@ local function SummariseInterval(frameMs, memDelta)
   for i = 1, math.min(8, #counts) do
     parts[#parts + 1] = ("|cff99ccff%s|r x%d"):format(counts[i].name, counts[i].count)
   end
+  -- The other addons that took the most of the interval, so a slow frame
+  -- that is not ForeverAuras' can be told apart (the client's own profiler).
+  if frameMs >= hitch.threshold and C_AddOnProfiler and C_AddOnProfiler.GetAddOnMetric and Enum.AddOnProfilerMetric and C_AddOns and C_AddOns.GetNumAddOns then
+    local metric = Enum.AddOnProfilerMetric.LastTime
+    local addons = {}
+    for i = 1, C_AddOns.GetNumAddOns() do
+      local name = C_AddOns.GetAddOnInfo(i)
+      if name and name ~= AddonName and C_AddOns.IsAddOnLoaded(i) then
+        local ok, ms = pcall(C_AddOnProfiler.GetAddOnMetric, name, metric)
+        if ok and type(ms) == "number" and ms >= 1 then addons[#addons + 1] = {name = name, ms = ms} end
+      end
+    end
+    sort(addons, function(a, b) return a.ms > b.ms end)
+    for i = 1, math.min(5, #addons) do
+      parts[#parts + 1] = ("|cffff9966%s|r %.1fms"):format(addons[i].name, addons[i].ms)
+    end
+  end
   return header, #parts > 0 and ("   " .. table.concat(parts, ", ")) or nil
 end
 
@@ -479,6 +496,38 @@ function WeakAuras.ToggleHitchCapture(threshold)
     local displays, containers, shown = Private.BlizzardAuraDisplay.CountContainers()
     prettyPrint(("Modern displays active: %d, native containers: %d (%d shown)"):format(displays, containers, shown))
   end
+end
+
+-- /fa phitch login [ms] [seconds]: the next reload runs the hitch capture
+-- from the moment the addon's saved variables are read, through login and
+-- for `seconds` (default 20) after entering the world, then prints the slow
+-- frames seen, the load time breakdown and the profile. One reload only.
+local LOGIN_HITCH_SECONDS = 20
+function WeakAuras.ArmLoginHitchCapture(threshold, seconds)
+  if not Private.db then return end
+  Private.db.hitchOnLogin = {threshold = tonumber(threshold) or 30, seconds = tonumber(seconds) or LOGIN_HITCH_SECONDS}
+  prettyPrint(L["Hitch capture armed for the next reload: frames slower than %dms are reported from addon load until %d s after entering the world."]:format(
+    Private.db.hitchOnLogin.threshold, Private.db.hitchOnLogin.seconds))
+end
+
+-- Called once the saved variables are read (ADDON_LOADED in ForeverAuras.lua).
+function Private.StartLoginHitchCapture()
+  local arm = Private.db and Private.db.hitchOnLogin
+  if not arm then return end
+  Private.db.hitchOnLogin = nil
+  WeakAuras.ToggleHitchCapture(arm.threshold)
+  if not hitch.active then return end
+  local watcher = CreateFrame("Frame")
+  watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+  watcher:SetScript("OnEvent", function(self)
+    self:UnregisterAllEvents()
+    prettyPrint(L["Entered the world; hitch capture continues for %d s."]:format(arm.seconds))
+    C_Timer.After(arm.seconds, function()
+      if hitch.active then WeakAuras.ToggleHitchCapture() end
+      if Private.PrintLoadProfile then Private.PrintLoadProfile() end
+      WeakAuras.PrintProfile()
+    end)
+  end)
 end
 
 ---@diagnostic disable-next-line: duplicate-set-field

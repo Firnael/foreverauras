@@ -229,6 +229,7 @@ function Private.PrintHelp()
   print("/wa unloadall - Unload every aura until the next /reload (nothing is saved)")
   print("/wa unloadgroup <text> - Unload every group or aura whose name contains text until the next /reload (nothing is saved)")
   print("/wa phitch [ms] - Toggle hitch capture: report every frame slower than ms (default 30) with the systems and auras that ran in it")
+  print(L["/wa phitch login [ms] [seconds] - Run the hitch capture through the next reload and login, then print the load time and profile"])
   print(L["/wa repair - Repair tool"])
   print(L["/wa trackprint - Toggle the display of a hyperlink in the chat frame when an aura prints a message."])
 end
@@ -253,7 +254,12 @@ function SlashCmdList.WeakAuras(input)
     WeakAuras.PrintProfile();
   elseif msg == "phitch" then
     -- Hitch capture: per-frame breakdown of slow frames, optional threshold in ms.
-    WeakAuras.ToggleHitchCapture(args[1])
+    -- "/fa phitch login [ms] [seconds]" arms it for the next reload instead.
+    if args[1] == "login" then
+      WeakAuras.ArmLoginHitchCapture(args[2], args[3])
+    else
+      WeakAuras.ToggleHitchCapture(args[1])
+    end
   elseif msg == "unloadgroup" then
     -- Session-only: unload the top-level groups matching the rest of the line.
     Private.UnloadGroupsForSession(input:match("^%s*%S+%s+(.-)%s*$"))
@@ -1443,6 +1449,8 @@ loadedFrame:SetScript("OnEvent", function(self, event, ...)
       -- Defines the action squelch period after login
       -- Stored in SavedVariables so it can be changed by the user if they find it necessary
       db.login_squelch_time = db.login_squelch_time or 10;
+      -- An armed login hitch capture (/fa phitch login) starts here, before any aura work.
+      if Private.StartLoginHitchCapture then Private.StartLoginHitchCapture() end
 
       -- Deprecated fields with *lots* of data, clear them out
       db.iconCache = nil;

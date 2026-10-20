@@ -1741,13 +1741,19 @@ combatWatcher:SetScript("OnEvent", function()
   for group in pairs(groups) do Display.RechainFlow(group) end
 end)
 
+local flushing = false
 local function FlushQueued()
+  if flushing then return end
+  flushing = true
   local groups = queued
   queued = {}
   for group in pairs(groups) do
     Display.RechainFlow(group)
     if WeakAuras.IsOptionsOpen() then Display.ArrangeFlowPreview(group) end
   end
+  flushing = false
+  -- Work queued by the rechain itself (a member it showed or hidden) waits
+  -- for the timer QueueRechain set, so a rechain can never loop on itself.
 end
 
 local function QueueRechain(region)
@@ -1758,10 +1764,12 @@ local function QueueRechain(region)
   if not group then return end
   if not next(queued) then C_Timer.After(0, FlushQueued) end
   queued[group] = true
-  -- Entering combat: displays that unload now must leave the row before the
-  -- lockdown, which may keep it from moving until combat ends. During a load
-  -- scan that happens once, at its end (Display.EndFlowLoad).
-  if loadScan == 0 and not InCombatLockdown() and UnitAffectingCombat("player") then FlushQueued() end
+  -- The row is chained again at once: a display shown or hidden now would
+  -- otherwise draw for one frame where the row last put it, a visible jump
+  -- sideways as it came in. During a load scan that happens once, at its end
+  -- (Display.EndFlowLoad); the timer above catches a queue made while a
+  -- rechain was already running.
+  if loadScan == 0 then FlushQueued() end
 end
 
 function Display.BeginFlowLoad()
@@ -1807,7 +1815,11 @@ local function SizeFlowNormal(region, normal, g, group)
   local size = (along and width or height) + spacing
   flow.growth, flow.endFrame, flow.endPoint = g, flow.start, g.start
   flow.x, flow.y = g.sign[1] * size, g.sign[2] * size
-  if (normal.homeWidth ~= width or normal.homeHeight ~= height) and not InCombatLockdown() then
+  -- The home and stand frames are plain frames; only a stand carrying secure
+  -- content is off limits in combat. A member that first loads in combat (an
+  -- "In Combat" load condition) must be sized now, or its centred shadow is
+  -- measured from a 1x1 frame and the row centres wrongly until the next fight.
+  if (normal.homeWidth ~= width or normal.homeHeight ~= height) and not Display.StandLocked(normal) then
     normal.home:SetSize(width, height)
     if normal.stand then flow.start:SetSize(width, height); flow.startSize = {width, height} end
     normal.homeWidth, normal.homeHeight = width, height
