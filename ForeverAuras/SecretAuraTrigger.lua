@@ -260,7 +260,7 @@ local function ReapplyLoaded(matches)
   for id in pairs(loaded) do
     local data = displays[id]
     local trigger = data and Display.GetSavedTrigger(data)
-    if trigger and matches(trigger) then
+    if trigger and matches(trigger, id) then
       if InCombatLockdown() then
         pendingListDisplays[id] = true
       elseif WeakAuras.GetData(id) == data then
@@ -274,12 +274,49 @@ local function ReapplyLoaded(matches)
     end
   end
 end
+-- ForeverAuras: what a display was built from. A display records this when
+-- it is built (BlizzardAuraDisplay.lua, Display.ListSignature); a publish
+-- re-applies every loaded display whose record differs, so a display built
+-- between a list change and its queued re-apply (or during combat, when the
+-- re-apply waits) cannot keep an empty or stale list.
+function Display.ListSignature(data)
+  local trigger = Display.GetTrigger(data)
+  if not trigger or not Display.UsesSpellList(trigger) then return nil end
+  local list = Display.spellLists[trigger.secretSpellList]
+  if not list then return trigger.secretSpellList .. ":none" end
+  return trigger.secretSpellList .. ":" .. table.concat(list.spellIDs, ",") .. ":" .. tostring(list.name) .. ":" .. tostring(list.icon)
+    .. ":" .. tostring(list.remaining) .. ":" .. tostring(list.expirationTime) .. ":" .. tostring(list.duration)
+end
+local function BuiltFromCurrentList(id)
+  local entry = Private.regions[id]
+  local native = entry and entry.region and entry.region.blizzardAuraDisplay
+  local data = displays[id]
+  return native ~= nil and data ~= nil and native.listSignature == Display.ListSignature(data)
+end
 local function ApplySpellListDisplays(keys)
-  ReapplyLoaded(function(trigger) return trigger.secretSpellList and keys[trigger.secretSpellList] end)
+  ReapplyLoaded(function(trigger, id)
+    return trigger.secretSpellList and keys[trigger.secretSpellList] and not BuiltFromCurrentList(id)
+  end)
+end
+local function QueueListApply()
+  if listApplyQueued then return end
+  listApplyQueued = true
+  C_Timer.After(0, function()
+    listApplyQueued = false
+    local keys = pendingListKeys
+    pendingListKeys = {}
+    ApplySpellListDisplays(keys)
+  end)
+end
+-- After combat, any list display built from something other than the current
+-- list is re-applied, whether or not its key changed while fighting.
+local function ReapplyStaleListDisplays()
+  ReapplyLoaded(function(trigger, id) return Display.UsesSpellList(trigger) and not BuiltFromCurrentList(id) end)
 end
 local listFrame = CreateFrame("Frame")
 listFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 listFrame:SetScript("OnEvent", function()
+  C_Timer.After(0, ReapplyStaleListDisplays)
   if not next(pendingListDisplays) then return end
   local ids = pendingListDisplays
   pendingListDisplays = {}
@@ -343,20 +380,14 @@ function ForeverAuras.SetAuraSpellList(key, list)
     and old.duration == stored.duration and #old.spellIDs == #stored.spellIDs then
     local same = true
     for index, id in ipairs(old.spellIDs) do if stored.spellIDs[index] ~= id then same = false; break end end
-    if same then return end
+    -- ForeverAuras: an unchanged list still re-applies displays not built from it.
+    if same then pendingListKeys[key] = true; QueueListApply(); return end
   elseif old == nil and stored == nil then
     return
   end
   Display.spellLists[key] = stored
   pendingListKeys[key] = true
-  if listApplyQueued then return end
-  listApplyQueued = true
-  C_Timer.After(0, function()
-    listApplyQueued = false
-    local keys = pendingListKeys
-    pendingListKeys = {}
-    ApplySpellListDisplays(keys)
-  end)
+  QueueListApply()
 end
 function ForeverAuras.SetAuraSpellLists(lists)
   if type(lists) ~= "table" then return end

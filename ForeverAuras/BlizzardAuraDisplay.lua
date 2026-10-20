@@ -1979,6 +1979,12 @@ function ApplyDisplay(region, data)
   if not native then
     native = {instances = {}, data = data}
     region.blizzardAuraDisplay = native
+  end
+  -- ForeverAuras: the spell list this build reads (SecretAuraTrigger.lua,
+  -- Display.ListSignature); a later publish compares against it.
+  native.listSignature = Display.ListSignature and Display.ListSignature(data) or nil
+  if not native.hooksInstalled then
+    native.hooksInstalled = true
     TimedHookScript(region, "OnHide", function()
       Display.HideUnitGlows(region)
       for _, instance in ipairs(native.instances) do

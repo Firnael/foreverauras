@@ -79,10 +79,14 @@ local function StageVisibility()
   local source = layouts[saved.activeLayout]
   if not source then error("The active Edit Mode layout is not ready.") end
   local count = 0
+  -- ForeverAuras: what the setup would change, named for the prompt so a
+  -- repeated offer can be traced to the setting behind it.
+  local reasons = {}
   local active
   if source.layoutType ~= Enum.EditModeLayoutType.Preset and source.layoutName:sub(-#SUFFIX) == SUFFIX then
     active = source
   else
+    reasons[#reasons + 1] = "layout \"" .. source.layoutName .. "\" is active, not its \"" .. SUFFIX .. "\" copy"
     local name = source.layoutName .. SUFFIX
     active = CopyTable(source)
     active.layoutName = name
@@ -113,6 +117,7 @@ local function StageVisibility()
       active.systems[#active.systems + 1] = CopyTable(system)
       found[system.systemIndex] = true
       count = count + 1
+      reasons[#reasons + 1] = "viewer " .. system.systemIndex .. " missing from the layout"
     end
   end
   for _, key in ipairs({"Essential", "Utility", "BuffIcon", "BuffBar"}) do
@@ -129,19 +134,27 @@ local function StageVisibility()
       for _, setting in ipairs(system.settings) do
         if setting.setting == settings.VisibleSetting then
           visible = setting
-          if setting.value ~= always then setting.value = always; count = count + 1 end
+          if setting.value ~= always then
+            reasons[#reasons + 1] = "viewer " .. system.systemIndex .. " visibility " .. tostring(setting.value)
+            setting.value = always; count = count + 1
+          end
         elseif tooltipBars[system.systemIndex] and setting.setting == settings.ShowTooltips then
           tooltips = setting
-          if setting.value ~= 0 then setting.value = 0; count = count + 1 end
+          if setting.value ~= 0 then
+            reasons[#reasons + 1] = "viewer " .. system.systemIndex .. " tooltips " .. tostring(setting.value)
+            setting.value = 0; count = count + 1
+          end
         end
       end
       if not visible then
         system.settings[#system.settings + 1] = {setting = settings.VisibleSetting, value = always}
         count = count + 1
+        reasons[#reasons + 1] = "viewer " .. system.systemIndex .. " has no visibility setting"
       end
       if tooltipBars[system.systemIndex] and not tooltips then
         system.settings[#system.settings + 1] = {setting = settings.ShowTooltips, value = 0}
         count = count + 1
+        reasons[#reasons + 1] = "viewer " .. system.systemIndex .. " has no tooltip setting"
       end
     end
   end
@@ -150,7 +163,19 @@ local function StageVisibility()
   -- wanted needs nothing.
   if count == 0 then return end
   saved.layouts = layouts
-  return saved
+  return saved, reasons
+end
+
+-- ForeverAuras: another addon driving Blizzard's CDM. EllesmereUI's Cooldown
+-- Manager module keeps the viewers Always visible on the player's own layout,
+-- hides them and draws its own bars, so the "-FA" layout copy and the tooltip
+-- setting would change nothing the player sees. Its enabled flag is read from
+-- its profile; a disabled module leaves the setup to ForeverAuras.
+local function ExternalCDM()
+  local modules = EllesmereUI and EllesmereUI._ModuleNS
+  local module = modules and modules.EllesmereUICooldownManager
+  local profile = module and module.ECME and module.ECME.db and module.ECME.db.profile
+  if profile and profile.cdmBars and profile.cdmBars.enabled then return "EllesmereUI Cooldown Manager" end
 end
 
 local function ApplySetup()
@@ -163,8 +188,9 @@ local function ApplySetup()
     error("This client does not expose the required CDM layout APIs.")
   end
   local serialized, count, cooldownCount = StageLayout()
-  local editLayouts = StageVisibility()
+  local editLayouts, reasons = StageVisibility()
   local enable = not C_CVar.GetCVarBool("cooldownViewerEnabled")
+  if enable then reasons = reasons or {}; reasons[#reasons + 1] = "the cooldownViewerEnabled CVar is off" end
   -- "Hide Blizzard's CDM" is ForeverAuras' own setting: a class pack turns it
   -- on by itself, with no prompt and no reload.
   if Private.db.cdmHideBlizzard ~= true then
@@ -172,6 +198,11 @@ local function ApplySetup()
     Private.ApplyCDMBackground()
   end
   if not serialized and not editLayouts and not enable then return true end
+  -- The automatic offer stays quiet while another addon manages the CDM; an
+  -- explicit run (/fa cdmsetup or the options button) still goes ahead.
+  local external = ExternalCDM()
+  if external and not confirmed then return true end
+  if external then print("ForeverAuras: " .. external .. " is enabled; it manages the viewers, so the setup may not change what you see.") end
 
   -- Preserve the character's original settings for recovery.
   local character = UnitGUID("player")
@@ -179,6 +210,8 @@ local function ApplySetup()
   if not confirmed then
     if asked or (Private.db.cdmClassPackSetupSkip or {})[character] then return true end
     asked = true
+    -- The reasons go to chat, so an offer that keeps coming back can be reported.
+    print("ForeverAuras: CDM setup offered because: " .. table.concat(reasons or {"auras to add"}, "; "))
     StaticPopup_Show("FOREVERAURAS_CDM_SETUP_ASK", count, cooldownCount, {character = character})
     return true
   end

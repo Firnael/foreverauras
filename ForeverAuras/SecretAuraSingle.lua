@@ -2670,3 +2670,55 @@ function Display.RefreshSingle(instance, unit, shown, force)
 end
 
 learnEvents:SetScript("OnEvent", Private.Profiled("aura (modern) - learning", learnEvents:GetScript("OnEvent")))
+
+-- ForeverAuras: "/fa modern <id>" report. Plain reads only; secret values
+-- print as such. Everything goes to chat, so a report can be pasted.
+function Display.PrintDebug(id)
+  local function Fmt(value)
+    if value == nil then return "nil" end
+    if issecretvalue(value) then return "<secret>" end
+    if type(value) == "number" then return string.format("%.1f", value) end
+    return tostring(value)
+  end
+  local function Say(...) print("|cff88ccffFA modern|r " .. table.concat({...}, " ")) end
+  local data = id and WeakAuras.GetData(id)
+  if not data then Say("no aura named", tostring(id)); return end
+  local entry = Private.regions[id]
+  local region = entry and entry.region
+  Say(id, "loaded", Fmt(Private.loaded[id]), "region", Fmt(region ~= nil), "shown", Fmt(region and region:IsShown()))
+  local trigger = Display.GetTrigger(data)
+  if not trigger then Say("no Aura (Modern) trigger"); return end
+  Say("showOn", Fmt(Display.ShowOn(trigger)), "unit", Fmt(trigger.unit), "list key", Fmt(trigger.secretSpellList))
+  local list = Display.SpellList(trigger)
+  if trigger.secretSpellList and trigger.secretSpellList ~= "" then
+    if list then
+      Say("list name", Fmt(list.name), "icon", Fmt(list.icon), "ids", table.concat(list.spellIDs, ","), "remaining", Fmt(list.remaining))
+    else
+      Say("list", trigger.secretSpellList, "is NOT set")
+    end
+  end
+  Say("ids used", table.concat(Display.GetSpellIDs(trigger, true), ","), "icon", Fmt(Display.SingleIcon(data)))
+  local native = region and region.blizzardAuraDisplay
+  if not native then Say("no native display"); return end
+  Say("native active", Fmt(native.active), "instances", Fmt(native.instances and #native.instances))
+  for index, instance in ipairs(native.instances or {}) do
+    local single = instance.single
+    local missing = single and single.missing
+    Say("instance", index, "container", Fmt(instance.container and instance.container:GetWidth()), "x", Fmt(instance.container and instance.container:GetHeight()),
+      "shown", Fmt(instance.container and instance.container:IsShown()))
+    if missing then
+      local c, clip = missing.container, missing.clip
+      Say(" missing active", Fmt(missing.active), "erased", Fmt(missing.erased), "failed", Fmt(single.missingFailed))
+      Say(" presence container", Fmt(c and c:GetWidth()), "x", Fmt(c and c:GetHeight()), "left", Fmt(c and c:GetLeft()), "top", Fmt(c and c:GetTop()), "shown", Fmt(c and c:IsShown()))
+      Say(" clip", Fmt(clip and clip:GetWidth()), "x", Fmt(clip and clip:GetHeight()), "left", Fmt(clip and clip:GetLeft()), "top", Fmt(clip and clip:GetTop()), "shown", Fmt(clip and clip:IsShown()))
+      local sample = missing.native and missing.native.button
+      local icon = missing.native and missing.native.icon
+      Say(" sample", Fmt(sample and sample:GetWidth()), "left", Fmt(sample and sample:GetLeft()), "top", Fmt(sample and sample:GetTop()), "alpha", Fmt(sample and sample:GetAlpha()), "texture", Fmt(icon and icon:GetTexture()))
+      for n = 1, (c and c.GetNumChildren and c:GetNumChildren() or 0) do
+        local child = select(n, c:GetChildren())
+        Say("  presence child", n, Fmt(child:GetWidth()), "x", Fmt(child:GetHeight()), "shown", Fmt(child:IsShown()))
+      end
+    end
+  end
+  Say("region", Fmt(region:GetWidth()), "x", Fmt(region:GetHeight()), "left", Fmt(region:GetLeft()), "top", Fmt(region:GetTop()), "scale", Fmt(region:GetEffectiveScale()))
+end

@@ -278,6 +278,10 @@ function SlashCmdList.WeakAuras(input)
     Private.PrintHelp();
   elseif msg == "cdmsetup" then
     Private.RunCDMSetup()
+  elseif msg == "modern" then
+    -- ForeverAuras: "/fa modern <aura id>" prints an Aura (Modern) display's
+    -- state (its spell list, Missing clip and sample) for bug reports.
+    Private.BlizzardAuraDisplay.PrintDebug(input:match("^%s*%S+%s+(.-)%s*$"))
   elseif msg == "spec" then
     -- Specialization detection report (PlayerSpecialization.lua).
     Private.PrintSpecialization()
