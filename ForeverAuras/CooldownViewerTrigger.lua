@@ -44,15 +44,21 @@ local function CatalogRefresh(event)
   return event == "OPTIONS" and not (catalog and catalogTime == GetTime())
 end
 
+local catalogSecret = false
 local function GetCatalog(refresh)
   local batch = Private.cdmScanBatch
   if batch and batch.catalog then return batch.catalog end
+  -- ForeverAuras: a catalog built while aura data was secret is rebuilt
+  -- once it is readable again (CDMCatalog remembers what it could not read).
+  if catalog and catalogSecret and not (C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret()) then refresh = true end
   if catalog and not refresh then
     if batch then batch.catalog = catalog end
     return catalog
   end
   catalog = IsAvailable() and Private.CDMCatalog() or {}
+  catalogSecret = Private.cdmCatalogSawSecret == true
   catalogTime = GetTime()
+  Private.cdmCatalogForDebug = function() return catalog end
   if batch then batch.catalog = catalog end
   return catalog
 end
@@ -103,6 +109,27 @@ end
 
 local resolved = {}
 
+-- ForeverAuras: each entry's aura spell IDs as last seen readable. They are
+-- static data, but an entry whose aura is up reports them secret in combat,
+-- and its viewer frame keeps secret values after combat until its next aura
+-- event; an index built then had no name for that entry, so a buff applied
+-- in combat had no trigger state afterwards. The remembered IDs stand in
+-- while the live ones are secret.
+local rememberedEntrySpells = {}
+local function AurasSecret()
+  return C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret() or false
+end
+local function EntryAuraSpellIDs(entryID, info)
+  local ids = Private.CDMAuraSpellIDs(info)
+  if IsReadable(info.spellID) and #ids > 0 then
+    rememberedEntrySpells[entryID] = ids
+  elseif #ids == 0 and rememberedEntrySpells[entryID] then
+    ids = rememberedEntrySpells[entryID]
+    resolved.sawSecret = true
+  end
+  return ids
+end
+
 -- Resolve all buff names in one catalog pass. Login can evaluate many names in
 -- several auras; avoid repeating the full entry/rank search for each name.
 -- This uses only CDM-provided IDs, with the same lifetime as the existing query
@@ -116,10 +143,11 @@ local function BuffNameIndex(entries)
       local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(entryID)
       if info then
         local displayed = entry.displayed == true
-        local ids = Private.CDMAuraSpellIDs(info)
+        local ids = EntryAuraSpellIDs(entryID, info)
         local frame = frames[entryID]
         local frameSpell = frame and frame.GetSpellID and frame:GetSpellID()
-        if IsReadable(frameSpell) and type(frameSpell) == "number" then ids[#ids + 1] = frameSpell end
+        if IsReadable(frameSpell) and type(frameSpell) == "number" then ids[#ids + 1] = frameSpell
+        elseif frameSpell ~= nil then resolved.sawSecret = true end
         for _, spellID in ipairs(ids) do
           local spell = spells[spellID]
           if spell == nil then
@@ -178,6 +206,9 @@ function Private.ResolveCDMSpell(trigger, event)
   end
   local key = tostring(trigger.cdmSelection) .. ":" .. tostring(trigger.event) .. ":" .. query .. ":" .. tostring(trigger.cdmExact) .. ":" .. (trigger.cdmSource or "cooldown") .. ":" .. tostring(trigger.use_ignoreSpellKnown) .. ":" .. tostring(event == "OPTIONS")
   if resolved.entries ~= entries then resolved = {entries = entries} end
+  -- ForeverAuras: a resolution that met secret values is dropped once auras
+  -- are readable again, so it is rebuilt from live data (see EntryAuraSpellIDs).
+  if resolved.sawSecret and not AurasSecret() then resolved = {entries = entries} end
   if resolved[key] then return resolved[key] end
   local id = tonumber(query)
   if trigger.cdmExact and not id then return {} end
@@ -278,7 +309,7 @@ function Private.ResolveCDMSpell(trigger, event)
         local identity = Identity(entryID, entry, info)
         local score = exact and ExactMatch(info, id) or 1
         local matches = exact and score > 0 or not exact and identity.name:lower() == name
-        local auraSpellIDs = anyBuffRank and Private.CDMAuraSpellIDs(info)
+        local auraSpellIDs = anyBuffRank and EntryAuraSpellIDs(entryID, info)
         -- A CDM entry can display a linked effect with a different name from its base aura.
         if anyBuffRank and not matches then
           for _, spellID in ipairs(auraSpellIDs) do
@@ -720,8 +751,12 @@ local function BuildCooldownViewerStates(allstates, selected, event, showGCD, tr
               -- answers no), as the native slot's unit does; the viewer
               -- frame's unit counts only once it was actually seen, since an
               -- unseen frame reports the player for a target debuff.
+              -- ForeverAuras: a frame that reported its unit decides; spell
+              -- data is asked only when no frame has. Asked always, it could
+              -- call a buff the frame had seen on the player a target aura,
+              -- and with no target (the fight over) the buff read as absent.
               local targetAura = state.cdmAuraSourceSeen and state.cdmAuraUnit == "target"
-              if not targetAura then targetAura = Private.CDMSpellsTargetEnemy(state.cdmAuraSpellIDs) end
+              if not state.cdmAuraSourceSeen then targetAura = Private.CDMSpellsTargetEnemy(state.cdmAuraSpellIDs) end
               if targetAura then
                 local exists = UnitExists("target")
                 unitGone = IsReadable(exists) and exists == false

@@ -52,9 +52,22 @@ function Native.Style(native, settings, inverse)
   Private.SetTextureOrAtlas(texture, settings.currentTexture, settings.textureWrapMode, settings.textureWrapMode)
   texture:SetBlendMode(settings.blendMode or "BLEND")
   texture:SetDesaturated(settings.desaturateForeground == true)
-  texture:SetRotation(math.rad(settings.auraRotation or 0))
+  -- ForeverAuras: the client's radial bar always fills from its own zero at
+  -- the bottom of the texture (measured in game; the start and end offsets
+  -- only cut an arc out of the circle). The display fills from its Start
+  -- Angle (Clockwise) or End Angle (Anticlockwise), the top by default. So
+  -- the texture itself is turned until the client's zero sits on that angle
+  -- (the radial mask turns with it), and the texture coordinates are turned
+  -- back by the same amount, so the picture stays upright. The default
+  -- (zero at the top) is a half turn, which loses nothing of the picture;
+  -- other start angles crop the corners as the display's own Rotation does.
+  local anchor = 0
+  if circular then
+    anchor = 180 + ((settings.orientation == "ANTICLOCKWISE" and settings.endAngle or settings.startAngle) or 0)
+  end
+  texture:SetRotation(math.rad((settings.auraRotation or 0) + anchor))
   native.coord:SetFull()
-  native.coord:Transform(settings.crop_x or 1, settings.crop_y or 1, settings.effectiveTexRotation or settings.texRotation or 0,
+  native.coord:Transform(settings.crop_x or 1, settings.crop_y or 1, (settings.effectiveTexRotation or settings.texRotation or 0) - anchor,
     not settings.mirror ~= not settings.mirror_h, settings.mirror_v, circular and 0 or settings.user_x, circular and 0 or settings.user_y)
   native.coord:Apply()
   texture:SetVertexColor(settings.color_anim_r or settings.color_r or 1, settings.color_anim_g or settings.color_g or 1,
@@ -66,8 +79,19 @@ function Native.Style(native, settings, inverse)
     bar:SetStatusBarColor(settings.color_anim_r or settings.color_r or 1, settings.color_anim_g or settings.color_g or 1,
       settings.color_anim_b or settings.color_b or 1, settings.color_anim_a or settings.color_a or 1)
     native.linearTexture:Hide()
-    texture:SetRadialProgressBarStartOffset(((settings.startAngle or 0) + 180) % 360 / 360)
-    texture:SetRadialProgressBarEndOffset(((settings.endAngle or 360) + 180) % 360 / 360)
+    -- With the client's zero turned onto the fill's start (above), the arc
+    -- runs from zero for the display's span, and the rest of the circle is
+    -- cut out. The fill runs from zero clockwise in the client's forward
+    -- mode and anticlockwise reversed (seen in game: the forward fill ran
+    -- the wrong way for Clockwise when it was taken for the reversed one).
+    -- A whole circle leaves nothing cut out (equal offsets).
+    local startAngle, endAngle = settings.startAngle or 0, settings.endAngle or 360
+    local span = (endAngle - startAngle) % 360
+    if span == 0 then span = 360 end
+    local startOffset, endOffset = span / 360, 1
+    if span >= 360 then startOffset, endOffset = 0, 0 end
+    if not pcall(texture.SetRadialProgressBarStartOffset, texture, startOffset) then texture:SetRadialProgressBarStartOffset(0) end
+    if not pcall(texture.SetRadialProgressBarEndOffset, texture, endOffset) then texture:SetRadialProgressBarEndOffset(0.9999) end
     texture:SetRadialProgressBarReverse(settings.orientation == "ANTICLOCKWISE")
     texture:SetRadialProgressBarFeather(0)
   else
@@ -257,6 +281,15 @@ function Native.StyleAura(native, data, parent)
   end
   background:SetColor(unpack(data.backgroundColor))
   native.bar = progress.bar
-  native.button:SetDurationBar(progress.bar, {direction = data.inverse and Enum.StatusBarTimerDirection.ElapsedTime or Enum.StatusBarTimerDirection.RemainingTime})
+  -- ForeverAuras: "Static (always full)" (Display tab) leaves the bar unbound
+  -- and full, so the shape shows whole for as long as the aura is up; the
+  -- default binds it to Blizzard's timer.
+  if data.blizzardAuraDisplay and data.blizzardAuraDisplay.staticProgress then
+    if native.button.ClearDurationBar then native.button:ClearDurationBar() end
+    progress.bar:SetMinMaxValues(0, 1)
+    progress.bar:SetValue(1)
+  else
+    native.button:SetDurationBar(progress.bar, {direction = data.inverse and Enum.StatusBarTimerDirection.ElapsedTime or Enum.StatusBarTimerDirection.RemainingTime})
+  end
   progress.bar:Show()
 end

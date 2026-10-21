@@ -988,20 +988,54 @@ function Private.regionPrototype.create(region)
       local normal = self.flowNormal
       local stand = normal and normal.stand
       local standFrame = stand and stand.active and stand.frame or nil
-      -- A gate that hides the display outright (Aura(s) Found with a secret
-      -- aura: the slot's copy of the display stands for it, CDMAuraProgress).
-      if gate and gate.hide then
-        if standFrame then pcall(standFrame.SetAlpha, standFrame, 0); standFrame.cdmGateApplied = true end
-        return self:RealSetAlpha(0)
-      end
       -- A secret cooldown's Remaining Time window (SetRegionSecretRemaining).
       local window = self.secretRemainingWindow
       local duration = window and self.durationObject
-      if duration and duration.EvaluateRemainingDuration then
+      if duration and not duration.EvaluateRemainingDuration then duration = nil end
+      if standFrame then
+        -- ForeverAuras: one owner for each part. The display's own frame
+        -- carries the asked-for alpha (the stand frame is its child, so the
+        -- copies inherit it), and the stand frame carries only the gate, as a
+        -- factor of 0 or 1. Written to both, a 50% display drew at 25% (0.5 x
+        -- 0.5), and a gate applied on the boolean path was never recorded, so
+        -- removing the gate left the stand frame at 0 while the display went
+        -- back to its alpha.
+        local applied = false
+        if gate and gate.hide then
+          pcall(standFrame.SetAlpha, standFrame, 0)
+          applied = true
+        elseif duration then
+          local ok, factor = pcall(duration.EvaluateRemainingDuration, duration, RemainingCurve(window, 1))
+          if ok and factor ~= nil then
+            pcall(standFrame.SetAlpha, standFrame, factor)
+            applied = true
+          end
+        end
+        if not applied and gate and standFrame.SetAlphaFromBoolean then
+          local ok, shown = pcall(gate.read)
+          if ok and shown ~= nil then
+            local present, absent = 1, 0
+            if gate.mode == "missing" then present, absent = 0, 1 end
+            applied = pcall(standFrame.SetAlphaFromBoolean, standFrame, shown, present, absent)
+          end
+        end
+        if applied then
+          standFrame.cdmGateApplied = true
+        elseif standFrame.cdmGateApplied then
+          standFrame.cdmGateApplied = nil
+          pcall(standFrame.SetAlpha, standFrame, 1)
+        end
+        return self:RealSetAlpha(wanted)
+      end
+      -- A gate that hides the display outright (Aura(s) Found with a secret
+      -- aura: the slot's copy of the display stands for it, CDMAuraProgress).
+      if gate and gate.hide then
+        return self:RealSetAlpha(0)
+      end
+      if duration then
         local curve = RemainingCurve(window, wanted)
         local ok, alpha = pcall(duration.EvaluateRemainingDuration, duration, curve)
         if ok and alpha ~= nil then
-          if standFrame then pcall(standFrame.SetAlpha, standFrame, alpha); standFrame.cdmGateApplied = true end
           return self:RealSetAlpha(alpha)
         end
       end
@@ -1010,14 +1044,9 @@ function Private.regionPrototype.create(region)
         if ok and shown ~= nil then
           local present, absent = wanted, 0
           if gate.mode == "missing" then present, absent = 0, wanted end
-          if standFrame and standFrame.SetAlphaFromBoolean then pcall(standFrame.SetAlphaFromBoolean, standFrame, shown, present, absent) end
           if pcall(self.SetAlphaFromBoolean, self, shown, present, absent) then return end
         end
-      elseif standFrame and standFrame.cdmGateApplied then
-        standFrame.cdmGateApplied = nil
-        pcall(standFrame.SetAlpha, standFrame, 1)
       end
-      if standFrame and gate then standFrame.cdmGateApplied = true end
       return self:RealSetAlpha(wanted)
     end
     -- Animations read the alpha they start from: the asked-for one, not the fade.

@@ -1238,7 +1238,11 @@ local function ConstructMoverSizer(parent)
           end
         end
       end
-      local strata = math.min(strataIndex + 1, 9)
+      -- ForeverAuras: never above HIGH. The options window is in DIALOG, and a
+      -- box raised past it (a group with a child in HIGH or above) was drawn
+      -- over the window and took the clicks meant for it. A child in DIALOG
+      -- or higher may still catch a click on the box; the window comes first.
+      local strata = math.min(strataIndex + 1, 5)
       frame:SetFrameStrata(strataTypes[strata])
       mover:SetFrameStrata(strataTypes[strata])
       -- Only needed when the strata cannot go higher.

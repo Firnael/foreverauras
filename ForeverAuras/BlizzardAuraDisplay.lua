@@ -327,8 +327,12 @@ function Display.Migrate(data)
   end
 end
 
+-- ForeverAuras: Texture displays draw on the aura button too (a plain
+-- texture shown with the aura; SecretAuraAppearance.lua, StyleAppearance).
+local eligibleTypes = {icon = true, aurabar = true, text = true, progresstexture = true, texture = true}
+Display.eligibleTypes = eligibleTypes
 function Display.Eligible(data)
-  return data and (data.regionType == "icon" or data.regionType == "aurabar" or data.regionType == "text" or data.regionType == "progresstexture") and Display.GetTrigger(data) ~= nil
+  return data and eligibleTypes[data.regionType] == true and Display.GetTrigger(data) ~= nil
 end
 
 function Display.Enabled(data)
@@ -445,8 +449,8 @@ end
 
 function Display.Validate(data)
   if not Display.Eligible(data) then
-    if Display.HasTrigger(data) and data.regionType ~= "icon" and data.regionType ~= "aurabar" and data.regionType ~= "text" and data.regionType ~= "progresstexture" then
-      return L["Aura (Modern) works on Icon, Progress Bar, Progress Texture and Text displays."]
+    if Display.HasTrigger(data) and not eligibleTypes[data.regionType] then
+      return L["Aura (Modern) works on Icon, Progress Bar, Progress Texture, Texture and Text displays."]
     end
     return L["Set Dynamic Information to this trigger."]
   end
@@ -765,6 +769,12 @@ local function Suppress(region)
       for _, texture in ipairs(spinner.textures) do SuppressTexture(texture) end
     end
     if region.nativeProgress then SuppressTexture(region.nativeProgress.bar) end
+  end
+  -- A Texture display draws through a TextureBase wrapper around its texture.
+  if region.regionType == "texture" and region.texture and region.texture.texture then
+    local texture = region.texture.texture
+    if saved[texture] == nil then saved[texture] = texture:GetAlpha() end
+    texture:SetAlpha(0)
   end
   -- AuraBar stores its background on bar, but parents the texture to the region.
   local background = region.bar and region.bar.bg
@@ -1539,6 +1549,9 @@ local function UnitIgnored(trigger, unit)
   return false
 end
 
+-- Shared with SecretAuraGrid.lua (a grid member's group is switched off).
+Display.UnitIgnored = UnitIgnored
+
 local function ApplyUnitStatus(instance, trigger)
   local hidden = UnitIgnored(trigger, instance.visible and instance.boundUnit)
   -- Settling after a unit change (see the binding below).
@@ -2240,6 +2253,8 @@ statusEvents:SetScript("OnEvent", function(_, _, unit)
     -- Read only: the saved trigger, without the copy GetTrigger may make.
     local trigger = Display.GetSavedTrigger(native.data)
     if trigger and (trigger.ignoreDead or trigger.ignoreDisconnected) then
+      -- ForeverAuras: a grid member draws in the grid's container, not its own.
+      if native.gridMember and Display.RefreshGridStatus then Display.RefreshGridStatus(region, unit) end
       local single = #native.instances == 1
       for _, instance in ipairs(native.instances) do
         local bound = instance.visible and instance.boundUnit
@@ -2299,8 +2314,9 @@ events:SetScript("OnEvent", function(_, event, unit)
     end
     return
   end
-  -- Only the target's and focus's targets are watched.
-  if event == "UNIT_TARGET" and unit ~= "target" and unit ~= "focus" then return end
+  -- Only the target's, focus's and pet's targets are watched. (The pet was
+  -- dropped here, so a Pet Target display kept the previous target's auras.)
+  if event == "UNIT_TARGET" and unit ~= "target" and unit ~= "focus" and unit ~= "pet" then return end
   -- Modern Aura Groups re-anchor once after all their displays rebound units.
   Display.BeginFlowBatch()
   for region in pairs(activeRegions) do

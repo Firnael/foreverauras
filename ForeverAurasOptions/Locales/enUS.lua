@@ -971,6 +971,8 @@ WeakAuras will always run custom grow code if you include 'changed' in this list
 	L["Zoom Out"] = "Zoom Out"
 
 -- ForeverAuras: Aura (Modern), CDM and options window
+L["Static (always full)"] = "Static (always full)"
+L["Draw the whole texture while the aura is active instead of filling it by the aura's remaining time."] = "Draw the whole texture while the aura is active instead of filling it by the aura's remaining time."
 L["Allow External Display Changes"] = "Allow External Display Changes"
 L["Lets another aura or an addon scale this display or set its sizes with ForeverAuras.SetDisplayScale(id, factor) and ForeverAuras.SetDisplayOverrides(id, values). The changes are never saved: the editor always shows the authored values."] = "Lets another aura or an addon scale this display or set its sizes with ForeverAuras.SetDisplayScale(id, factor) and ForeverAuras.SetDisplayOverrides(id, values). The changes are never saved: the editor always shows the authored values."
 L["Pasted onto an Aura (Modern): %d unsupported element(s) removed, %d text(s) switched off (only %%p, %%s, %%n, %%l or plain text, once each)."] = "Pasted onto an Aura (Modern): %d unsupported element(s) removed, %d text(s) switched off (only %%p, %%s, %%n, %%l or plain text, once each)."
@@ -1119,6 +1121,7 @@ L["Spell IDs come from the Spell List |cffffd100%s|r, set by this pack's backend
 L["Spell Selection Filters"] = "Spell Selection Filters"
 L["Spell count checks:"] = "Spell count checks:"
 L["Spells must be active in the CDM to be displayed. Type /cdm and add them."] = "Spells must be active in the CDM to be displayed. Type /cdm and add them."
+L["|cffffffffNote: Trigger Always Active in combat|r (the aura is secret then; Blizzard shows the display)"] = "|cffffffffNote: Trigger Always Active in combat|r (the aura is secret then; Blizzard shows the display)"
 L["Stagger value checks and calculations:"] = "Stagger value checks and calculations:"
 L["Start a new row after this many auras. 0 keeps one row. Not used for several units on the screen."] = "Start a new row after this many auras. 0 keeps one row. Not used for several units on the screen."
 L["Style the glow on the anchored unit frame."] = "Style the glow on the anchored unit frame."

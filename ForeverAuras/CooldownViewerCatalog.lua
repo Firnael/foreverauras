@@ -87,6 +87,8 @@ local function Observe(frame)
   if observed[frame] or not hooksecurefunc then return end
   local record = {}
   observed[frame] = record
+  -- Seen first while readable: what the frame holds now can be trusted.
+  record.auraReadable = not (C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret())
   local function CaptureIdentity()
     record.cooldownID = Number(frame.cooldownID)
     record.spellID = frame.GetSpellID and Number(frame:GetSpellID())
@@ -112,8 +114,17 @@ local function Observe(frame)
     CaptureIdentity()
     NativeRefresh()
   end
+  -- ForeverAuras: whether the frame's aura information (instance, cached
+  -- aura data) was last set while auras were readable. Set in combat, it is
+  -- what the client could tell the frame then, and the frame keeps it after
+  -- combat until its next aura event; a frame reporting no aura is trusted
+  -- only when this is true (CDMApplyAura confirms it directly otherwise).
+  local function StampAura()
+    record.auraReadable = not (C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret())
+  end
   -- Spell timers are cleared by cooldown callbacks, not aura callbacks.
   local function ClearAura()
+    StampAura()
     if not frame.RefreshSpellCooldownInfo then Clear() else NativeRefresh() end
   end
   local function RefreshNativeState()
@@ -135,7 +146,10 @@ local function Observe(frame)
   for _, method in ipairs({"OnCooldownIDSet", "OnCooldownIDCleared", "ResetCooldownData"}) do
     if type(frame[method]) == "function" then hooksecurefunc(frame, method, function() record.barDuration = nil; Clear() end) end
   end
-  for _, method in ipairs({"SetAuraInstanceInfo", "OnUnitAuraRemovedEvent", "OnUnitAuraUpdatedEvent", "OnNewTarget", "OnActiveStateChanged", "RefreshIconColor"}) do
+  for _, method in ipairs({"SetAuraInstanceInfo", "OnUnitAuraRemovedEvent", "OnUnitAuraUpdatedEvent", "OnNewTarget"}) do
+    if type(frame[method]) == "function" then hooksecurefunc(frame, method, function() StampAura(); NativeRefresh() end) end
+  end
+  for _, method in ipairs({"OnActiveStateChanged", "RefreshIconColor"}) do
     if type(frame[method]) == "function" then hooksecurefunc(frame, method, NativeRefresh) end
   end
   for _, method in ipairs({"RefreshData", "RefreshCooldownOnly"}) do
@@ -299,7 +313,9 @@ function Private.CDMFrames()
   return frames
 end
 
+local rememberedKnown = {}
 function Private.CDMCatalog()
+  Private.cdmCatalogSawSecret = false
   local catalog = {}
   local settings = _G.CooldownViewerSettings
   local provider = settings and settings.GetDataProvider and settings:GetDataProvider()
@@ -332,11 +348,23 @@ function Private.CDMCatalog()
             local viewer = frames[id].viewerFrame
             placement = viewer and Number(viewer.cooldownViewerCategory)
           end
+          -- ForeverAuras: isKnown is secret for an entry whose aura is up in
+          -- combat. It is static, so the last readable answer is remembered
+          -- and stands in then; a catalog built in combat otherwise marked
+          -- the entry not known, and the trigger found nothing afterwards.
+          local known
+          if Readable(info.isKnown) then
+            known = info.isKnown ~= false
+            rememberedKnown[id] = known
+          else
+            known = rememberedKnown[id]
+            Private.cdmCatalogSawSecret = true
+          end
           catalog[id] = {
             category = placement and placement >= 0 and placement or category,
             sourceCategory = category,
             displayed = displayed,
-            known = Readable(info.isKnown) and info.isKnown ~= false,
+            known = known,
           }
         end
       end
@@ -432,7 +460,10 @@ local function ApplyCachedAura(state, identity, info, frame, exactID, buffSpellI
   -- or earlier), not defaulted; the native binding may trust them.
   state.cdmAuraSourceSeen = nil
   if frame then
-    if Readable(unit) and (unit == "player" or unit == "target") and aura and Readable(aura.isHarmful) then
+    -- ForeverAuras: the unit alone names the side (ApplyAuraSource derives
+    -- the filter from it when the cached aura's isHarmful is secret, as it
+    -- is after combat); a readable unit counts as seen.
+    if Readable(unit) and (unit == "player" or unit == "target") and aura then
       knownSources[frame] = {unit = state.cdmAuraUnit, filter = state.cdmAuraFilter}
       state.cdmAuraSourceSeen = true
     elseif not Readable(unit) and knownSources[frame] then
@@ -623,6 +654,28 @@ function Private.CDMSpellsTargetEnemy(ids)
   end
   return false
 end
+-- ForeverAuras: one read of a unit's auras per frame tick, shared by every
+-- entry looked up directly in the same refresh (a refresh runs every CDM
+-- trigger at once). Secret: an entry whose spell ID could not be read was
+-- met; the list holds what came before it.
+local scanCache = {}
+local function ScanAuras(unit, filter)
+  local key = unit .. "|" .. filter
+  local now = GetTime()
+  local entry = scanCache[key]
+  if entry and entry.time == now then return entry.list, entry.secret end
+  local list, secret = {}, false
+  for index = 1, 40 do
+    local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, index, filter)
+    if not ok then secret = true; break end
+    if not aura then break end
+    if not Readable(aura.spellId) then secret = true; break end
+    list[#list + 1] = aura
+  end
+  scanCache[key] = {time = now, list = list, secret = secret}
+  return list, secret
+end
+
 local function DirectAuraRead(state, ids)
   if not C_UnitAuras or not C_UnitAuras.GetAuraDataByIndex then return end
   local wanted, harmful, any = {}, false, false
@@ -643,15 +696,9 @@ local function DirectAuraRead(state, ids)
     if not exists then state.auraActive = false; return end
   end
   local filter = harmful and "HARMFUL|PLAYER" or "HELPFUL|PLAYER"
-  for index = 1, 40 do
-    local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, index, filter)
-    if not ok or not aura then
-      if ok then state.auraActive = false end
-      return
-    end
+  local list, secret = ScanAuras(unit, filter)
+  for _, aura in ipairs(list) do
     local spellID = aura.spellId
-    -- Secret aura data: the answer stays unknown.
-    if not Readable(spellID) then return end
     if wanted[spellID] then
       state.auraActive = true
       state.cdmAuraUnit, state.cdmAuraFilter = unit, filter
@@ -677,7 +724,20 @@ local function DirectAuraRead(state, ids)
       return
     end
   end
+  -- Not among the readable auras: absent, unless a secret entry was met,
+  -- when the answer stays unknown.
+  if not secret then state.auraActive = false end
 end
+
+-- ForeverAuras: when aura restrictions end, every CDM trigger is run again,
+-- so frames whose aura information was set in combat are checked directly
+-- (CDMApplyAura) rather than waiting for their next aura event.
+local readableWatch = CreateFrame("Frame")
+readableWatch:RegisterEvent("PLAYER_REGEN_ENABLED")
+readableWatch:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
+readableWatch:SetScript("OnEvent", function()
+  if not (C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret()) then NativeRefresh() end
+end)
 
 function Private.CDMApplyAura(state, identity, info, frame, exactID, buffSpellIDs)
   ApplyCachedAura(state, identity, info, frame, exactID, buffSpellIDs)
@@ -708,6 +768,20 @@ function Private.CDMApplyAura(state, identity, info, frame, exactID, buffSpellID
   -- leaves the answer unknown, for the native bindings to draw.
   if state.auraActive == nil then
     DirectAuraRead(state, exactID and {exactID} or buffSpellIDs or {identity.spellID})
+  end
+  -- ForeverAuras: a frame reporting no aura is trusted only when its aura
+  -- information was last set while auras were readable (Observe,
+  -- auraReadable). Set in combat, or never, it may be stale: a buff applied
+  -- or refreshed in combat showed as missing after combat until the frame's
+  -- next aura event (Slice and Dice has none before it ends). The unit's
+  -- readable auras decide instead, and a found aura, with its own timer,
+  -- stands over the frame's flags above. Unreadable auras leave the frame's
+  -- answer as it is, so "absent" and "cannot be read" stay apart.
+  if frame and state.auraActive == false then
+    local record = observed[frame]
+    if not (record and record.auraReadable == true) then
+      DirectAuraRead(state, exactID and {exactID} or buffSpellIDs or {identity.spellID})
+    end
   end
   if state.auraActive == false then
     state.progressType, state.value, state.total = "static", 1, 1
@@ -809,4 +883,127 @@ function Private.CopyCDMCountdownText(destination, state, kind, settings)
     local remaining = state.expirationTime and math.max(0, state.expirationTime - GetTime()) or 6
     destination:SetText(kind == "bs" and "3" or tostring(math.ceil(remaining)))
   else destination:SetText("") end
+end
+
+-- ForeverAuras: "/fa cdm <aura id>" (ForeverAuras.lua). Every value is
+-- printed through Fmt, which names secret values instead of reading them.
+function Private.PrintCDMDebug(id)
+  local function Fmt(value)
+    if value == nil then return "nil" end
+    if issecretvalue and issecretvalue(value) then return "<secret>" end
+    if type(value) == "number" then return string.format("%.1f", value) end
+    return tostring(value)
+  end
+  local function Say(...) print("|cff88ccffFA cdm|r " .. table.concat({...}, " ")) end
+  local data = id and WeakAuras.GetData(id)
+  if not data then Say("no aura named", tostring(id)); return end
+  Say(id, "loaded", Fmt(Private.loaded[id]), "auras secret", Fmt(C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret()),
+    "combat", Fmt(InCombatLockdown()))
+  local spellIDs, wanted = {}, {}
+  for index, entry in ipairs(data.triggers or {}) do
+    local trigger = entry.trigger
+    if trigger and trigger.type == "cdm" then
+      local states = WeakAuras.GetTriggerStateForTrigger(id, index)
+      local count = 0
+      for cloneId, state in pairs(states or {}) do
+        count = count + 1
+        Say("trigger", index, "clone", string.format("%q", cloneId), "show", Fmt(state.show), "auraActive", Fmt(state.auraActive),
+          "nativeShow", Fmt(state.cdmNativeShow), "progress", Fmt(state.progressType), "duration", Fmt(state.duration),
+          "expires", Fmt(state.expirationTime), "cooldownID", Fmt(state.cooldownID), "spell", Fmt(state.spellId or state.spellID))
+        for _, sid in ipairs(state.cdmAuraRenderSpellIDs or {}) do spellIDs[sid] = true end
+      end
+      if count == 0 then Say("trigger", index, "has no states (table", Fmt(states ~= nil), ")") end
+      for _, name in ipairs(trigger.cdmNames or {}) do local n = tonumber(name); if n then spellIDs[n] = true end end
+    end
+  end
+  local list = {}
+  for sid in pairs(spellIDs) do
+    for _, rankID in ipairs(Private.GetAuraSpellRanks and Private.GetAuraSpellRanks(sid) or {sid}) do wanted[rankID] = true end
+    list[#list + 1] = tostring(sid)
+  end
+  local ranks = {}
+  for rankID in pairs(wanted) do ranks[#ranks + 1] = tostring(rankID) end
+  table.sort(ranks)
+  Say("spell ids", table.concat(list, ","), "ranks", table.concat(ranks, ","))
+  local frames = 0
+  for _, frame in pairs(Private.CDMFrames()) do
+    local record = observed[frame]
+    local parent = frame:GetParent()
+    local parentName = parent and parent.GetName and parent:GetName()
+    if parentName == "BuffIconCooldownViewer" or parentName == "BuffBarCooldownViewer" then
+      frames = frames + 1
+      local spellID = frame.GetSpellID and frame:GetSpellID()
+      local cdID = frame.cooldownID
+      local info = cdID ~= nil and not (issecretvalue and issecretvalue(cdID)) and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+      Say("viewer frame", Fmt(parentName), "spell", Fmt(spellID), "api spell", Fmt(info and info.spellID), "api override", Fmt(info and info.overrideSpellID),
+        "recorded spell", Fmt(record and record.spellID), "cooldownID", Fmt(frame.cooldownID),
+        "isActive", Fmt(frame.isActive), "instance", Fmt(frame.auraInstanceID), "cached", Fmt(frame.auraDataCached ~= nil),
+        "unit", Fmt(frame.auraDataUnit), "shown", Fmt(frame:IsShown()), "stampReadable", Fmt(record and record.auraReadable))
+    end
+  end
+  Say("buff viewer frames", frames)
+  local catalog = Private.CDMCatalog and Private.cdmCatalogForDebug and Private.cdmCatalogForDebug()
+  for _, frame in pairs(Private.CDMFrames()) do
+    local cdID = frame.cooldownID
+    local entry = catalog and cdID ~= nil and not (issecretvalue and issecretvalue(cdID)) and catalog[cdID]
+    if entry and (frame.isActive == true) then
+      Say("catalog entry", Fmt(cdID), "known", Fmt(entry.known), "displayed", Fmt(entry.displayed), "category", Fmt(entry.category))
+    end
+  end
+  for index, entry in ipairs(data.triggers or {}) do
+    local trigger = entry.trigger
+    if trigger and trigger.type == "cdm" and Private.CDMSpellQueries and Private.ResolveCDMSpell then
+      for _, query in ipairs(Private.CDMSpellQueries(trigger) or {}) do
+        local ok, selected = pcall(Private.ResolveCDMSpell, query, "FA_CDM_REFRESH")
+        if ok and type(selected) == "table" then
+          local ids = {}
+          for _, entryID in ipairs(selected) do ids[#ids + 1] = Fmt(entryID) end
+          Say("trigger", index, "query", Fmt(query.cdmSpell), "resolves to entries", table.concat(ids, ",") ~= "" and table.concat(ids, ",") or "none",
+            "buff spell ids", table.concat((function() local t = {} for _, v in ipairs(selected.buffSpellIDs or {}) do t[#t + 1] = Fmt(v) end return t end)(), ","))
+        else
+          Say("trigger", index, "query", Fmt(query.cdmSpell), "resolve failed", Fmt(selected))
+        end
+      end
+    end
+  end
+  -- The trigger's own update, run now on a scratch table: what it would
+  -- produce at this moment, state by state.
+  for index, entry in ipairs(data.triggers or {}) do
+    local trigger = entry.trigger
+    if trigger and trigger.type == "cdm" and Private.CDMSpellQueries and Private.ExecEnv.UpdateCDMSelectionList then
+      local queries = Private.CDMSpellQueries(trigger)
+      if queries then
+        local scratch = {}
+        local autoClone = not (trigger.event == "Blizzard CDM Buff" and trigger.cdmAutoClone == false)
+        local ok, err = pcall(Private.ExecEnv.UpdateCDMSelectionList, scratch, queries, "FA_CDM_REFRESH", autoClone, trigger.cdmCombineMode or "showLowest")
+        if not ok then Say("trigger", index, "update error", Fmt(err)) end
+        local n = 0
+        for cloneId, state in pairs(scratch) do
+          n = n + 1
+          Say("trigger", index, "would give", string.format("%q", cloneId), "show", Fmt(state.show), "auraActive", Fmt(state.auraActive),
+            "nativeShow", Fmt(state.cdmNativeShow), "progress", Fmt(state.progressType), "duration", Fmt(state.duration), "expires", Fmt(state.expirationTime),
+            "cooldownID", Fmt(state.cooldownID), "buff", Fmt(state.cdmBuff), "unit", Fmt(state.cdmAuraUnit))
+        end
+        if n == 0 then Say("trigger", index, "would give no states") end
+      end
+    end
+  end
+  local found = 0
+  for index = 1, 40 do
+    local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", index, "HELPFUL|PLAYER")
+    if not ok or not aura then break end
+    local sid = aura.spellId
+    if issecretvalue and issecretvalue(sid) then Say("player aura", index, "secret spell id"); break end
+    local match = wanted[sid] and " MATCH" or ""
+    if wanted[sid] then found = found + 1 end
+    Say("player aura", index, "spell", Fmt(sid), Fmt(aura.name), "instance", Fmt(aura.auraInstanceID), "duration", Fmt(aura.duration),
+      "expires", Fmt(aura.expirationTime) .. match)
+  end
+  Say("direct read found", found)
+  local harm = {}
+  for rankID in pairs(wanted) do
+    local ok, result = pcall(C_Spell.IsSpellHarmful, rankID)
+    harm[#harm + 1] = tostring(rankID) .. "=" .. (ok and Fmt(result) or "err")
+  end
+  Say("IsSpellHarmful", table.concat(harm, " "), "targets enemy", Fmt(Private.CDMSpellsTargetEnemy(ranks)), "target exists", Fmt(UnitExists("target")))
 end

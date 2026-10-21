@@ -83,7 +83,11 @@ local function Members(group)
     if region then
       local data = native.data
       local problem = Display.GridProblem(data)
-      local childUnit = not problem and Display.GetTrigger(data).unit
+      -- ForeverAuras: the resolved unit token (party1, party2), not the unit
+      -- category: two Specific Unit auras are both "member", and the grid
+      -- binds one container to the first member's unit, so a party2 aura
+      -- in a grid bound to party1 showed party1's auras.
+      local childUnit = not problem and Display.UnitTokens(Display.GetTrigger(data))[1]
       if childUnit and unit and childUnit ~= unit then
         problem = L["In a Grid layout, every aura watches the same unit as the first one. This aura is shown at its own position."]
       end
@@ -215,6 +219,14 @@ function Display.RebuildGrid(group)
   Display.RefreshGrid(group)
 end
 
+-- ForeverAuras: Ignore Dead / Ignore Disconnected for a grid member. The
+-- ordinary layout hides the member's own container (ApplyUnitStatus,
+-- BlizzardAuraDisplay.lua), which a grid member does not draw with; its aura
+-- group in the grid container is switched off instead.
+local function MemberHidden(member, unit)
+  return Display.UnitIgnored(Display.GetSavedTrigger(member.data), unit) or nil
+end
+
 function Display.RefreshGrid(group)
   local grid = group and grids[group.id]
   if not grid then return end
@@ -223,9 +235,17 @@ function Display.RefreshGrid(group)
   local groupRegion = entry and entry.region
   local preview = WeakAuras.IsOptionsOpen() and not InCombatLockdown()
   local unit = first and Display.UnitTokens(Display.GetTrigger(first.data))[1]
+  -- The unit the grid watches, kept whether or not anything shows now: a
+  -- grid built while every member's unit was dead or offline has no bound
+  -- unit yet, and the status events must still find it (RefreshGridStatus).
+  grid.watchUnit = unit
+  grid.byRegion = {}
   local any = false
   for _, member in ipairs(grid.members) do
+    grid.byRegion[member.region] = member
+    member.statusHidden = MemberHidden(member, unit)
     local enabled = not preview and member.native.active and member.region:IsShown() and member.native.gridMember == group.id
+      and not member.statusHidden
     pcall(grid.container.SetAuraGroupEnabled, grid.container, member.key, enabled and true or false)
     any = any or enabled
   end
@@ -238,6 +258,19 @@ function Display.RefreshGrid(group)
   grid.container:SetShown(shown)
   grid.container:SetEnabled(shown)
   if shown then grid.container:UpdateAllAuras() end
+end
+
+-- Called by the status events (BlizzardAuraDisplay.lua) for a grid member:
+-- the grid is refreshed only when the member's dead or offline state changed.
+function Display.RefreshGridStatus(region, unit)
+  local native = region.blizzardAuraDisplay
+  local id = native and native.gridMember
+  local grid = id and grids[id]
+  local watched = grid and grid.watchUnit
+  if not watched then return end
+  if watched ~= unit and not Private.ExecEnv.UnitIsUnit(watched, unit) then return end
+  local member = grid.byRegion and grid.byRegion[region]
+  if member and MemberHidden(member, watched) ~= member.statusHidden then Display.RefreshGridFor(region) end
 end
 
 function Display.RefreshGridFor(region)

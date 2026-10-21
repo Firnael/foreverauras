@@ -161,6 +161,19 @@ function OptionsPrivate.PrepareSecretDisplayOptions(data, groups)
         WeakAuras.Add(data)
       end}
   end
+  -- ForeverAuras: a Progress Texture may draw full for the aura's whole
+  -- duration instead of following its time (a static shape while active).
+  if groups.progresstexture and data.regionType == "progresstexture" then
+    -- Last in the group: placed among the angle settings it broke their rows.
+    groups.progresstexture.secretStaticProgress = {type = "toggle", name = L["Static (always full)"], order = 200, width = WeakAuras.doubleWidth,
+      desc = L["Draw the whole texture while the aura is active instead of filling it by the aura's remaining time."],
+      get = function() return (data.blizzardAuraDisplay or {}).staticProgress == true end,
+      set = function(_, value)
+        data.blizzardAuraDisplay = data.blizzardAuraDisplay or {}
+        data.blizzardAuraDisplay.staticProgress = value or nil
+        WeakAuras.Add(data)
+      end}
+  end
   groups.progressOptions = nil
   local unsupported = {
     -- Native icons now implement the standard aspect ratio and texture offsets.

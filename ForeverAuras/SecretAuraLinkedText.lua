@@ -31,6 +31,33 @@ local function Style(sub, native)
   pcall(Private.CDMAuraProgress.StyleText, sub, native)
 end
 
+-- ForeverAuras: the countdown's format comes from the element's Time Format
+-- settings; bound at creation and again on a restyle (ResetLinkedText), so an
+-- edited format or precision applies without a reload. The binding's key
+-- tells a repeat of the same settings from a change.
+local function Bind(native, config, index)
+  local button = native.button
+  if not button then return end
+  local prefix = "text_text_format_" .. index .. "." .. native.kind .. "_"
+  if native.kind == "p" then
+    local format = config[prefix .. "time_format"]
+    local key = table.concat({tostring(format), tostring(config[prefix .. "time_legacy_floor"]),
+      tostring(config[prefix .. "time_dynamic_threshold"]), tostring(config[prefix .. "time_precision"])}, "|")
+    if native.formatKey == key then return end
+    native.formatKey = key
+    local options
+    if format ~= nil and format ~= -1 then
+      options = {textFormatter = Private.GetDurationTextFormatter(config[prefix .. "time_legacy_floor"] and 0 or 99,
+        config[prefix .. "time_dynamic_threshold"] or 3, config[prefix .. "time_precision"] or 1, format == -2, format)}
+    end
+    button:ClearDurationText()
+    button:SetDurationText(native.text, options)
+  elseif not native.formatKey then
+    native.formatKey = "stacks"
+    button:SetApplicationCount(native.text)
+  end
+end
+
 local function Create(sub, kind, config, index)
   local native = {owner = sub, kind = kind}
   local container = CreateFrame("AuraContainer", nil, sub, "CustomAuraContainerTemplate")
@@ -39,7 +66,6 @@ local function Create(sub, kind, config, index)
   container:SetAllPoints(sub)
   container:SetFrameLevel(sub:GetFrameLevel())
   container:SetAuraProcessingPolicy(CustomAuraContainerAuraProcessingPolicy.None)
-  local prefix = "text_text_format_" .. index .. "." .. kind .. "_"
   container:AddAuraSlot("Linked", "HELPFUL", {
     candidateFilters = {includeSpellIDs = {}},
     initializeFrame = function(button)
@@ -50,17 +76,7 @@ local function Create(sub, kind, config, index)
       native.text = button:CreateFontString(nil, "OVERLAY")
       native.text:SetFont(sub.text:GetFont())
       Style(sub, native)
-      if kind == "p" then
-        local format = config[prefix .. "time_format"]
-        local options
-        if format ~= nil and format ~= -1 then
-          options = {textFormatter = Private.GetDurationTextFormatter(config[prefix .. "time_legacy_floor"] and 0 or 99,
-            config[prefix .. "time_dynamic_threshold"] or 3, config[prefix .. "time_precision"] or 1, format == -2, format)}
-        end
-        button:SetDurationText(native.text, options)
-      else
-        button:SetApplicationCount(native.text)
-      end
+      Bind(native, config, index)
     end,
   })
   TimedHookScript(sub, "OnHide", function() container:SetEnabled(false) end)
@@ -108,6 +124,7 @@ function Display.UpdateLinkedText(sub, config, parentData, kind, index)
   if native.restyle and native.text then
     native.restyle = nil
     Style(sub, native)
+    Bind(native, config, index)
   end
   local filter = Display.FilterString(trigger)
   local key = table.concat({unit, filter, table.concat(Display.GetSpellIDs(trigger, true), ","),
@@ -137,7 +154,8 @@ for _, event in ipairs({"PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED", "UNIT_P
   events:RegisterEvent(event)
 end
 events:SetScript("OnEvent", function(_, event, unit)
-  if event == "UNIT_TARGET" and unit ~= "target" and unit ~= "focus" then return end
+  -- ForeverAuras: the pet's target is watched too (Pet Target texts).
+  if event == "UNIT_TARGET" and unit ~= "target" and unit ~= "focus" and unit ~= "pet" then return end
   if event == "UNIT_PET" and unit ~= "player" then return end
   if event == "PLAYER_REGEN_ENABLED" or event == "ADDON_RESTRICTION_STATE_CHANGED" then
     if InCombatLockdown() or C_Secrets.ShouldAurasBeSecret() then return end
