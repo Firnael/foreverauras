@@ -55,6 +55,13 @@ function OptionsPrivate.AddCooldownViewerOptions(options, data, triggernum)
     C_Timer.After(0, function() WeakAuras.Add(data); Private.UpdateFakeStatesFor(data.id) end)
   end
   Add("typeSpacer", {type = "description", name = " ", width = "full"})
+  -- ForeverAuras: a Buff/Debuff trigger cannot read its aura in combat; the
+  -- trigger stays active then and Blizzard shows or hides the display, as
+  -- for an Aura (Modern) trigger, and that is said here the same way.
+  if trigger.cdmSource == "buff" then
+    Add("alwaysActive", {type = "description", fontSize = "medium", width = "full",
+      name = L["|cffffffffNote: Trigger Always Active in combat|r (the aura is secret then; Blizzard shows the display)"]})
+  end
   Add("help", {type = "description", name = L["Spells must be active in the CDM to be displayed. Type /cdm and add them."], width = "full"})
   -- Blizzard's Cooldown Manager flags some entries as not known although the
   -- spell is (its Bane of Agony entry, 199777): it builds no viewer item for

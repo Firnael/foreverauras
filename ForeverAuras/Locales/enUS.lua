@@ -1582,6 +1582,7 @@ L["Aura (Modern) in a Dynamic Group: It keeps its position even when no aura is 
 L["Aura (Modern) time conditions support < and >=."] = "Aura (Modern) time conditions support < and >=."
 L["Aura (Modern) type conditions support = and !=."] = "Aura (Modern) type conditions support = and !=."
 L["Aura (Modern) works on Icon, Progress Bar, Progress Texture and Text displays."] = "Aura (Modern) works on Icon, Progress Bar, Progress Texture and Text displays."
+L["Aura (Modern) works on Icon, Progress Bar, Progress Texture, Texture and Text displays."] = "Aura (Modern) works on Icon, Progress Bar, Progress Texture, Texture and Text displays."
 L["Aura Active"] = "Aura Active"
 L["Aura Active (when readable)"] = "Aura Active (when readable)"
 L["Aura Highlight Border Thickness"] = "Aura Highlight Border Thickness"

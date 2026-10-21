@@ -36,6 +36,8 @@ Display.remOperators = {["<"] = "<", ["<="] = "<=", [">"] = ">", [">="] = ">="}
 local MISSING_GROUP = "FAMissing"
 local SLOT_ICON = "FARemainIcon"
 local SLOT_TEXTURE = "FARemainTexture"
+-- ForeverAuras: one slot per hardcoded Text element of a Remaining Time icon.
+local SLOT_TEXT = "FARemainText"
 -- A Step curve point rules from its own value upwards; <= and > move the edge
 -- just past the entered number.
 local REMAIN_EPS = 0.001
@@ -96,7 +98,7 @@ function Display.RemainingWindowPoints(_, x)
   return {x, x + REMAIN_EPS}
 end
 
-local missingTypes = {icon = true, aurabar = true, progresstexture = true, text = true}
+local missingTypes = {icon = true, aurabar = true, progresstexture = true, text = true, texture = true}
 Display.missingTypes = missingTypes
 
 local function NeedsMissing(trigger)
@@ -327,7 +329,7 @@ function Display.ValidateSingle(data, trigger)
       return label .. " is available for Icon displays. Use Show On: Aura(s) Found for other display types."
     end
     if not op and not missingTypes[data.regionType] then
-      return label .. " is available for Icon, Bar, Progress Texture and Text displays."
+      return label .. " is available for Icon, Bar, Progress Texture, Texture and Text displays."
     end
     if op and (Display.FrameAnchorType(data) == "UNITFRAME" or Display.FrameAnchorType(data) == "NAMEPLATE") then
       return label .. " cannot anchor to unit frames or nameplates. Anchor the aura to the screen or a frame."
@@ -1110,6 +1112,8 @@ local function FitMarkup(slot, frame, texture, w, h, left, right, top, bottom, c
     slot.probe:SetAlpha(0)
   end
   local probe = slot.probe
+  -- Shown again after ReleaseSlotDrawing hid it (it stays at alpha 0).
+  probe:Show()
   probe:SetFont(STANDARD_TEXT_FONT, 12, "")
   probe:SetWordWrap(false)
   probe:ClearAllPoints()
@@ -1145,6 +1149,31 @@ local function AnchorArtwork(text, frame, corner, w, h)
   local x = corner:find("RIGHT") and -w or 0
   text:ClearAllPoints()
   text:SetPoint("LEFT", frame, corner, x, down * h / 2)
+end
+
+-- ForeverAuras: a slot that is no longer configured (the Remaining Time window
+-- removed, a Border or Texture element deleted, a glow condition dropped) only
+-- stopped matching auras; its gate text, inline artwork, swipe, borders and
+-- clip kept what Blizzard last drew into them, and a cleared binding leaves the
+-- text's last string in place. Everything it drew is blanked and hidden here;
+-- EnsureRemaining, Artwork and EnsureConditionGlow show it again when used.
+local function ReleaseSlotDrawing(slot)
+  local button = slot.button
+  if button then
+    pcall(button.ClearDurationText, button)
+    pcall(button.ClearDurationCooldown, button)
+  end
+  for _, key in ipairs({"gate", "text", "probe"}) do
+    local text = slot[key]
+    if text then text:SetText(""); text:Hide() end
+  end
+  if slot.cooldown then slot.cooldown:Clear(); slot.cooldown:Hide() end
+  for _, key in ipairs({"art", "clip", "holder"}) do
+    if slot[key] then slot[key]:Hide() end
+  end
+  for _, entry in pairs(slot.borders or {}) do
+    if entry.border then entry.border:Hide() end
+  end
 end
 
 -- Remaining Time: the list keeps drawing the aura (its countdown and glow are
@@ -1199,8 +1228,11 @@ local function EnsureConditionGlow(single, instance, region, data, trigger, inde
   end
   gate:Show()
   Display.AnchorGateClip(slot.clip, gate, slot.button, margin + gateMargin)
+  -- ForeverAuras: shown again after ReleaseSlotDrawing hid it.
+  slot.clip:Show()
   slot.holder:ClearAllPoints()
   slot.holder:SetAllPoints(icon.button)
+  slot.holder:Show()
   slot.glows = slot.glows or {}
   slot.glows[index] = slot.glows[index] or {}
   Display.StyleElementGlow(slot.glows[index], slot.button, slot.holder, icon.art, setmetatable({glow = true}, {__index = element}), width, height)
@@ -1299,6 +1331,8 @@ local function EnsureRemaining(single, instance, region, data, trigger, op, x)
     clip:SetPoint("RIGHT", gate, "RIGHT")
   end
   AnchorGateClip(snapX, snapY)
+  -- ForeverAuras: shown again after ReleaseSlotDrawing hid it.
+  clip:Show()
   -- At login the display has no place yet: snapped again a frame later.
   if not placed then
     local tries = 0
@@ -1451,6 +1485,53 @@ local function EnsureRemaining(single, instance, region, data, trigger, op, x)
       end
       Artwork(SLOT_TEXTURE .. index, index, element.textureTexture, w, h, point, relative, ox, oy,
         element.textureColor or {1, 1, 1, 1}, element.texture_alpha or 1, backgroundIndex and index < backgroundIndex)
+    end
+  end
+  -- ForeverAuras: hardcoded Text elements ("Leyline"). The list button has
+  -- one duration-text binding, which its %p countdown uses; binding a label
+  -- there too replaced the countdown, which then stood still at its last
+  -- number and stayed when the aura left the window. Each label gets an aura
+  -- slot of its own, like a Border edge: a fixed format bound with the
+  -- window's colour curve, so it shows with the icon and goes with it. The
+  -- text is placed as on the button (Display.StyleText), with the Inner and
+  -- Outer anchor areas a Text element may anchor to.
+  for index, element in ipairs(data.subRegions or {}) do
+    local literal = element.type == "subtext" and element.text_visible ~= false and not Display.IsDetachedElement(data, element)
+      and Display.TextKind(element.text_text) == "literal" and (element.text_text or ""):gsub("%%%%", "%%")
+    if literal and literal ~= "" then
+      local key = SLOT_TEXT .. index
+      local slot = EnsureSlot(single, instance, region, key, trigger, data, function(button, me)
+        for _, area in ipairs({"inner", "outer"}) do
+          me[area] = CreateFrame("Frame", nil, button)
+          me[area]:SetPoint("CENTER", button, "CENTER")
+          me[area]:EnableMouse(false)
+        end
+        me.text = button:CreateFontString(nil, "OVERLAY")
+      end)
+      if slot and slot.text then
+        slot.button:ClearAllPoints()
+        slot.button:SetAllPoints(icon.button)
+        pcall(slot.button.SetFrameLevel, slot.button, level + index)
+        slot.inner:SetSize(width * 0.8, height * 0.8)
+        slot.outer:SetSize(width * 1.1, height * 1.1)
+        Display.StyleText(slot.text, {button = slot.button, inner = slot.inner, outer = slot.outer},
+          Display.TextSettings(element), "text", 18, "CENTER", 0, 0)
+        slot.text:SetAlpha(element.text_alpha or 1)
+        slot.text:SetWidth(element.text_automaticWidth == "Fixed" and (element.text_fixedWidth or 200) or 0)
+        slot.text:SetWordWrap(element.text_wordWrap ~= "Elide")
+        slot.text:SetNonSpaceWrap(element.text_wordWrap ~= "Elide")
+        slot.text:SetText("")
+        pcall(slot.button.ClearDurationText, slot.button)
+        local color = Display.DurationColorCondition(data, element.text_color, "sub." .. index .. ".text_color", {op, x})
+        local ok = color ~= nil and pcall(slot.button.SetDurationText, slot.button, slot.text,
+          {textFormat = {formatString = literal, components = {}}, textColor = color})
+        if ok then
+          slot.text:Show()
+          instance.container:SetAuraSlotEnabled(key, true)
+        else
+          slot.used = false
+        end
+      end
     end
   end
   return true
@@ -1763,8 +1844,13 @@ function Display.StyleRemainingList(native, data)
   native.button:ClearApplicationCount(); native.button:ClearSpellName()
   native.border:Hide()
   for index, element in ipairs(data.subRegions or {}) do
+    -- ForeverAuras: a hardcoded text is drawn by a slot of its own
+    -- (EnsureRemaining). A button has one duration-text binding, and the
+    -- countdown holds it: binding the label here as well replaced the
+    -- countdown, which then stood still at its last number.
+    local kind = element.type == "subtext" and Display.TextKind(element.text_text)
     local keep = element.type == "subglow" or element.type == "subbackground"
-      or (element.type == "subtext" and Display.TextKind(element.text_text) == "duration")
+      or (element.type == "subtext" and kind == "duration")
     local frame = native.elementFrames and native.elementFrames["shared" .. index]
     if frame and not keep then frame:Hide() end
   end
@@ -2541,6 +2627,8 @@ function Display.ConfigureSingle(instance, region, data, index)
     if not slot.used then
       pcall(instance.container.SetAuraSlotEnabled, instance.container, key, false)
       for _, entry in pairs(slot.glows or {}) do Display.ClearElementGlow(entry) end
+      -- ForeverAuras: what the slot last drew is cleared too (see ReleaseSlotDrawing).
+      ReleaseSlotDrawing(slot)
     end
   end
   -- Aura(s) Missing alone draws no live aura: the list is switched off and its
@@ -2721,4 +2809,82 @@ function Display.PrintDebug(id)
     end
   end
   Say("region", Fmt(region:GetWidth()), "x", Fmt(region:GetHeight()), "left", Fmt(region:GetLeft()), "top", Fmt(region:GetTop()), "scale", Fmt(region:GetEffectiveScale()))
+  -- Every font string under the display that carries text: what draws it,
+  -- where it hangs and whether it is visible, for a text that stays behind.
+  -- The font strings this file and SecretAuraAppearance.lua make are named by
+  -- their part, so a stale text can be told from a live binding.
+  local labels = {}
+  local function Label(object, label) if object then labels[object] = label end end
+  local function LabelNative(owner, prefix)
+    if not owner then return end
+    Label(owner.mainText, prefix .. " main text")
+    Label(owner.gateText, prefix .. " gate")
+    local cooldown = owner.cooldown
+    if cooldown and cooldown.GetCountdownFontString then
+      local okN, numbers = pcall(cooldown.GetCountdownFontString, cooldown)
+      if okN then Label(numbers, prefix .. " cooldown numbers") end
+    end
+    for index, element in pairs(owner.sharedElements or {}) do
+      Label(element.text, prefix .. " element " .. tostring(index))
+    end
+  end
+  for index, instance in ipairs(native.instances or {}) do
+    for n, button in ipairs(instance.buttons or {}) do
+      LabelNative(button, "list button " .. index .. "." .. n)
+      -- Which list buttons the client is drawing: a released one that still
+      -- shows would be a text left behind.
+      local okS, shown = pcall(button.button.IsShown, button.button)
+      local okA, alpha = pcall(button.button.GetAlpha, button.button)
+      -- A secret shown state cannot be compared, only reported.
+      if okS and (issecretvalue(shown) or shown == true) then
+        Say(" list button", index .. "." .. n, "shown", Fmt(shown), "alpha", Fmt(okA and alpha))
+      end
+    end
+    for key, slot in pairs(instance.single and instance.single.slots or {}) do
+      local okS, shown = pcall(slot.button.IsShown, slot.button)
+      Say(" slot", tostring(key), "used", Fmt(slot.used), "shown", Fmt(okS and shown))
+    end
+    local single = instance.single
+    for key, slot in pairs(single and single.slots or {}) do
+      local used = slot.used and "" or " (unused)"
+      Label(slot.gate, "slot " .. tostring(key) .. " gate" .. used)
+      Label(slot.text, "slot " .. tostring(key) .. " artwork" .. used)
+      Label(slot.probe, "slot " .. tostring(key) .. " probe" .. used)
+      LabelNative(slot, "slot " .. tostring(key) .. used)
+    end
+    if single and single.missing then LabelNative(single.missing.native, "missing sample") end
+  end
+  for index, sample in ipairs(region.secretAuraSamples or {}) do LabelNative(sample, "preview sample " .. index) end
+  for index, frame in ipairs(region.subRegions or {}) do Label(frame.text, "WA element " .. index) end
+  local count = 0
+  local function Walk(frame, path, depth)
+    if depth > 8 or count > 40 then return end
+    local okR, regions = pcall(function() return {frame:GetRegions()} end)
+    for _, object in ipairs(okR and regions or {}) do
+      local okT, kind = pcall(object.GetObjectType, object)
+      if okT and kind == "FontString" then
+        local okS, text = pcall(object.GetText, object)
+        -- A Blizzard aura button's text can be secret: reported, not read.
+        if okS and issecretvalue(text) then text = "<secret text>" end
+        if okS and type(text) == "string" and text ~= "" then
+          count = count + 1
+          local okV, visible = pcall(object.IsVisible, object)
+          local okA, alpha = pcall(object.GetAlpha, object)
+          local okL, left, top = pcall(function() return object:GetLeft(), object:GetTop() end)
+          if okL and (issecretvalue(left) or issecretvalue(top)) then left, top = "<secret>", "<secret>" end
+          Say(" text", string.format("%q", text), "is", labels[object] or "unknown", "at", path, "visible", Fmt(okV and visible),
+            "alpha", Fmt(okA and alpha), "left", Fmt(okL and left), "top", Fmt(okL and top))
+        end
+      end
+    end
+    local okC, children = pcall(function() return {frame:GetChildren()} end)
+    for index, child in ipairs(okC and children or {}) do
+      local okN, name = pcall(child.GetDebugName, child)
+      if not okN or type(name) ~= "string" or issecretvalue(name) then name = nil end
+      local okF, faKind = pcall(function() return child.faEnabled ~= nil and "container" or nil end)
+      Walk(child, path .. "/" .. (name and name:match("[^.]+$") or (okF and faKind) or tostring(index)), depth + 1)
+    end
+  end
+  Walk(region, "region", 0)
+  Say("texts with content:", count)
 end

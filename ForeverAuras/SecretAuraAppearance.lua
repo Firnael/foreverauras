@@ -306,7 +306,7 @@ local function BindText(button, text, value, config, prefix, data, baseColor, pr
     end
     -- A time-limited countdown without its curve would show outside the range:
     -- leave it unbound (empty) instead.
-    if window then return end
+    if window then text:SetText(""); return end
     button:SetDurationText(text, options)
   elseif kind == "stack" then
     local formatter = Display.StackTextCondition(data, property)
@@ -316,7 +316,10 @@ local function BindText(button, text, value, config, prefix, data, baseColor, pr
   elseif kind == "label" then
     local list = Display.SpellList(Display.GetTrigger(data))
     text:SetText(list and list.label or "")
-  else text:SetText((value or ""):gsub("%%%%", "%%")) end
+  else
+    local literal = (value or ""):gsub("%%%%", "%%")
+    text:SetText(literal)
+  end
 end
 
 Display.TextSettings = TextSettings
@@ -438,8 +441,31 @@ function Display.StyleAppearance(native, data, ElementFrame, StyleText, StyleGlo
   button:ClearDurationText()
   button:ClearApplicationCount()
   button:ClearSpellName()
+  -- ForeverAuras: clearing a binding leaves the text's last string (and its
+  -- last colour) in the font string. A restyle that binds it differently, or
+  -- leaves it unbound, would otherwise show a stale countdown.
+  for _, entry in pairs(native.sharedElements or {}) do
+    if entry.text then entry.text:SetText("") end
+  end
+  if native.mainText then native.mainText:SetText("") end
   button:ClearDurationBar()
   button:ClearDurationCooldown()
+  -- ForeverAuras: the cooldown's own countdown numbers keep their last value
+  -- as well once its binding is cleared, and the numbers mode set by
+  -- HandOffCountdown (SecretAuraSingle.lua) stays on the frame. The live
+  -- button's cooldown is reset here so a restyle that no longer hands the
+  -- countdown to it leaves no stale number; what still applies is set again
+  -- below. Samples keep their swipe (their OnUpdate renews it).
+  if not native.preview then
+    local cooldown = native.cooldown
+    cooldown:Clear()
+    cooldown:SetHideCountdownNumbers(true)
+    if cooldown.SetUseAuraDisplayTime then cooldown:SetUseAuraDisplayTime(false) end
+    if cooldown.SetMinimumCountdownDuration then cooldown:SetMinimumCountdownDuration(0) end
+    if cooldown.SetCountdownFormatter then cooldown:SetCountdownFormatter(nil) end
+    local numbers = cooldown.GetCountdownFontString and cooldown:GetCountdownFontString()
+    if numbers then numbers:SetText("") end
+  end
   button:ClearIcon()
   -- Rebuild native dispel bindings with the other appearance bindings. Re-registering
   -- an existing texture otherwise aborts Apply and can interrupt region initialization.
@@ -451,6 +477,7 @@ function Display.StyleAppearance(native, data, ElementFrame, StyleText, StyleGlo
   native.cooldown:ClearAllPoints(); native.cooldown:SetAllPoints(native.icon)
   if native.bar then native.bar:Hide() end
   if native.progressBackground then native.progressBackground:Hide() end
+  if native.plainTexture then native.plainTexture.texture:Hide() end
   if native.mainText then native.mainText:Hide() end
   for _, entry in pairs(native.sharedElements or {}) do
     if entry.glow then StyleGlow(entry, {blizzardAuraDisplay = {glow = false}}) end
@@ -485,6 +512,26 @@ function Display.StyleAppearance(native, data, ElementFrame, StyleText, StyleGlo
     button:SetDurationCooldown(native.cooldown)
   elseif data.regionType == "progresstexture" then
     Private.ProgressTextureNative.StyleAura(native, data, base)
+  elseif data.regionType == "texture" then
+    -- ForeverAuras: a Texture display is its texture, drawn by the same
+    -- wrapper the display itself uses (TextureBase: rotation, mirroring,
+    -- wrap mode), over the whole button; Blizzard shows and hides the button
+    -- with the aura. Its colour follows the colour conditions (ApplyProperty).
+    if not native.plainTexture then native.plainTexture = Private.TextureBase.create(base) end
+    local plain = native.plainTexture
+    plain.texture:ClearAllPoints()
+    plain.texture:SetAllPoints(button)
+    Private.TextureBase.modify(plain, {
+      canRotate = data.rotate,
+      desaturate = data.desaturate == true,
+      blendMode = data.blendMode or "BLEND",
+      mirror = data.mirror == true,
+      rotation = data.rotation or 0,
+      textureWrapMode = data.textureWrapMode or "CLAMPTOBLACKADDITIVE",
+    })
+    plain:SetTexture(data.texture)
+    plain.texture:SetVertexColor(unpack(data.color or {1, 1, 1, 1}))
+    plain.texture:Show()
   elseif data.regionType == "aurabar" then
     if not native.bar or (native.progressTexture and native.bar == native.progressTexture.bar) then native.bar = CreateFrame("StatusBar", nil, base) end
     local bar = native.bar

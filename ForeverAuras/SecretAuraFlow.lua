@@ -1249,12 +1249,15 @@ function Display.ArrangeFlowPreview(group)
   local limit = not framed and group.blizzardFlowUseLimit and math.max(1, math.floor(tonumber(group.blizzardFlowLimit) or 5))
   local firstStep = sampleStep or iconStep or anyStep
   local rowStart
-  -- How far back the row starts: the shadows' halves plus half a spacing, no
-  -- further than half the limit's window, exactly as the live row is placed
-  -- (see the shadow chain and CapRowStart), so the preview sits on the same pixel.
+  -- How far back the row starts: the shadows' halves less half a spacing (the
+  -- last display's gap is not part of the row; the live row steps forward by
+  -- that half, RechainFlow), no further than half the limit's window, exactly
+  -- as the live row is placed (see the shadow chain and CapRowStart), so the
+  -- preview sits on the same pixel. Added instead, the preview sat a whole
+  -- spacing behind the live row and the row jumped when the options closed.
   local function Offset(key)
     if not g.shadow then return 0, 0 end
-    local half = (halves[key] or 0) + Half(Display.FlowSpacing(group, groupRegionForHalf, 0))
+    local half = (halves[key] or 0) - Half(Display.FlowSpacing(group, groupRegionForHalf, 0))
     if limit and firstStep then
       local window = (limit * firstStep - (lastSpacing[key] or spacing)) / 2
       local px = PixelsPerUnit(groupRegionForHalf)
@@ -2037,7 +2040,16 @@ function Display.RechainFlow(group)
   local origin, lead = nil, 0
   for _, flow in ipairs(flows) do
     local region = flow.region
-    if not combat then FreshFrame(flow, "start", "startSize", region) end
+    if not combat then
+      local before = flow.start
+      FreshFrame(flow, "start", "startSize", region)
+      -- ForeverAuras: a stand's copies are children of the chain frame; with
+      -- the frame replaced they stayed on the abandoned one while the row
+      -- placed the new, empty frame. The stand is rebuilt on the new frame.
+      if flow.start ~= before and flow.stand and flow.normal and Display.RefreshStand then
+        Display.RefreshStand(region)
+      end
+    end
     if flow.home and not flow.stand then
       origin = origin or flow.home
       local x, y = g.sign[1] * lead, g.sign[2] * lead

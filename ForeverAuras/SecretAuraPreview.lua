@@ -106,15 +106,22 @@ local function CreateSample(region)
     end
     -- A Missing sample stands for an absent aura and has no countdown.
     if self.staticSample then return end
-    self.elapsed = (self.elapsed or 0) + elapsed
-    if self.elapsed < 0.05 then return end
-    self.elapsed = 0
     local now = GetTime()
     if not self.expires or self.expires <= now then
       self.expires = now + 6
       for _, entry in ipairs(self.bindings.DurationCooldown or {}) do entry.widget:SetCooldown(now, 6) end
     end
     local remaining = math.max(0, self.expires - now)
+    -- ForeverAuras: bars (a radial progress texture's sweep among them) are
+    -- moved every frame, as the client moves a live one; at twenty steps a
+    -- second the preview's sweep visibly juddered. Texts and highlights
+    -- keep the twenty-a-second pace below.
+    for _, entry in ipairs(self.bindings.DurationBar or {}) do
+      entry.widget:SetValue(self.inverse and 6 - remaining or remaining)
+    end
+    self.elapsed = (self.elapsed or 0) + elapsed
+    if self.elapsed < 0.05 then return end
+    self.elapsed = 0
     -- Highlights follow the same six-second sample cycle as the countdown.
     if native.conditionData then Display.UpdateConditionPreview(native, native.conditionData, remaining) end
     -- Each countdown in the element's own Time Format (faPreviewFormat,
@@ -122,9 +129,6 @@ local function CreateSample(region)
     for _, entry in ipairs(self.bindings.DurationText or {}) do
       local format = entry.widget.faPreviewFormat
       entry.widget:SetText(format and format(remaining) or (remaining < 3 and string.format("%.1f", remaining) or tostring(math.ceil(remaining))))
-    end
-    for _, entry in ipairs(self.bindings.DurationBar or {}) do
-      entry.widget:SetValue(self.inverse and 6 - remaining or remaining)
     end
   end)
   return native

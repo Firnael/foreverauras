@@ -387,7 +387,7 @@ WeakAuras.normalWidth = 1.3
 WeakAuras.halfWidth = WeakAuras.normalWidth / 2
 WeakAuras.doubleWidth = WeakAuras.normalWidth * 2
 local versionStringFromToc = C_AddOns.GetAddOnMetadata("ForeverAuras", "Version")
-local versionString = "0.92.38-BETA"
+local versionString = "0.92.71-BETA"
 local buildTime = "2026-10-15"
 
 -- Prerelease labels are case-insensitive; packages use the requested BETA spelling.

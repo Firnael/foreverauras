@@ -282,6 +282,10 @@ function SlashCmdList.WeakAuras(input)
     -- ForeverAuras: "/fa modern <aura id>" prints an Aura (Modern) display's
     -- state (its spell list, Missing clip and sample) for bug reports.
     Private.BlizzardAuraDisplay.PrintDebug(input:match("^%s*%S+%s+(.-)%s*$"))
+  elseif msg == "cdm" and input:match("^%s*%S+%s+%S") then
+    -- ForeverAuras: "/fa cdm <aura id>" prints a CDM trigger's state and
+    -- what Blizzard's viewer frames and the unit's auras say, for bug reports.
+    if Private.PrintCDMDebug then Private.PrintCDMDebug(input:match("^%s*%S+%s+(.-)%s*$")) end
   elseif msg == "spec" then
     -- Specialization detection report (PlayerSpecialization.lua).
     Private.PrintSpecialization()
@@ -399,6 +403,14 @@ local clones = Private.clones;
 
 -- Unused regions that are kept around for clones
 local clonePool = {}
+-- ForeverAuras: clones released while chained in a secure Modern Aura Group
+-- row (see Private.ReleaseClone), per region type; reused only by auras in
+-- such a group, whose clones end up protected the same way.
+local securePool = {}
+local function InModernGroup(data)
+  return data ~= nil and Private.BlizzardAuraDisplay ~= nil and Private.BlizzardAuraDisplay.FlowGroup ~= nil
+    and Private.BlizzardAuraDisplay.FlowGroup(data) ~= nil
+end
 
 -- One table per regionType, see RegisterRegionType, notable properties: create, modify and default
 Private.regionTypes = {};
@@ -3742,6 +3754,10 @@ function Private.SetRegion(data, cloneId)
           end
           if(clonePool[data.regionType] and clonePool[data.regionType][1]) then
             clones[id][cloneId] = tremove(clonePool[data.regionType]);
+          elseif InModernGroup(data) and securePool[data.regionType] and securePool[data.regionType][1] then
+            -- ForeverAuras: a frame that was protected by a secure row, for a
+            -- display that will be chained in such a row again.
+            clones[id][cloneId] = tremove(securePool[data.regionType]);
           else
             local clone = regionTypes[data.regionType].create(WeakAurasFrame, data);
             clone.regionType = data.regionType;
@@ -3927,7 +3943,28 @@ function Private.ReleaseClone(id, cloneId, regionType)
   local region = clones[id][cloneId];
   clones[id][cloneId] = nil;
   if region:IsProtected() then
-    WeakAuras.prettyPrint(L["Error '%s' created a secure clone. We advise deleting the aura. For more information:\nhttps://github.com/WeakAuras/WeakAuras2/wiki/Protected-Frames"]:format(id))
+    -- ForeverAuras: a Modern Aura Group row that holds clickable displays is
+    -- secure, and every display chained in it (a clone of a plain icon
+    -- beside them, say) reports itself protected without having made a
+    -- secure frame of its own (see RegionPrototype.lua, inModernGroup). Such
+    -- a clone is not an error; it is kept out of the shared clone pool, as a
+    -- protected frame reused by an aura outside such a row would carry that
+    -- state, and goes to a pool of its own instead.
+    -- The row's protection reaches the clone through its anchors only; a
+    -- clone that holds a secure frame of its own (a SecureActionButton made
+    -- by the aura's code, say) has an explicitly protected child, and that
+    -- is the error WeakAuras warns about, in a Modern Aura Group as well.
+    local ownSecure = false
+    for _, child in ipairs({region:GetChildren()}) do
+      local okP, _, explicit = pcall(child.IsProtected, child)
+      if okP and explicit then ownSecure = true; break end
+    end
+    if not ownSecure and InModernGroup(WeakAuras.GetData(id)) then
+      securePool[regionType] = securePool[regionType] or {}
+      securePool[regionType][#securePool[regionType] + 1] = region
+    else
+      WeakAuras.prettyPrint(L["Error '%s' created a secure clone. We advise deleting the aura. For more information:\nhttps://github.com/WeakAuras/WeakAuras2/wiki/Protected-Frames"]:format(id))
+    end
   else
     clonePool[regionType][#clonePool[regionType] + 1] = region;
   end

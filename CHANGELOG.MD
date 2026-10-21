@@ -1,5 +1,16 @@
 # Changelog
 ## VERSIONS
+## 0.92.71
+- Texture is now an Aura (Modern) display type. Any texture can show while a buff or debuff is up, with the normal Texture settings.
+- Progress Textures with an Aura (Modern) trigger can be set to Static (always full), for a shape that stays whole for the aura’s duration instead of sweeping.
+- Circular Progress Textures now fill from the top like they always should have, in the right direction.
+- Remaining Time icons: hardcoded text labels show properly, the countdown no longer freezes or gets stuck when you edit the trigger, and color, desaturate and glow conditions now reach the icon.
+- CDM Buff/Debuff triggers hold up through combat. A buff you apply or refresh mid-fight no longer drops to its missing look when combat ends.
+- Modern Aura Groups: a row that holds clickable icons no longer complains about secure clones, icons keep their set opacity, and the preview matches where the live row sits.
+- Grids: each child shows its own Specific Unit, and Ignore Dead / Disconnected works.
+- Pet Target displays update when your pet switches targets.
+- New debug commands: `/fa modern <aura>` and `/fa cdm <aura>` print what a display is doing, for bug reports.
+
 ## 0.92.38
 - Force Modern Auras to rebuild on combat end to avoid stales
 - Leave CDM configuration when called if EllesmereUI is in control of the CDM.

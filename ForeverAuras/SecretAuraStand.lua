@@ -163,6 +163,24 @@ local function CopyFont(source, copy)
 end
 
 Display.CopyFontLook = CopyFont
+
+-- ForeverAuras: a text's width and wrapping are set by the display from its
+-- settings (SubText.lua, Text.lua), before the copy exists on first load, so
+-- they were not carried over: a fixed-width label's copy was 0 wide. They
+-- are set from the same settings here (the hooks forward later changes).
+-- A text with automatic width is left at 0, so it keeps sizing itself to its
+-- text rather than being frozen at the width measured now.
+local function CopyTextSizing(copy, fixed, width, wrap)
+  if fixed then
+    copy:SetWidth(width or 0)
+    copy:SetWordWrap(wrap ~= false)
+    copy:SetNonSpaceWrap(wrap ~= false)
+  else
+    copy:SetWidth(0)
+    copy:SetWordWrap(true)
+    copy:SetNonSpaceWrap(true)
+  end
+end
 local function CopyCooldown(stand, source, copy, data)
   Try(copy, "SetDrawBling", false)
   Pass(copy, "SetReverse", source, "GetReverse")
@@ -356,6 +374,21 @@ function Display.EnsureStand(region, normal)
     stand = {frame = normal.flow.start, region = region, copies = {}, sources = {}, pool = {}, secure = {}}
     normal.stand = stand
   end
+  -- ForeverAuras: the chain frame was replaced after the client forbade it
+  -- (FreshFrame, SecretAuraFlow.lua). The copies on the old frame can neither
+  -- be moved nor measured, and may refuse to be hidden: they are let go
+  -- before the ordinary unlinking below (which hides copies outright), and
+  -- made again on the new frame (the sources' hooks reach copies through
+  -- stand.copies, so they follow the new ones).
+  if stand.frame ~= normal.flow.start then
+    for _, copy in pairs(stand.pool) do pcall(copy.Hide, copy) end
+    for _, source in ipairs(stand.sources) do
+      if source.faStand and source.faStand.stand == stand then source.faStand = nil end
+    end
+    wipe(stand.sources); wipe(stand.copies); wipe(stand.secure)
+    stand.pool = {}
+    stand.frame = normal.flow.start
+  end
   Unlink(stand)
   stand.active = true
   EnsureProxy(stand)
@@ -394,6 +427,8 @@ function Display.EnsureStand(region, normal)
     local text = Pooled(stand, "text", function() return frame:CreateFontString(nil, "OVERLAY") end)
     Link(stand, region.text, text, FONT)
     CopyFont(region.text, text)
+    local data = normal.data
+    CopyTextSizing(text, data.automaticWidth == "Fixed", data.fixedWidth, data.wordWrap == "WordWrap")
   end
   -- ForeverAuras: the copies are levelled in sub element order, as
   -- Private.ApplyFrameLevel levels the display's own elements. Left at the
@@ -440,6 +475,10 @@ function Display.EnsureStand(region, normal)
         local text = Pooled(stand, "subtextText" .. index, function() return copy:CreateFontString(nil, "OVERLAY") end)
         Link(stand, sub.text, text, FONT, sub)
         CopyFont(sub.text, text)
+        local element = normal.data.subRegions and normal.data.subRegions[index]
+        if element and element.type == "subtext" then
+          CopyTextSizing(text, element.text_automaticWidth == "Fixed", element.text_fixedWidth, element.text_wordWrap == "WordWrap")
+        end
       end
       -- A Texture element draws through a TextureBase wrapper (sub.texture)
       -- around the real texture (sub.texture.texture): every change, including
@@ -487,6 +526,10 @@ function Display.EnsureStand(region, normal)
     local copy = stand.copies[source]
     if copy and copy.faGlowSource == source then MirrorGlow(copy) end
   end
+  -- ForeverAuras: the display's alpha is applied again now that the stand
+  -- frame is the gate's owner (RegionPrototype.lua, SetAlpha): the frame
+  -- takes the gate, the display its asked-for alpha.
+  if region.requestedAlpha ~= nil and region.SetAlpha then pcall(region.SetAlpha, region, region.requestedAlpha) end
 end
 
 local pending = {}
@@ -504,6 +547,11 @@ function Display.ReleaseStand(normal)
   if not stand then return end
   stand.active = false
   Unlink(stand)
+  -- ForeverAuras: the gate alpha the frame carried (RegionPrototype.lua,
+  -- SetAlpha) is dropped, so a later stand on this frame starts clean, and
+  -- the display takes its gate back itself.
+  if stand.frame then pcall(stand.frame.SetAlpha, stand.frame, 1); stand.frame.cdmGateApplied = nil end
+  if stand.region.requestedAlpha ~= nil and stand.region.SetAlpha then pcall(stand.region.SetAlpha, stand.region, stand.region.requestedAlpha) end
   -- Auras anchored to the display go back to its own region.
   if stand.proxy then stand.proxy:Hide() end
   if Private.ReanchorAttachedTo then Private.ReanchorAttachedTo(stand.region.id) end
