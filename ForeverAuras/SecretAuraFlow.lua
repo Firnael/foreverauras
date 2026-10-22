@@ -39,6 +39,24 @@ local function SetShown(frame, shown)
   if shown then frame:Show() else frame:Hide() end
 end
 
+-- A display's own X/Y Offset (Display settings) inside a Modern Aura Group:
+-- added to that display's place in the row only. The next display keeps the
+-- place the row gives it, so a nudged display does not drag the rest along.
+local function OwnOffset(data)
+  if type(data) ~= "table" then return 0, 0 end
+  local x, y = tonumber(data.xOffset) or 0, tonumber(data.yOffset) or 0
+  return x, y
+end
+-- A chained flow's own offset, none for the row's first flow (its region's
+-- place, which already carries the offset, is where the row starts) or nil.
+-- Only Aura (Modern) displays take it: an ordinary display in the row keeps
+-- the placement it always had (its preview does not apply offsets either).
+local function RowOffset(flow, first)
+  if not flow or flow == first or flow.normal then return 0, 0 end
+  local data = flow.region and flow.region.blizzardAuraDisplay and flow.region.blizzardAuraDisplay.data
+  return OwnOffset(data)
+end
+
 -- A chain frame (a display's start, or its shadow start) is anchored to
 -- Blizzard's aura frames, and the client can make such a frame forbidden to
 -- addon code once its position depends on their secret layout. After that
@@ -490,8 +508,20 @@ function Display.MergeKey(data)
   local filters = CopyTable(Display.RawCandidateFilters(data))
   filters.includeSpellIDs = nil
   local op, x = Display.RemainingWindow(trigger)
+  -- Which units a display watches is part of the key: displays with
+  -- different unit filters (names, roles, class, self, dead, offline, range,
+  -- hostility) must not merge, or the first one's units would govern both.
+  -- An enabled filter with nothing selected matches no unit: distinct from off.
+  local units = Serialize({
+    names = trigger.useUnitNames and (trigger.unitNames or {}) or false,
+    roles = trigger.useUnitRoles and (trigger.unitRoles or {}) or false,
+    class = trigger.useUnitClass and (trigger.unitClass or {}) or false,
+    self = trigger.ignoreSelf or false, dead = trigger.ignoreDead or false,
+    offline = trigger.ignoreDisconnected or false, range = trigger.ignoreInvisible or false,
+    hostility = Display.UsesHostility(trigger) and (trigger.hostility or "hostile") or false,
+  })
   return table.concat({tostring(trigger.unit), tostring((Display.SpecificUnit(trigger))), tostring((Display.IncludesPets(trigger))),
-    Display.FilterString(trigger), Serialize(filters), tostring(op), tostring(x), AppearanceKey(data)}, "|")
+    units, Display.FilterString(trigger), Serialize(filters), tostring(op), tostring(x), AppearanceKey(data)}, "|")
 end
 
 local merged = setmetatable({}, {__mode = "k"})
@@ -1064,36 +1094,51 @@ function Display.RelinkFlowUnits(group)
       local along = g.sign[1] ~= 0
       local spacing = Display.FlowSpacing(group, entry.region, along and width or height)
       halfSpacing = Display.FlowHalf(entry.region, spacing)
+      -- The display's own X/Y Offset moves its part of each unit's row only
+      -- (OwnOffset): the next display's anchor takes it back off.
+      local ox, oy = OwnOffset(native.data)
       for _, instance in ipairs(native.instances) do
         local unit = instance.visible and instance.boundUnit
         if unit and not Busy(instance.container) then
           local container = instance.container
           container:ClearAllPoints()
           local previous = last[unit]
-          local linked = previous and Place(container, start, previous[1], previous[2], previous[3], previous[4])
+          local linked = previous and Place(container, start, previous[1], previous[2], previous[3] + ox, previous[4] + oy)
           if not linked and lastShadow[unit] then
             -- Centred: start where the shadows end, half a spacing on.
             linked = Place(container, start, lastShadow[unit], shEnd,
-              sh.pixel[1] + g.sign[1] * halfSpacing, sh.pixel[2] + g.sign[2] * halfSpacing)
+              sh.pixel[1] + g.sign[1] * halfSpacing + ox, sh.pixel[2] + g.sign[2] * halfSpacing + oy)
           end
           if not linked then
             local frame = UnitAnchor(mode, unit)
             if frame then
+              -- Centred without a list shadow on this unit (Show On: Missing,
+              -- or a gated list): nothing ran backwards from the frame point,
+              -- so the row would start there and sit half a display to the
+              -- side. Start half a step back instead: half the display's
+              -- step less half a spacing, each a whole number of pixels, the
+              -- sum the options preview uses (ArrangeFlowPreview, Offset), so
+              -- the live row lands on the preview's pixel.
+              local back = 0
+              if sh then
+                back = Display.FlowHalf(entry.region, (along and width or height) + spacing)
+                  - Display.FlowHalf(entry.region, Display.FlowSpacing(group, entry.region, 0))
+              end
               container:ClearAllPoints()
-              container:SetPoint(start, frame, point, frameX, frameY)
+              container:SetPoint(start, frame, point, frameX - g.sign[1] * back + ox, frameY - g.sign[2] * back + oy)
             end
           end
-          last[unit] = {container, listEnd, g.pixel[1], g.pixel[2]}
+          last[unit] = {container, listEnd, g.pixel[1] - ox, g.pixel[2] - oy}
           local missing = instance.single and instance.single.missing
           local slot = missing and missing.active and missing.slot
           if slot then
             local size = (along and width or height) + spacing
-            last[unit] = {slot, listEnd, g.sign[1] * spacing, g.sign[2] * spacing}
+            last[unit] = {slot, listEnd, g.sign[1] * spacing - ox, g.sign[2] * spacing - oy}
             local presence = missingOnly and missing.presenceActive and missing.presence
             if presence then
               presence:ClearAllPoints()
               if Place(presence, far, slot, start, g.sign[1] * (size + 1), g.sign[2] * (size + 1)) then
-                last[unit] = {presence, start, 0, 0}
+                last[unit] = {presence, start, -ox, -oy}
               end
             end
           end
@@ -1270,6 +1315,8 @@ function Display.ArrangeFlowPreview(group)
     return -g.sign[1] * half, -g.sign[2] * half
   end
   local previous = {}
+  -- The previous sample's own display offset per row key, taken back off (OwnOffset).
+  local previousOwn = {}
   local onFrame = false
   -- A centred row starts half its length back, which can fall between two
   -- pixels; nothing here is secret, so the start is put on a whole pixel.
@@ -1321,7 +1368,11 @@ function Display.ArrangeFlowPreview(group)
     if inRow and previous[""] then
       region:SetAnchor(g.start, previous[""], g.far)
       local gap = Spaced(along and previous[""]:GetWidth() or previous[""]:GetHeight())
-      region:SetOffset(g.sign[1] * gap, g.sign[2] * gap)
+      -- A preceding Modern sample's own offset is taken back off (OwnOffset),
+      -- as the live row does; an ordinary display carries none itself.
+      local back = previousOwn[""] or {0, 0}
+      region:SetOffset(g.sign[1] * gap - back[1], g.sign[2] * gap - back[2])
+      previousOwn[""] = nil
     elseif inRow and g.shadow then
       local ox, oy = Offset("")
       ox, oy = WholePixel(region, normal.home, g.centerPoint, ox, oy)
@@ -1337,12 +1388,17 @@ function Display.ArrangeFlowPreview(group)
   local function PlaceSamples(region)
     if not framed then Display.RestorePreviewRegion(region) end
     local moved = false
+    local native = region.blizzardAuraDisplay
+    local ownX, ownY = OwnOffset(native and native.data)
     for _, sample in ipairs(region.secretAuraSamples or {}) do
       local button = sample.button
       if button:IsShown() then
         local key = Key(sample)
         local frame = framed and PreviewFrame(group, sample.previewUnit or nil)
         local ox, oy = Offset(key)
+        -- Off a frame, the first display's place already carries its own offset.
+        if not framed and not previous[key] then ownX, ownY = 0, 0 end
+        ox, oy = ox + ownX, oy + ownY
         -- The group's anchor point only places the row on a frame; on the
         -- screen the row sits on the first display's box, as the live auras do.
         local start, far = g.start, g.far
@@ -1353,14 +1409,23 @@ function Display.ArrangeFlowPreview(group)
         button:ClearAllPoints()
         if previous[key] then
           local gap = Spaced(along and previous[key]:GetWidth() or previous[key]:GetHeight())
-          button:SetPoint(start, previous[key], far, g.sign[1] * gap, g.sign[2] * gap)
+          local back = previousOwn[key] or {0, 0}
+          button:SetPoint(start, previous[key], far, g.sign[1] * gap + ownX - back[1], g.sign[2] * gap + ownY - back[2])
         elseif frame then
           button:SetPoint(start, frame, point, frameX + ox, frameY + oy)
         elseif g.shadow then
+          -- Group by Frame with no frame found for this sample: the display's
+          -- box may still sit on a sample from the last arrangement, and the
+          -- origin follows the box, so anchoring the sample to it would be a
+          -- cycle ("Cannot anchor to a region dependent on it"). Put the box
+          -- back on its own anchor first; it is not moved again below.
+          if framed then Display.RestorePreviewRegion(region) end
           local origin = Origin(region)
           ox, oy = WholePixel(button, origin, g.centerPoint, ox, oy)
           button:SetPoint(g.start, origin, g.centerPoint, ox, oy)
         else
+          -- As above.
+          if framed then Display.RestorePreviewRegion(region) end
           button:SetPoint(g.start, Origin(region), g.start)
         end
         -- The display's own box follows its first icon.
@@ -1371,6 +1436,7 @@ function Display.ArrangeFlowPreview(group)
         onFrame = onFrame or frame ~= nil and frame ~= false
         if not framed and not previous[key] then rowStart = button end
         previous[key] = button
+        previousOwn[key] = {ownX, ownY}
       end
     end
     if not moved then Display.RestorePreviewRegion(region) end
@@ -1745,14 +1811,24 @@ combatWatcher:SetScript("OnEvent", function()
 end)
 
 local flushing = false
+-- When each group was last chained (GetTime is constant within a frame).
+local lastFlush = setmetatable({}, {__mode = "k"})
 local function FlushQueued()
   if flushing then return end
   flushing = true
   local groups = queued
   queued = {}
+  local now = GetTime()
   for group in pairs(groups) do
+    lastFlush[group] = now
+    Private.StartProfileSystem("aura (modern) - group layout: rechains")
     Display.RechainFlow(group)
-    if WeakAuras.IsOptionsOpen() then Display.ArrangeFlowPreview(group) end
+    Private.StopProfileSystem("aura (modern) - group layout: rechains")
+    if WeakAuras.IsOptionsOpen() then
+      Private.StartProfileSystem("aura (modern) - group layout: preview")
+      Display.ArrangeFlowPreview(group)
+      Private.StopProfileSystem("aura (modern) - group layout: preview")
+    end
   end
   flushing = false
   -- Work queued by the rechain itself (a member it showed or hidden) waits
@@ -1772,7 +1848,14 @@ local function QueueRechain(region)
   -- sideways as it came in. During a load scan that happens once, at its end
   -- (Display.EndFlowLoad); the timer above catches a queue made while a
   -- rechain was already running.
-  if loadScan == 0 then FlushQueued() end
+  -- In the editor only, once per frame per group: selecting a pack shows
+  -- every display in one frame, and a full rechain for each of them grew with
+  -- the square of the pack's size and stalled the click; the first one chains
+  -- the row at once and the rest wait for the timer, which chains it once more
+  -- next frame. Live, every change still chains at once: a deferred chain
+  -- could fall into combat, where a row with clickable copies cannot be moved,
+  -- and leave a display where the row last put it until combat ends.
+  if loadScan == 0 and not (WeakAuras.IsOptionsOpen() and lastFlush[group] == GetTime()) then FlushQueued() end
 end
 
 function Display.BeginFlowLoad()
@@ -1939,8 +2022,13 @@ end
 function Display.RechainFlow(group)
   if not group then return end
   if loadScan > 0 then queued[group] = true; return end
+  -- Profiling breakdown of a rechain (no cost unless profiling runs).
+  Private.StartProfileSystem("aura (modern) - group layout: merge")
   Display.RefreshFlowMerge(group)
+  Private.StopProfileSystem("aura (modern) - group layout: merge")
+  Private.StartProfileSystem("aura (modern) - group layout: grid")
   Display.RebuildGrid(group)
+  Private.StopProfileSystem("aura (modern) - group layout: grid")
   if Display.FlowGrid(group) then Display.UpdateFlowClip(group) return end
   if group.blizzardFlowFrames == "UNITFRAME" or group.blizzardFlowFrames == "NAMEPLATE" then
     Display.UpdateFlowClip(group)
@@ -2061,20 +2149,28 @@ function Display.RechainFlow(group)
     elseif combat and flow.stand and Display.StandLocked(flow.normal) then
       previous = flow
     elseif combat then
+      -- The display's own offset (OwnOffset) moves only this display; the
+      -- previous one's is taken back off its end anchor. The first display's
+      -- offset is already in its region's place, where the row starts.
+      local ox, oy = RowOffset(flow, flows[1])
+      local px, py = RowOffset(previous, flows[1])
       if previous then
-        Place(flow.start, flow.growth.start, previous.endFrame, previous.endPoint, previous.x, previous.y)
+        Place(flow.start, flow.growth.start, previous.endFrame, previous.endPoint, previous.x + ox - px, previous.y + oy - py)
       else
-        Place(flow.start, flow.growth.start, flow.home or region, flow.growth.start, snapX, snapY)
+        Place(flow.start, flow.growth.start, flow.home or region, flow.growth.start, snapX + ox, snapY + oy)
       end
       previous = flow
     else
       flow.start:ClearAllPoints()
+      -- As in combat above: this display's own offset on, the previous one's off.
+      local ox, oy = RowOffset(flow, flows[1])
+      local px, py = RowOffset(previous, flows[1])
       local chained = previous and Place(flow.start, flow.growth.start,
-        previous.endFrame, previous.endPoint, previous.x, previous.y)
+        previous.endFrame, previous.endPoint, previous.x + ox - px, previous.y + oy - py)
       if not chained then
         -- First display, or Blizzard refused the anchor: start at the region.
         flow.start:ClearAllPoints()
-        flow.start:SetPoint(flow.growth.start, flow.home or region, flow.growth.start, snapX, snapY)
+        flow.start:SetPoint(flow.growth.start, flow.home or region, flow.growth.start, snapX + ox, snapY + oy)
       end
       previous = flow
     end

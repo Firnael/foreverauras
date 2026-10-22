@@ -1214,6 +1214,8 @@ function Private.regionPrototype.modifyFinish(parent, region, data)
 
   Private.ApplyFrameLevel(region)
   Private.BlizzardAuraDisplay.RefreshStand(region)
+  -- "Not in combat" displays hide at combat start through the client's secure driver (see above).
+  Private.UpdateCombatHideDriver(region, data)
 end
 
 local frameForFrameTick = CreateFrame("Frame");
@@ -1288,6 +1290,57 @@ function Private.DeferProtectedVisibility(region)
     end)
   end
   deferredVisibility[region] = true
+end
+
+-- ForeverAuras: a display loaded with "Not in combat" can be one the client
+-- refuses to let addon code hide once combat has started: a display with a
+-- secure click button parented or anchored to it, or a member of a Modern Aura
+-- Group whose row holds clickable copies. Unloading then only queues the hide
+-- for after combat (DeferProtectedVisibility), and the reminder stays on screen
+-- through the fight. The client's own secure state driver may hide protected
+-- frames in combat, so such displays get a "[combat] hide" driver. The blank
+-- out-of-combat branch leaves showing and hiding to the ordinary load and
+-- trigger logic, so nothing changes outside combat. In a Modern Aura Group the
+-- row copy is a child of the region (SecretAuraFlow.lua), so hiding the region
+-- hides the copy and its secure buttons with it. Drivers are attribute changes
+-- and are not applied in combat; those wait for the end of combat.
+local combatHidePending = {}
+local combatHideFrame
+local function ApplyCombatHideDriver(region)
+  combatHidePending[region] = nil
+  if region.faCombatHideWanted then
+    if not region.faCombatHideDriver then
+      RegisterStateDriver(region, "visibility", "[combat] hide; ")
+      region.faCombatHideDriver = true
+    end
+  elseif region.faCombatHideDriver then
+    UnregisterStateDriver(region, "visibility")
+    region.faCombatHideDriver = nil
+  end
+end
+-- Called with the display's data after modify, after a Load-tab edit
+-- (WeakAuras.UpdateLoadConditions), and without data when the region is retired
+-- (deleted, or a clone returned to a pool), which removes the driver.
+function Private.UpdateCombatHideDriver(region, data)
+  if not region then return end
+  -- Only displays themselves: a group frame hiding would take every member with it.
+  local wanted = data and data.regionType ~= "group" and data.regionType ~= "dynamicgroup"
+    and data.load and data.load.use_combat == false or nil
+  region.faCombatHideWanted = wanted
+  if InCombatLockdown() then
+    if not combatHideFrame then
+      combatHideFrame = CreateFrame("Frame")
+      combatHideFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+      combatHideFrame:SetScript("OnEvent", function()
+        for pending in pairs(combatHidePending) do
+          ApplyCombatHideDriver(pending)
+        end
+      end)
+    end
+    combatHidePending[region] = true
+    return
+  end
+  ApplyCombatHideDriver(region)
 end
 
 -- Expand/Collapse function

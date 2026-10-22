@@ -383,16 +383,68 @@ local function MatchesUnitName(trigger, unit)
 end
 
 -- Filter by Hostility, as on Aura (Legacy) (same useHostility/hostility
--- fields): nameplate tokens cover friends and enemies alike. True when the
--- unit's side matches; a side the client hides (a secret answer) passes.
+-- fields): nameplate tokens cover friends and enemies alike, and a target,
+-- focus, mouseover, target-of or specific unit can be either side. True when
+-- the unit's side matches; a side the client hides (a secret answer) passes.
+-- Units the filter is offered for (SecretAuraTriggerOptions.lua shows it for these).
+Display.hostilityUnits = {nameplate = true, target = true, focus = true, mouseover = true,
+  targettarget = true, focustarget = true, pettarget = true, member = true}
+-- Units a class filter is offered for besides groups: those that can be a player.
+Display.classUnits = {nameplate = true, target = true, focus = true, mouseover = true,
+  targettarget = true, focustarget = true, pettarget = true, member = true, arena = true}
 function Display.UsesHostility(trigger)
-  return type(trigger) == "table" and trigger.unit == "nameplate" and trigger.useHostility == true
+  return type(trigger) == "table" and Display.hostilityUnits[trigger.unit] == true and trigger.useHostility == true
 end
 function Display.HostilityMatches(trigger, unit)
   if not unit or not Display.UsesHostility(trigger) then return true end
   local hostile = UnitCanAttack("player", unit)
   if issecretvalue(hostile) then return true end
   return (hostile == true) == (trigger.hostility ~= "friendly")
+end
+
+-- Class filter (useUnitClass/unitClass): offered for groups and for units
+-- that can be a player (Display.classUnits). UnitClass stays readable for
+-- group members; a hidden answer fails the filter rather than guessing.
+-- A group pet is judged by its owner (the roster entry the filter selected).
+local function Controlling(unit)
+  return WeakAuras.petUnitToUnit and WeakAuras.petUnitToUnit[unit] or unit
+end
+
+local function ClassMatches(trigger, unit)
+  if not trigger.useUnitClass then return true end
+  if not (groupModes[trigger.unit] or Display.classUnits[trigger.unit]) then return true end
+  unit = Controlling(unit)
+  local ok, _, class = pcall(UnitClass, unit)
+  return ok and type(class) == "string" and not issecretvalue(class) and (trigger.unitClass or {})[class] == true
+end
+
+-- Ignore Self: the player's own token (its pet follows in a group, as pets
+-- are added after the filter). The client's own UnitIsUnit is asked, not the
+-- cached compatibility wrapper, so a changed token never inherits an answer;
+-- a hidden answer counts as not self.
+local function IsSelf(trigger, unit)
+  if not trigger.ignoreSelf then return false end
+  if not (groupModes[trigger.unit] or Display.hostilityUnits[trigger.unit]) then return false end
+  unit = Controlling(unit)
+  local ok, isSelf = pcall(UnitIsUnit, "player", unit)
+  return ok and not issecretvalue(isSelf) and isSelf == true
+end
+
+-- Whether a bound unit may draw (and sound) for this trigger: hostility,
+-- class and self, as the options offer them for the trigger's unit. Group
+-- tokens were already filtered by UnitTokens; this is what judges single
+-- units and nameplates in their slots.
+function Display.UnitEligible(trigger, unit)
+  if not unit or type(trigger) ~= "table" then return true end
+  return Display.HostilityMatches(trigger, unit) and ClassMatches(trigger, unit) and not IsSelf(trigger, unit)
+end
+
+-- True when a change of the unit a token stands for can change eligibility
+-- (the sounds registered for it follow, SyncSounds).
+function Display.UsesUnitEligibility(trigger)
+  return type(trigger) == "table" and (Display.UsesHostility(trigger)
+    or (trigger.useUnitClass and Display.classUnits[trigger.unit] == true)
+    or (trigger.ignoreSelf and Display.hostilityUnits[trigger.unit] == true)) or false
 end
 
 local function UnitTokens(trigger)
@@ -413,12 +465,24 @@ local function UnitTokens(trigger)
   else
     result[1] = unit
   end
-  if (trigger.useUnitNames or trigger.useUnitRoles) and groupModes[trigger.unit] then
+  -- Group members a filter leaves out get no part of the display at all (no
+  -- slot in a row): names, assigned roles, class (useUnitClass/unitClass, as
+  -- Aura (Legacy)'s Filter by Class) and Ignore Self (the player's own token;
+  -- the player's pet follows, as pets are added after). Class is read with
+  -- UnitClass, which stays readable for group members; a hidden answer drops
+  -- the member rather than guessing.
+  -- Only group tokens are dropped from the list: the roster decides the
+  -- list, and it is rebound on roster, role and name events. Single units
+  -- and nameplates keep one token per slot (a nameplate's container is its
+  -- slot, so a shorter list would move every plate's display); they are
+  -- judged per unit instead (Display.UnitEligible, used by the binding).
+  local group = groupModes[trigger.unit] == true
+  if group and (trigger.useUnitNames or trigger.useUnitRoles or trigger.useUnitClass or trigger.ignoreSelf) then
     local filtered = {}
     for _, token in ipairs(result) do
       local role = trigger.useUnitRoles and UnitGroupRolesAssigned(token)
-      if MatchesUnitName(trigger, token) and (not trigger.useUnitRoles
-        or (not issecretvalue(role) and (trigger.unitRoles or {})[role])) then
+      if ClassMatches(trigger, token) and not IsSelf(trigger, token) and MatchesUnitName(trigger, token)
+        and (not trigger.useUnitRoles or (not issecretvalue(role) and (trigger.unitRoles or {})[role])) then
         filtered[#filtered + 1] = token
       end
     end
@@ -609,6 +673,16 @@ local function IsPreview()
   return WeakAuras.IsOptionsOpen() and not InCombatLockdown()
 end
 
+-- The trigger's units that may sound: hostility, class and self filters apply
+-- to sounds as to the display (Display.UnitEligible).
+local function EligibleUnits(trigger)
+  local units = {}
+  for _, unit in ipairs(UnitTokens(trigger)) do
+    if Display.UnitEligible(trigger, unit) then units[#units + 1] = unit end
+  end
+  return units
+end
+
 local function SyncSounds(region)
   if Restricted() then
     pendingSounds[region] = true
@@ -629,7 +703,7 @@ local function SyncSounds(region)
       parts[#parts + 1] = table.concat({tostring(action.do_sound), tostring(action.sound), tostring(action.sound_path),
         tostring(action.sound_fojji), tostring(action.sound_channel)}, ",")
     end
-    parts[#parts + 1] = table.concat(UnitTokens(trigger), ",")
+    parts[#parts + 1] = table.concat(EligibleUnits(trigger), ",")
     parts[#parts + 1] = tostring(Display.RawShowOn(trigger))
     parts[#parts + 1] = table.concat(Display.GetSpellIDs(trigger, true), ",")
     parts[#parts + 1] = table.concat(trigger.excludedAuraSpellIDs or {}, ",")
@@ -666,7 +740,7 @@ local function SyncSounds(region)
     return
   end
   local failure
-  local units = UnitTokens(trigger)
+  local units = EligibleUnits(trigger)
   -- On Show / On Hide follow the display: with Show On Missing the display
   -- appears when the aura is removed, so the sounds swap over.
   local showOnMissing = Display.RawShowOn(trigger) == "showOnMissing"
@@ -1546,6 +1620,13 @@ local function UnitIgnored(trigger, unit)
     local ok, dead = pcall(UnitIsDeadOrGhost, unit)
     if ok and not issecretvalue(dead) and dead == true then return true end
   end
+  -- Ignore out of checking range (ignoreInvisible, as Aura (Legacy)): a group
+  -- member too far away for the client to see has no readable auras either.
+  -- Offered for groups only, and applied only there.
+  if trigger.ignoreInvisible and groupModes[trigger.unit] then
+    local ok, visible = pcall(UnitIsVisible, unit)
+    if ok and not issecretvalue(visible) and visible == false then return true end
+  end
   return false
 end
 
@@ -1605,7 +1686,7 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
       if anchorFrame and anchorFrame:IsForbidden() then anchorFrame = nil end
       -- Live aura visibility must not affect the editor samples.
       local shown = not IsPreview() and unit ~= nil and region:IsShown() and (not (unitFrames or nameplates) or anchorFrame ~= nil)
-        and not native.gridMember and Display.HostilityMatches(trigger, unit)
+        and not native.gridMember and Display.UnitEligible(trigger, unit)
       -- An erased Missing look (SecretAuraSingle.lua) draws the aura slot and
       -- the Missing look in one frame buffer: the slot's parent is that stage.
       local parent = unitFrames and data.anchorFrameParent ~= false and anchorFrame
@@ -1746,7 +1827,11 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
         local glowContainer = instance.unitGlow.container
         local frame = unitFrames and unit and settings.unitGlow and anchorFrame
         if frame and frame:IsForbidden() then frame = nil end
-        local glowShown = not IsPreview() and frame ~= nil and frame ~= false and region:IsShown() and not native.unitGlowsHidden and settings.unitGlow == true
+        -- The glow follows the same unit filters as the icon (Display.UnitEligible)
+        -- and its Ignore Dead / Ignore Disconnected status (UnitIgnored).
+        local glowWanted = not IsPreview() and frame ~= nil and frame ~= false and region:IsShown() and not native.unitGlowsHidden
+          and settings.unitGlow == true and Display.UnitEligible(trigger, unit)
+        local glowShown = glowWanted and not UnitIgnored(trigger, unit)
         local glowParent = frame or region
         if instance.unitGlow.boundUnit ~= unit or glowContainer:GetParent() ~= glowParent then
           glowContainer:SetEnabled(false)
@@ -1759,6 +1844,9 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
         if Changed(glowContainer:GetFrameStrata(), glowParent:GetFrameStrata()) then glowContainer:SetFrameStrata(glowParent:GetFrameStrata()) end
         local glowLevel = glowParent:GetFrameLevel() + unitGlowFrameLevel
         if Changed(glowContainer:GetFrameLevel(), glowLevel) then glowContainer:SetFrameLevel(glowLevel) end
+        -- Remembered without the status part, so a death or disconnect can
+        -- toggle the glow from the status events without a full refresh.
+        instance.unitGlow.wanted = glowWanted == true
         glowContainer:SetShown(glowShown)
         glowContainer:SetEnabled(glowShown)
         if glowShown then glowContainer:UpdateAllAuras() end
@@ -2223,6 +2311,24 @@ local unitEvents = {
 }
 
 local function NeedsUnitRefresh(mode, event, unit, trigger)
+  -- A unit's class can arrive after the unit did (with its name): a display
+  -- filtered by class re-judges its unit then, whatever the unit mode.
+  if event == "UNIT_NAME_UPDATE" and trigger and trigger.useUnitClass then
+    if groupModes[mode] then return true end
+    -- Single units and nameplates: only when the named unit is one the display watches.
+    for _, token in ipairs(UnitTokens(trigger)) do
+      -- A pet is judged by its owner, so the owner's name update counts too.
+      local owner = WeakAuras.petUnitToUnit and WeakAuras.petUnitToUnit[token] or token
+      if token == unit or owner == unit then return true end
+      local ok, same = pcall(UnitIsUnit, token, unit)
+      if ok and not issecretvalue(same) and same == true then return true end
+      if owner ~= token then
+        ok, same = pcall(UnitIsUnit, owner, unit)
+        if ok and not issecretvalue(same) and same == true then return true end
+      end
+    end
+    return false
+  end
   if event == "UNIT_TARGET" then
     return (mode == "targettarget" and unit == "target") or (mode == "focustarget" and unit == "focus")
       or (mode == "pettarget" and unit == "pet")
@@ -2243,16 +2349,49 @@ events:RegisterEvent("DISPLAY_SIZE_CHANGED")
 for _, event in ipairs({"PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "PLAYER_TARGET_CHANGED", "PLAYER_FOCUS_CHANGED",
   "UPDATE_MOUSEOVER_UNIT", "UNIT_TARGET", "UNIT_PET", "INSTANCE_ENCOUNTER_ENGAGE_UNIT", "ARENA_OPPONENT_UPDATE",
   "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UNIT_NAME_UPDATE", "PLAYER_ROLES_ASSIGNED", "UNIT_FACTION"}) do events:RegisterEvent(event) end
+-- The unit-frame glow follows its instance's status (ApplyUnitStatus): shown
+-- only when the binding wanted it, the display has not hidden its glows, and
+-- the unit is not ignored. A glow the client will not let addon code touch
+-- right now (combat) is noted and brought up to date when combat ends.
+local glowStatusPending = {}
+local function SyncGlowStatus(region, instance)
+  local glow = instance.unitGlow
+  local native = region.blizzardAuraDisplay
+  if not glow or not glow.container or not native then return end
+  if Locked(glow.container) then glowStatusPending[region] = true; return end
+  local shown = glow.wanted == true and not native.unitGlowsHidden and not instance.statusHidden
+  if glow.container:IsShown() ~= shown then
+    glow.container:SetShown(shown)
+    glow.container:SetEnabled(shown)
+    if shown then glow.container:UpdateAllAuras() end
+  end
+end
+
 -- Deaths, releases and disconnects only change the affected unit's alpha.
 local statusEvents = CreateFrame("Frame")
 for _, event in ipairs({"UNIT_CONNECTION", "UNIT_HEALTH", "UNIT_FLAGS", "PLAYER_FLAGS_CHANGED"}) do statusEvents:RegisterEvent(event) end
-statusEvents:SetScript("OnEvent", function(_, _, unit)
+-- A group member coming into or leaving the client's view (UnitIsVisible), for
+-- Ignore out of checking range: the events Aura (Legacy) uses for it. (Not
+-- UNIT_IN_RANGE_UPDATE, which tracks UnitInRange and costs the client extra.)
+statusEvents:RegisterEvent("PARTY_MEMBER_ENABLE")
+statusEvents:RegisterEvent("PARTY_MEMBER_DISABLE")
+statusEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+statusEvents:SetScript("OnEvent", function(_, event, unit)
+  if event == "PLAYER_REGEN_ENABLED" then
+    -- Glow status changes skipped in combat are replayed.
+    for region in pairs(glowStatusPending) do
+      glowStatusPending[region] = nil
+      local native = region.blizzardAuraDisplay
+      for _, instance in ipairs(native and native.instances or {}) do SyncGlowStatus(region, instance) end
+    end
+    return
+  end
   if type(unit) ~= "string" then return end
   for region in pairs(activeRegions) do
     local native = region.blizzardAuraDisplay
     -- Read only: the saved trigger, without the copy GetTrigger may make.
     local trigger = Display.GetSavedTrigger(native.data)
-    if trigger and (trigger.ignoreDead or trigger.ignoreDisconnected) then
+    if trigger and (trigger.ignoreDead or trigger.ignoreDisconnected or trigger.ignoreInvisible) then
       -- ForeverAuras: a grid member draws in the grid's container, not its own.
       if native.gridMember and Display.RefreshGridStatus then Display.RefreshGridStatus(region, unit) end
       local single = #native.instances == 1
@@ -2262,6 +2401,8 @@ statusEvents:SetScript("OnEvent", function(_, _, unit)
           and (UnitIgnored(trigger, bound) or nil) ~= instance.statusHidden then
           ApplyUnitStatus(instance, trigger)
           Display.RefreshSingleStatus(instance)
+          -- The unit-frame glow follows Ignore Dead / Ignore Disconnected too.
+          SyncGlowStatus(region, instance)
         end
       end
     end
@@ -2324,8 +2465,13 @@ events:SetScript("OnEvent", function(_, event, unit)
     local mode = trigger and trigger.unit
     if event == "UNIT_FACTION" then
       -- A plate's side changed (PvP flag, mind control): re-check its hostility.
-      if type(unit) == "string" and not issecretvalue(unit) and unit:match("^nameplate%d+$") and Display.UsesHostility(trigger) then
-        RefreshUnits(region, nil, unit, true)
+      if mode == "nameplate" then
+        if type(unit) == "string" and not issecretvalue(unit) and unit:match("^nameplate%d+$") and Display.UsesHostility(trigger) then
+          RefreshUnits(region, nil, unit, true)
+        end
+      elseif Display.UsesHostility(trigger) then
+        -- A target, focus or specific unit changed side: its display re-checks the filter.
+        RefreshUnits(region, nil, nil, true)
       end
     elseif event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED" then
       if Display.UsesNameplates(region.blizzardAuraDisplay.data) then
@@ -2341,7 +2487,11 @@ events:SetScript("OnEvent", function(_, event, unit)
       RefreshUnits(region, nil, nil, true)
     end
     if trigger and (event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ROLES_ASSIGNED"
-      or (event == "UNIT_NAME_UPDATE" and trigger.useUnitNames)) and unitEvents.GROUP_ROSTER_UPDATE[mode] then
+      or (event == "UNIT_NAME_UPDATE" and (trigger.useUnitNames or trigger.useUnitClass))) and unitEvents.GROUP_ROSTER_UPDATE[mode] then
+      SyncSounds(region)
+    elseif trigger and Display.UsesUnitEligibility(trigger)
+      and (event == "UNIT_FACTION" or NeedsUnitRefresh(mode, event, unit, trigger)) then
+      -- A new target, focus, plate or side can change which units may sound.
       SyncSounds(region)
     end
   end

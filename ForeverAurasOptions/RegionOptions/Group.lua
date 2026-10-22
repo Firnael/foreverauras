@@ -570,7 +570,13 @@ local function createOptions(id, data)
         if data.blizzardFlowFrames == nil then values.GRID = L["Grid"] end
         return values
       end,
-      sorting = {"RIGHT", "LEFT", "DOWN", "UP", "CENTER_HORIZONTAL", "CENTER_VERTICAL", "GRID"},
+      -- Grid is only offered without Group by Frame; a sorting entry with no
+      -- value would show as a blank row in the dropdown, so the list follows.
+      sorting = function()
+        local order = {"RIGHT", "LEFT", "DOWN", "UP", "CENTER_HORIZONTAL", "CENTER_VERTICAL"}
+        if data.blizzardFlowFrames == nil then order[#order + 1] = "GRID" end
+        return order
+      end,
       get = function() return Display.FlowGrid(data) and "GRID" or data.blizzardFlowGrowth or "RIGHT" end,
       set = function(_, v)
         if v == "GRID" then
