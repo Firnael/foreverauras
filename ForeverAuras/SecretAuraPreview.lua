@@ -25,11 +25,26 @@ function Display.CreateSampleNative(parent)
       self.bindings[kind][#self.bindings[kind] + 1] = {widget = widget, options = options}
     end
   end
-  function button:AddAuraShownAnimation(animation) animation:Play() end
-  function button:RemoveAuraShownAnimation(animation) animation:Stop() end
+  -- ForeverAuras: the animations a sample plays are remembered, so hiding
+  -- the sample stops them (HideSample). An animation group keeps running on
+  -- a hidden frame, and the glows of a big pack's previews (hundreds of
+  -- looping groups) kept costing the client every frame after the editor
+  -- was closed (issue #136).
+  button.faAnimations = {}
+  -- Hidden with its parent (a collapsed display, the editor closing) the
+  -- sample gets no HideSample call: its animations stop from OnHide too, and
+  -- play again when it is shown.
+  button:SetScript("OnHide", function(self)
+    for animation in pairs(self.faAnimations) do animation:Stop() end
+  end)
+  button:SetScript("OnShow", function(self)
+    for animation in pairs(self.faAnimations) do animation:Play() end
+  end)
+  function button:AddAuraShownAnimation(animation) self.faAnimations[animation] = true; animation:Play() end
+  function button:RemoveAuraShownAnimation(animation) self.faAnimations[animation] = nil; animation:Stop() end
   -- Samples play a Start animation once, as a newly assigned aura would.
-  function button:AddAuraAssignedAnimation(animation) animation:Play() end
-  function button:RemoveAuraAssignedAnimation(animation) animation:Stop() end
+  function button:AddAuraAssignedAnimation(animation) self.faAnimations[animation] = true; animation:Play() end
+  function button:RemoveAuraAssignedAnimation(animation) self.faAnimations[animation] = nil; animation:Stop() end
   -- Preview the same Blizzard assets as the native bindings, using a public sample type.
   function button:AddDispelTypeTexture(texture, options)
     if options.style == Enum.CustomAuraButtonDispelTypeTextureStyle.PreserveAsset then
@@ -141,6 +156,8 @@ end
 local protectedHides = {}
 local protectedHideFrame
 local function HideSample(button)
+  -- Animations are not protected: they stop even when the hide must wait.
+  for animation in pairs(button.faAnimations or {}) do animation:Stop() end
   if InCombatLockdown() and button:IsProtected() then
     button:SetAlpha(0)
     protectedHides[button] = true

@@ -328,6 +328,16 @@ function Private.CDMCatalog()
   end
   local categories = {}
   local frames = Private.CDMFrames()
+  -- ForeverAuras: a catalog built before the viewer has its layout or any
+  -- frame (at login and after a loading screen the client fills them in
+  -- after PLAYER_ENTERING_WORLD) can say of no entry that it is displayed,
+  -- and was kept until the next refresh event: the displays of a trigger
+  -- stayed empty until "Refresh from Blizzard CDM" (issue #132). Such a
+  -- catalog is marked incomplete and rebuilt shortly (GetCatalog).
+  -- Noted on the catalog itself (a weak set): the options window builds
+  -- catalogs of its own, which must not clear the triggers' note.
+  Private.cdmIncompleteCatalogs = Private.cdmIncompleteCatalogs or setmetatable({}, {__mode = "k"})
+  if (layout == nil or next(layout) == nil) and next(frames) == nil then Private.cdmIncompleteCatalogs[catalog] = true end
   for _, category in pairs(Enum.CooldownViewerCategory) do
     if type(category) == "number" and category >= 0 then categories[category] = true end
   end
@@ -826,6 +836,17 @@ end
 local timeStyles = {[0] = true, [99] = true, [1] = -3, [2] = -4}
 function Private.CDMTextFormat(data, token)
   if not data or not token then return nil end
+  -- ForeverAuras: the placeholder's "Number" format (issue #138): plain
+  -- seconds with the chosen decimals, never minutes. With no decimals the
+  -- Round Mode is honoured: Floor rounds down (0), Ceil up (99), Round to
+  -- the nearest second (98; Private.GetDurationTextFormatter).
+  if data["text_text_format_" .. token .. "_format"] == "Number" then
+    local precision = tonumber(data["text_text_format_" .. token .. "_decimal_precision"]) or 0
+    local round = data["text_text_format_" .. token .. "_round_type"] or "floor"
+    local format = round == "ceil" and 99 or round == "round" and 98 or 0
+    return {format = format, threshold = precision > 0 and 1e9 or 0, precision = precision,
+      modRate = true, secondsOnly = true}
+  end
   local prefix = "text_text_format_" .. token .. "_time_"
   local format = data[prefix .. "format"] or 0
   local legacy = data[prefix .. "legacy_floor"] == true
@@ -857,7 +878,7 @@ function Private.CopyCDMCountdownText(destination, state, kind, settings)
       and WeakAuras.IsDurationObject(state.durationObject) then
     if settings then
       local ok, text = pcall(Private.FormatDurationText, state.durationObject, false, settings.format, settings.threshold,
-        settings.precision, settings.modRate, settings.tint, settings.style)
+        settings.precision, settings.modRate, settings.tint, settings.style, settings.secondsOnly)
       destination:SetText(ok and text or "")
     else
       destination:SetText(Private.FormatDurationText(state.durationObject, false, 99, 0, 0))
@@ -898,7 +919,7 @@ function Private.PrintCDMDebug(id)
   local data = id and WeakAuras.GetData(id)
   if not data then Say("no aura named", tostring(id)); return end
   Say(id, "loaded", Fmt(Private.loaded[id]), "auras secret", Fmt(C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret()),
-    "combat", Fmt(InCombatLockdown()))
+    "combat", Fmt(InCombatLockdown()), "catalog incomplete", Fmt(Private.cdmCatalogForDebug and Private.cdmIncompleteCatalogs and Private.cdmIncompleteCatalogs[Private.cdmCatalogForDebug()] or false))
   local spellIDs, wanted = {}, {}
   for index, entry in ipairs(data.triggers or {}) do
     local trigger = entry.trigger

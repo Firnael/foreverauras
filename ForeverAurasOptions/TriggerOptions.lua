@@ -65,10 +65,28 @@ local function GetGlobalOptions(data)
     activeTriggerMode = {
       type = "select",
       name = L["Dynamic Information"],
+      -- ForeverAuras: with an Aura (Modern) trigger the display is drawn by
+      -- the client from that trigger, so only it can be chosen; the list
+      -- offered the other triggers and silently went back (issue #134).
+      desc = function()
+        for _, entry in ipairs(data.triggers) do
+          if type(entry) == "table" and entry.trigger and entry.trigger.type == "secretAura" then
+            return L["An Aura (Modern) trigger draws the display itself, so Dynamic Information must come from it. To show another trigger's timer while its aura filters are not met, use \"When Aura (Modern) Filters Are Not Met, Use\" below."]
+          end
+        end
+      end,
       width = WeakAuras.doubleWidth,
       order = 2.3,
       values = function()
         local vals = {};
+        local modern = {}
+        for i, entry in ipairs(data.triggers) do
+          if type(entry) == "table" and entry.trigger and entry.trigger.type == "secretAura" then modern[#modern + 1] = i end
+        end
+        if #modern > 0 then
+          for _, i in ipairs(modern) do vals[i] = L["Dynamic information from Trigger %i"]:format(i) end
+          return vals
+        end
         vals[OptionsPrivate.Private.trigger_modes.first_active] = L["Dynamic information from first active trigger"];
         for i = 1, #data.triggers do
           vals[i] = L["Dynamic information from Trigger %i"]:format(i);

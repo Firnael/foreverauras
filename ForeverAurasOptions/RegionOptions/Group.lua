@@ -534,6 +534,62 @@ local function createDistributeAlignOptions(id, data)
   }
 end
 
+-- ForeverAuras: re-adds a Modern Aura Group's children a few at a time
+-- (about 16 ms a frame) after a group setting changed, under the layout
+-- hold, so the pack is chained and arranged once at the end. A new change
+-- while a batch runs starts the batch over with the latest settings; the
+-- batch goes on when the options window closes (the saved settings must
+-- reach every child), and the hold is released whatever happens.
+local readdFrame = CreateFrame("Frame")
+readdFrame:Hide()
+local readdJob
+local function FinishReadd(job)
+  readdJob = nil
+  readdFrame:Hide()
+  local modern = OptionsPrivate.Private.BlizzardAuraDisplay
+  if job.held and modern and modern.EndFlowLoad then modern.EndFlowLoad() end
+  if WeakAuras.IsOptionsOpen() then
+    OptionsPrivate.ResetMoverSizer()
+    WeakAuras.ClearAndUpdateOptions(job.data.id)
+  end
+end
+local function RunReadd(job, budget)
+  local finish = debugprofilestop() + budget
+  while job.index <= #job.children do
+    local childId = job.children[job.index]
+    job.index = job.index + 1
+    local childData = WeakAuras.GetData(childId)
+    if childData then WeakAuras.Add(childData) end
+    if debugprofilestop() > finish then break end
+  end
+  return job.index > #job.children
+end
+readdFrame:SetScript("OnUpdate", function()
+  local job = readdJob
+  if not job then readdFrame:Hide(); return end
+  local ok, done = xpcall(RunReadd, geterrorhandler(), job, 16)
+  if not ok then done = job.index > #job.children end
+  if done then FinishReadd(job) end
+end)
+function OptionsPrivate.ReaddFlowChildren(data)
+  local children = {}
+  for _, childId in ipairs(data.controlledChildren or {}) do children[#children + 1] = childId end
+  if readdJob then
+    -- The running batch is restarted with the latest settings; its hold is
+    -- kept (the same group, or released for the previous group below).
+    if readdJob.data == data then readdJob.children, readdJob.index = children, 1; return end
+    FinishReadd(readdJob)
+  end
+  local modern = OptionsPrivate.Private.BlizzardAuraDisplay
+  local job = {data = data, children = children, index = 1, held = modern and modern.BeginFlowLoad and modern.EndFlowLoad and true or false}
+  if job.held then modern.BeginFlowLoad() end
+  local ok, done = xpcall(RunReadd, geterrorhandler(), job, 16)
+  if not ok then done = job.index > #job.children end
+  if done then FinishReadd(job); return end
+  readdJob = job
+  readdFrame:Show()
+end
+
 -- Create region options table
 local function createOptions(id, data)
   -- Region options
@@ -548,13 +604,14 @@ local function createOptions(id, data)
     pendingFlowSave = true
     C_Timer.After(0, function()
       pendingFlowSave = nil
+      -- ForeverAuras: every child is re-added for the new setting. The
+      -- group is re-added now; the children follow in batches over the next
+      -- frames (OptionsPrivate.ReaddFlowChildren), with the group's row
+      -- chained and its preview arranged once at the end: re-adding a few
+      -- hundred displays in one frame froze the client for seconds, and
+      -- each re-add chained the whole row again (issue #136).
       WeakAuras.Add(data)
-      for _, childId in ipairs(data.controlledChildren) do
-        local childData = WeakAuras.GetData(childId)
-        if childData then WeakAuras.Add(childData) end
-      end
-      OptionsPrivate.ResetMoverSizer()
-      WeakAuras.ClearAndUpdateOptions(data.id)
+      OptionsPrivate.ReaddFlowChildren(data)
     end)
   end
   local function FlowOff() return not data.blizzardFlow end

@@ -45,12 +45,37 @@ local function CatalogRefresh(event)
 end
 
 local catalogSecret = false
+-- ForeverAuras: a catalog built before the viewer was ready (CDMCatalog
+-- notes it in cdmIncompleteCatalogs) is rebuilt on its next use after a
+-- second, and the triggers are run again a little later so the displays
+-- follow without a manual refresh (issue #132). Bounded: ten rebuilds
+-- (timed or event-driven) per episode, then the catalog stands until a
+-- refresh event; a complete build ends the episode.
+local catalogRetries, catalogRetryQueued = 0, false
+local function CatalogIncomplete(which)
+  return which ~= nil and Private.cdmIncompleteCatalogs ~= nil and Private.cdmIncompleteCatalogs[which] == true
+end
+local function ScheduleCatalogRetry()
+  if catalogRetryQueued then return end
+  catalogRetryQueued = true
+  C_Timer.After(1.5, function()
+    catalogRetryQueued = false
+    if Private.QueueCDMRefresh then Private.QueueCDMRefresh() end
+  end)
+end
 local function GetCatalog(refresh)
   local batch = Private.cdmScanBatch
   if batch and batch.catalog then return batch.catalog end
   -- ForeverAuras: a catalog built while aura data was secret is rebuilt
   -- once it is readable again (CDMCatalog remembers what it could not read).
   if catalog and catalogSecret and not (C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret()) then refresh = true end
+  -- A refresh event (a loading screen, a spell change, the options' refresh)
+  -- starts a new episode of bounded retries.
+  if refresh then catalogRetries = 0 end
+  if catalog and not refresh and CatalogIncomplete(catalog) and catalogRetries < 10 and catalogTime and GetTime() - catalogTime >= 1 then
+    refresh = true
+    catalogRetries = catalogRetries + 1
+  end
   if catalog and not refresh then
     if batch then batch.catalog = catalog end
     return catalog
@@ -58,6 +83,11 @@ local function GetCatalog(refresh)
   catalog = IsAvailable() and Private.CDMCatalog() or {}
   catalogSecret = Private.cdmCatalogSawSecret == true
   catalogTime = GetTime()
+  if CatalogIncomplete(catalog) then
+    if catalogRetries < 10 then ScheduleCatalogRetry() end
+  else
+    catalogRetries = 0
+  end
   Private.cdmCatalogForDebug = function() return catalog end
   if batch then batch.catalog = catalog end
   return catalog

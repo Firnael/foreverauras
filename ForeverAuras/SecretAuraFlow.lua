@@ -25,6 +25,10 @@ local _, Private = ...
 -- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
 local CreateFrame, hooksecurefunc, TimedHookScript, C_Timer = Private.TimedAPI("SecretAuraFlow")
 local Display = Private.BlizzardAuraDisplay
+-- ForeverAuras: the rechain queue and the load-scan hold (see QueueRechain,
+-- Display.BeginFlowLoad), declared here so the preview arrangement above
+-- them can honour the hold as the rechain does (issue #136).
+local afterCombat, queued, loadScan = {}, {}, 0
 local function Locked(frame) return Display.Locked ~= nil and Display.Locked(frame) end
 local function Busy(frame)
   if Locked(frame) then return true end
@@ -1225,8 +1229,20 @@ end
 -- stand-in) when grouped by frame, else starting at the first display.
 local PlaceNormalRegion
 local previewOrigins = {}
+local ArrangeFlowPreviewNow
 function Display.ArrangeFlowPreview(group)
   if not group then return end
+  -- During a load scan or the editor's batched pick of a large group the
+  -- arrangement waits for Display.EndFlowLoad, like the rechain: every
+  -- display's refresh arranged the whole pack's samples again, which grew
+  -- with the square of the pack's size over the pick (issue #136).
+  if loadScan > 0 then queued[group] = true; return end
+  -- Timed here, so every caller is counted (/fa pprint).
+  Private.StartProfileSystem("aura (modern) - group layout: preview")
+  ArrangeFlowPreviewNow(group)
+  Private.StopProfileSystem("aura (modern) - group layout: preview")
+end
+function ArrangeFlowPreviewNow(group)
   if Display.FlowGrid(group) then
     Display.ReleaseNameplatePreview(group)
     Display.ArrangeGridPreview(group)
@@ -1800,8 +1816,6 @@ function Display.UpdateFlowClip(group, flows, g)
   SetWindow(clip, g, point, origin, length, width, height, spacing)
 end
 
-local afterCombat, queued = {}, {}
-local loadScan = 0
 local combatWatcher = CreateFrame("Frame")
 combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
 combatWatcher:SetScript("OnEvent", function()
@@ -1814,7 +1828,11 @@ local flushing = false
 -- When each group was last chained (GetTime is constant within a frame).
 local lastFlush = setmetatable({}, {__mode = "k"})
 local function FlushQueued()
-  if flushing then return end
+  -- ForeverAuras: during a load scan (and the editor's batched pick of a
+  -- large group, OptionsFrame) the queue is kept for Display.EndFlowLoad:
+  -- the per-frame timer below chained every queued group once a frame
+  -- regardless of the hold, which made the hold worthless (issue #136).
+  if flushing or loadScan > 0 then return end
   flushing = true
   local groups = queued
   queued = {}
@@ -1824,11 +1842,7 @@ local function FlushQueued()
     Private.StartProfileSystem("aura (modern) - group layout: rechains")
     Display.RechainFlow(group)
     Private.StopProfileSystem("aura (modern) - group layout: rechains")
-    if WeakAuras.IsOptionsOpen() then
-      Private.StartProfileSystem("aura (modern) - group layout: preview")
-      Display.ArrangeFlowPreview(group)
-      Private.StopProfileSystem("aura (modern) - group layout: preview")
-    end
+    if WeakAuras.IsOptionsOpen() then Display.ArrangeFlowPreview(group) end
   end
   flushing = false
   -- Work queued by the rechain itself (a member it showed or hidden) waits

@@ -1282,8 +1282,14 @@ function Display.UpdateText(parent, sub, config, kind, explicitTrigger)
     sub.cdmTextConfig = config
     local stackText = kind == "s" or kind == "bs"
     -- A changed Remaining Time window (or kind) needs a new text slot (the
-    -- curve and the binding are fixed at creation).
-    local windowKey = WindowKey(parent.cdmRemainingWindow) .. (stackText and "|stacks" or "|time")
+    -- curve and the binding are fixed at creation), and so does a changed
+    -- text format: the countdown's formatter is bound at creation too, so a
+    -- Time > Number change (or a new precision) kept the old one (issue #138).
+    local token = type(config.text_text) == "string" and (config.text_text:match("^%%{(.-)}$") or config.text_text:match("^%%(.+)$"))
+    local settings = Private.CDMTextFormat and Private.CDMTextFormat(config, token)
+    local formatKey = settings and table.concat({tostring(settings.format), tostring(settings.threshold), tostring(settings.precision),
+      tostring(settings.secondsOnly), tostring(settings.style), tostring(type(settings.tint) == "table" and settings.tint.key or settings.tint)}, ":") or "default"
+    local windowKey = WindowKey(parent.cdmRemainingWindow) .. (stackText and "|stacks" or "|time") .. "|" .. formatKey
     if sub.cdmAuraTimer and sub.cdmAuraTimer.windowKey ~= windowKey then
       DisableNative(sub.cdmAuraTimer)
       sub.cdmAuraTimer.container:Hide()
@@ -1327,11 +1333,9 @@ function Display.UpdateText(parent, sub, config, kind, explicitTrigger)
         -- last positive fraction rounds up, so it cannot display a zero. The
         -- element's Time Format settings (precision below a threshold, the
         -- Blizzard formats) shape it, as for a %p the element formats itself.
-        local token = type(config.text_text) == "string" and (config.text_text:match("^%%{(.-)}$") or config.text_text:match("^%%(.+)$"))
-        local settings = Private.CDMTextFormat and Private.CDMTextFormat(config, token)
         local formatter
         if settings then
-          local ok, result = pcall(Private.GetDurationTextFormatter, settings.format, settings.threshold, settings.precision, nil, settings.style, settings.tint)
+          local ok, result = pcall(Private.GetDurationTextFormatter, settings.format, settings.threshold, settings.precision, settings.secondsOnly, settings.style, settings.tint)
           if ok then formatter = result end
         end
         local options = {textFormatter = formatter or Private.GetDurationTextFormatter(99, 0, 0)}

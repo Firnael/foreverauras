@@ -197,6 +197,9 @@ function OptionsPrivate.CreateFrame()
     -- WeakAuras.IsOptionsOpen() reports false inside the handlers.
     OptionsPrivate.Private.ScanEvents("FA_OPTIONS_CLOSED")
 
+    -- A picked group's children still being previewed in batches (issue #136).
+    if frame.StopPickChildren then frame.StopPickChildren() end
+
     local suspended = OptionsPrivate.Private.PauseAllDynamicGroups()
 
     OptionsPrivate.Private.ClearFakeStates()
@@ -1363,7 +1366,97 @@ function OptionsPrivate.CreateFrame()
     end
   end
 
+  -- ForeverAuras: a picked group's children are previewed in batches over
+  -- several frames (issue #136): each child's preview builds its region
+  -- (and, for an Aura (Modern) display, its native containers), and a group
+  -- of a few hundred children did all of that in one frame, past the
+  -- client's script time limit. The first batch is shown at once, so the
+  -- pick still feels immediate; the dynamic groups stay suspended until
+  -- the last child is shown. A new pick, clearing the picks, or closing
+  -- the options window stops a batch still running.
+  local pickChildren = {frame = CreateFrame("Frame")}
+  pickChildren.frame:Hide()
+  -- The dynamic groups a batch keeps suspended are held as the regions
+  -- themselves, not their names: a group renamed (or deleted and later
+  -- reused) while the batch runs is still resumed, so none is left with
+  -- its suspend count raised.
+  -- A Modern Aura Group's rows are chained once, when the batch ends,
+  -- instead of once per frame while its members come in (a chain of a
+  -- few hundred members costs well over a frame on its own, and it grew
+  -- with the square of the pack's size over the batch).
+  local function SuspendGroupsForBatch()
+    local regions = {}
+    local modern = OptionsPrivate.Private.BlizzardAuraDisplay
+    if modern and modern.BeginFlowLoad then modern.BeginFlowLoad(); regions.flowHeld = true end
+    for _, entry in pairs(OptionsPrivate.Private.regions) do
+      local region = entry.region
+      if region and region.Suspend then
+        region:Suspend()
+        regions[#regions + 1] = region
+      end
+    end
+    return regions
+  end
+  local function ResumeGroupsForBatch(regions)
+    for _, region in ipairs(regions) do
+      if region.Resume then region:Resume() end
+    end
+    local modern = OptionsPrivate.Private.BlizzardAuraDisplay
+    if regions.flowHeld and modern and modern.EndFlowLoad then regions.flowHeld = nil; modern.EndFlowLoad() end
+  end
+  local function StopPickChildren()
+    local job = pickChildren.job
+    if not job then return end
+    pickChildren.job = nil
+    pickChildren.frame:Hide()
+    ResumeGroupsForBatch(job.suspended)
+  end
+  frame.StopPickChildren = StopPickChildren
+  -- Shows the children from `index` on, within `budget` milliseconds.
+  -- A child whose preview the user toggled with the eye since the batch
+  -- began (explicitVisibility, the display button) is left as the user
+  -- set it. Returns true when all are shown.
+  local function ShowPickChildren(job, budget)
+    local finish = debugprofilestop() + budget
+    while job.index <= #job.children do
+      local child = job.children[job.index]
+      job.index = job.index + 1
+      local button = displayButtons[child.id]
+      if button and (button.explicitVisibility or 0) == (job.explicit[child.id] or 0) then button:PriorityShow(1) end
+      if debugprofilestop() > finish then break end
+    end
+    return job.index > #job.children
+  end
+  -- While the batch runs, the pack is laid out every quarter second rather
+  -- than only at the end: the hold is released for a moment, which chains
+  -- and arranges the groups queued so far, and taken again. Icons then
+  -- flow into place in steps instead of piling up at the origin until the
+  -- last one is shown, at the cost of a few layouts per pick.
+  local function LayoutPickChildren(job)
+    local modern = OptionsPrivate.Private.BlizzardAuraDisplay
+    if not (job.suspended.flowHeld and modern and modern.EndFlowLoad and modern.BeginFlowLoad) then return end
+    modern.EndFlowLoad()
+    modern.BeginFlowLoad()
+    job.lastLayout = GetTime()
+  end
+  pickChildren.frame:SetScript("OnUpdate", function()
+    local job = pickChildren.job
+    if not job or not WeakAuras.IsOptionsOpen() then StopPickChildren(); return end
+    -- An error in one child's preview is reported and the batch goes on
+    -- (the index has moved past that child); the hold is released as usual.
+    local ok, done = xpcall(ShowPickChildren, geterrorhandler(), job, 20)
+    if not ok then done = job.index > #job.children end
+    if done then
+      local button = displayButtons[job.id]
+      StopPickChildren()
+      if button then button:RecheckParentVisibility() end
+    elseif GetTime() - (job.lastLayout or 0) >= 0.25 then
+      LayoutPickChildren(job)
+    end
+  end)
+
   frame.ClearPicks = function(self, noHide)
+    StopPickChildren()
     local suspended = OptionsPrivate.Private.PauseAllDynamicGroups()
     for id, button in pairs(displayButtons) do
       button:ClearPick(true)
@@ -1637,11 +1730,38 @@ function OptionsPrivate.CreateFrame()
       self.buttonsScroll:SetScrollPos(yOffset, yOffset - 32)
     end
 
-    for child in OptionsPrivate.Private.TraverseAllChildren(data) do
-      displayButtons[child.id]:PriorityShow(1)
+    -- The children, in batches when there are many (see pickChildren).
+    local children = {}
+    for child in OptionsPrivate.Private.TraverseAllChildren(data) do children[#children + 1] = child end
+    if #children <= 40 then
+      for _, child in ipairs(children) do
+        displayButtons[child.id]:PriorityShow(1)
+      end
+      displayButtons[data.id]:RecheckParentVisibility()
+      OptionsPrivate.Private.ResumeAllDynamicGroups(suspended)
+      return
     end
-    displayButtons[data.id]:RecheckParentVisibility()
-
+    -- The batch holds its own suspension (by region, see above); the pick's
+    -- own one, by name, ends with this call as before.
+    local explicit = {}
+    for _, child in ipairs(children) do
+      local button = displayButtons[child.id]
+      explicit[child.id] = button and button.explicitVisibility or 0
+    end
+    local job = {id = data.id, children = children, index = 1, explicit = explicit, suspended = SuspendGroupsForBatch()}
+    -- The first batch runs before the job is registered for cleanup: an
+    -- error in it must still release the layout hold and the suspended
+    -- groups, or later layouts (live ones too) would wait forever.
+    local ok, done = xpcall(ShowPickChildren, geterrorhandler(), job, 20)
+    if not ok or done then
+      ResumeGroupsForBatch(job.suspended)
+      OptionsPrivate.Private.ResumeAllDynamicGroups(suspended)
+      if ok then displayButtons[data.id]:RecheckParentVisibility() end
+      return
+    end
+    job.lastLayout = GetTime()
+    pickChildren.job = job
+    pickChildren.frame:Show()
     OptionsPrivate.Private.ResumeAllDynamicGroups(suspended)
   end
 
