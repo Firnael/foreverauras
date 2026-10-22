@@ -223,8 +223,14 @@ end
 -- ordinary layout hides the member's own container (ApplyUnitStatus,
 -- BlizzardAuraDisplay.lua), which a grid member does not draw with; its aura
 -- group in the grid container is switched off instead.
+-- Each member is judged on its own trigger: status (dead, offline) and
+-- eligibility (hostility, class, self; Display.UnitEligible), so one member's
+-- filter switches off that member's aura group only, never the grid.
 local function MemberHidden(member, unit)
-  return Display.UnitIgnored(Display.GetSavedTrigger(member.data), unit) or nil
+  local trigger = Display.GetSavedTrigger(member.data)
+  if Display.UnitIgnored(trigger, unit) then return true end
+  if Display.UnitEligible and not Display.UnitEligible(trigger, unit) then return true end
+  return nil
 end
 
 function Display.RefreshGrid(group)

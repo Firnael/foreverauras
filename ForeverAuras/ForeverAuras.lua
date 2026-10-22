@@ -2462,6 +2462,8 @@ function WeakAuras.Delete(data)
     -- Groups have a empty Collapse method so, we need to hide them here
     Private.regions[id].region:Hide();
 
+    -- ForeverAuras: a deleted display drops its secure combat-hide driver (RegionPrototype.lua).
+    Private.UpdateCombatHideDriver(Private.regions[id].region)
     Private.regions[id].region = nil
     Private.regions[id] = nil
   end
@@ -2470,6 +2472,8 @@ function WeakAuras.Delete(data)
     for _, region in pairs(clones[id]) do
       region:Collapse();
       Private.CancelAnimation(region, true, true, true, true, true, true)
+      -- ForeverAuras: as above, for each clone.
+      Private.UpdateCombatHideDriver(region)
     end
     clones[id] = nil
   end
@@ -2627,6 +2631,8 @@ function Private.Convert(data, newType)
 
   if Private.regions[id] then
     Private.BlizzardAuraDisplay.Release(Private.regions[id].region)
+    -- ForeverAuras: the old frame is discarded here; it drops its combat-hide driver (RegionPrototype.lua).
+    Private.UpdateCombatHideDriver(Private.regions[id].region)
     Private.regions[id].region = nil
     Private.regions[id] = nil
   end
@@ -3717,6 +3723,12 @@ function WeakAuras.UpdateLoadConditions(data)
   loadEvents.SCAN_ALL = loadEvents.SCAN_ALL or {}
   loadEvents.SCAN_ALL[id] = true
   db.displays[id] = data
+  -- "Not in combat" may have been set or cleared: the secure combat-hide driver
+  -- (RegionPrototype.lua) follows it on the region and every clone.
+  Private.UpdateCombatHideDriver(Private.regions[id] and Private.regions[id].region, data)
+  for _, clone in pairs(clones[id] or {}) do
+    Private.UpdateCombatHideDriver(clone, data)
+  end
   Private.ScanForLoads({[id] = true})
 end
 
@@ -3751,6 +3763,8 @@ function Private.SetRegion(data, cloneId)
             clonePool[region.regionType] = clonePool[region.regionType] or {};
             tinsert(clonePool[region.regionType], region);
             region:Hide();
+            -- ForeverAuras: a clone of the old type goes back to the pool without its combat-hide driver.
+            Private.UpdateCombatHideDriver(region)
           end
           if(clonePool[data.regionType] and clonePool[data.regionType][1]) then
             clones[id][cloneId] = tremove(clonePool[data.regionType]);
@@ -3768,6 +3782,8 @@ function Private.SetRegion(data, cloneId)
         end
       else
         if((not Private.regions[id]) or (not Private.regions[id].region) or Private.regions[id].regionType ~= regionType) then
+          -- ForeverAuras: a display converted to another type leaves its old frame behind; that frame drops its combat-hide driver.
+          Private.UpdateCombatHideDriver(Private.regions[id] and Private.regions[id].region)
           region = regionTypes[regionType].create(WeakAurasFrame, data);
           Private.regions[id] = {
             regionType = regionType,
@@ -3942,6 +3958,9 @@ function Private.ReleaseClone(id, cloneId, regionType)
   end
   local region = clones[id][cloneId];
   clones[id][cloneId] = nil;
+  -- ForeverAuras: a pooled clone may be reused by another aura; it drops its
+  -- secure combat-hide driver (RegionPrototype.lua) and gets one again on modify if wanted.
+  Private.UpdateCombatHideDriver(region)
   if region:IsProtected() then
     -- ForeverAuras: a Modern Aura Group row that holds clickable displays is
     -- secure, and every display chained in it (a clone of a plain icon

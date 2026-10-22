@@ -1184,6 +1184,23 @@ local function ConstructMoverSizer(parent)
     local scale = region:GetEffectiveScale() / UIParent:GetEffectiveScale()
     mover.moving.region = region
     mover.moving.data = data
+    -- ForeverAuras: a Dynamic Group anchored per unit (Group by Frame) places
+    -- its children on unit frames or nameplates; its own frame is an empty
+    -- box at its nominal anchor that nothing can usefully drag, so no box is
+    -- shown for it. Selecting anything else shows the box again.
+    if data.regionType == "dynamicgroup" and data.useAnchorPerUnit then
+      mover.moving.region, mover.moving.data = nil, nil
+      -- The modifier-key and mouse handlers read the cleared data: off until
+      -- the next selection sets them again below.
+      mover:SetScript("OnMouseDown", nil)
+      mover:SetScript("OnMouseUp", nil)
+      mover:SetScript("OnEvent", nil)
+      mover:ClearAllPoints()
+      mover:Hide()
+      self:Hide()
+      return
+    end
+    mover:Show()
     mover.onUpdate(mover, 0)
     local ok, selfPoint, anchor, anchorPoint, xOff, yOff = pcall(region.GetPoint, region, 1)
     if not ok then

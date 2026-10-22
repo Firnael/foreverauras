@@ -971,6 +971,10 @@ WeakAuras will always run custom grow code if you include 'changed' in this list
 	L["Zoom Out"] = "Zoom Out"
 
 -- ForeverAuras: Aura (Modern), CDM and options window
+L["Classes"] = "Classes"
+L["Only track units of the selected classes. Units left out get no part of the display."] = "Only track units of the selected classes. Units left out get no part of the display."
+L["Leave yourself (and your pet) out of the display."] = "Leave yourself (and your pet) out of the display."
+L["Hide a member's part of the display while it is too far away for the client to see."] = "Hide a member's part of the display while it is too far away for the client to see."
 L["Static (always full)"] = "Static (always full)"
 L["Draw the whole texture while the aura is active instead of filling it by the aura's remaining time."] = "Draw the whole texture while the aura is active instead of filling it by the aura's remaining time."
 L["Allow External Display Changes"] = "Allow External Display Changes"

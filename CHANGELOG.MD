@@ -1,5 +1,15 @@
 # Changelog
 ## VERSIONS
+## 0.92.89
+- Auras set to load "Not in combat" now actually disappear the moment combat starts, even if they have click buttons or sit in a Modern Aura Group. The game does the hiding itself, so protected frames are no longer a problem
+- Aura (Modern) triggers have a new “Affected Unit Filters and Info” section, like Aura (Legacy): Class, Group Role, Player Names, Include Pets, Ignore Self, Ignore Dead, Ignore Disconnected, Ignore out of checking range and Filter by Hostility. Each option only appears for units it makes sense for, and Class works on Target, Focus, Mouseover and nameplates too. Sounds, glows, grids and linked countdown texts follow the same filters
+- Modern Aura Group > Group by Frame > Centered: a single “Show On: Missing” display now sits where the preview shows it, and switching to Group by Frame no longer throws an error
+- A displays own X / Y Offset now works inside a Modern Aura Group and only moves that display, not the rest of the row
+- Sorted Modern Aura Groups no longer merge two displays that watch different units
+- Dynamic Groups set to Group by Frame no longer show a stray selection box in the middle of the screen
+- The Grow dropdown no longer has an empty row
+- Selecting a large pack in the options is much faster
+
 ## 0.92.71
 - Texture is now an Aura (Modern) display type. Any texture can show while a buff or debuff is up, with the normal Texture settings.
 - Progress Textures with an Aura (Modern) trigger can be set to Static (always full), for a shape that stays whole for the aura’s duration instead of sweeping.

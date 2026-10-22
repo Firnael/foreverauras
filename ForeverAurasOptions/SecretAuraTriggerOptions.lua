@@ -8,6 +8,19 @@ local function GetOptions(data, triggernum)
   local trigger = data.triggers[triggernum].trigger
   local display = OptionsPrivate.Private.BlizzardAuraDisplay
   local width = WeakAuras.normalWidth
+  -- Which unit filters the selected unit supports (BlizzardAuraDisplay.lua).
+  local function NotGroupUnit()
+    return trigger.unit ~= "group" and trigger.unit ~= "party" and trigger.unit ~= "raid"
+  end
+  local function NoHostility()
+    return not (display.hostilityUnits and display.hostilityUnits[trigger.unit])
+  end
+  local function NoClass()
+    return NotGroupUnit() and not (display.classUnits and display.classUnits[trigger.unit])
+  end
+  local function NoSelf()
+    return NotGroupUnit() and NoHostility()
+  end
   local function Save(key, value)
     trigger[key] = value
     OptionsPrivate.SaveAuraTrigger(data, triggernum)
@@ -51,24 +64,6 @@ local function GetOptions(data, triggernum)
       get = function() return trigger.specificUnit or "" end,
       set = function(_, value) Save("specificUnit", value:lower():match("^%s*(%S+)%s*$")) end,
     },
-    -- As Aura (Legacy)'s Filter by Hostility (BuffTrigger2.lua), same fields:
-    -- nameplates belong to friends and enemies alike (Display.HostilityMatches).
-    useHostility = {
-      type = "toggle", name = L["Filter by Hostility"], order = 3.04, width = width,
-      hidden = function() return trigger.unit ~= "nameplate" end,
-      get = function() return trigger.useHostility or false end,
-      set = function(_, value) Save("useHostility", value or nil) end,
-    },
-    hostility = {
-      type = "select", name = L["Hostility"], order = 3.05, width = width, values = OptionsPrivate.Private.hostility_types,
-      hidden = function() return trigger.unit ~= "nameplate" or not trigger.useHostility end,
-      get = function() return trigger.hostility or "hostile" end,
-      set = function(_, value) Save("hostility", value) end,
-    },
-    hostilitySpace = {
-      type = "description", name = "", order = 3.05, width = width,
-      hidden = function() return trigger.unit ~= "nameplate" or trigger.useHostility end,
-    },
     auraTypeLabel = {
       type = "toggle", name = L["Aura Type"], order = 4, width = width,
       disabled = true, get = function() return true end,
@@ -89,17 +84,24 @@ local function GetOptions(data, triggernum)
         Save("debuffType", value)
       end,
     },
+    -- Affected Unit Filters and Info, as on Aura (Legacy): each filter is
+    -- offered only for the units it can apply to. Group filters (names,
+    -- roles, class, pets, self, dead, offline, range) need a group unit; the
+    -- hostility filter needs a unit that can be friend or foe.
+    unitFiltersHeader = {
+      type = "header", name = L["Affected Unit Filters and Info"], order = 8,
+    },
     useUnitNames = {
-      type = "toggle", name = L["Player Name(s)"], order = 4.1, width = width,
+      type = "toggle", name = L["Player Name(s)"], order = 8.1, width = "full",
       desc = L["Only track these group members. This also limits which units can play configured aura sounds."],
-      hidden = function() return trigger.unit ~= "group" and trigger.unit ~= "party" and trigger.unit ~= "raid" end,
+      hidden = NotGroupUnit,
       get = function() return trigger.useUnitNames or false end,
       set = function(_, value) Save("useUnitNames", value) end,
     },
     unitNames = {
-      type = "input", name = L["Player Names"], order = 4.2, width = "full",
+      type = "input", name = L["Player Names"], order = 8.11, width = "full",
       desc = L["Enter character names separated by commas. Include both the first name and surname, keeping the space between them. Capitalization does not matter. Only group members whose names are available to addons can match."],
-      hidden = function() return not trigger.useUnitNames or (trigger.unit ~= "group" and trigger.unit ~= "party" and trigger.unit ~= "raid") end,
+      hidden = function() return not trigger.useUnitNames or NotGroupUnit() end,
       get = function() return table.concat(trigger.unitNames or {}, ", ") end,
       set = function(_, value)
         local names = {}
@@ -111,17 +113,17 @@ local function GetOptions(data, triggernum)
       end,
     },
     useUnitRoles = {
-      type = "toggle", name = L["Group Role"], order = 4.3, width = width,
+      type = "toggle", name = L["Group Role"], order = 8.2, width = "full",
       desc = L["Only track members with the selected assigned group roles. This also limits configured aura sounds. Player-name and role filters must both match when enabled."],
-      hidden = function() return trigger.unit ~= "group" and trigger.unit ~= "party" and trigger.unit ~= "raid" end,
+      hidden = NotGroupUnit,
       get = function() return trigger.useUnitRoles or false end,
       set = function(_, value) Save("useUnitRoles", value) end,
     },
     unitRoles = {
-      type = "multiselect", name = L["Group Roles"], order = 4.4, width = "full",
+      type = "multiselect", name = L["Group Roles"], order = 8.21, width = "full",
       values = {TANK = L["Tank"], HEALER = L["Healer"], DAMAGER = L["Damage"], NONE = L["Unassigned"]},
       desc = L["Uses Blizzard's assigned group role. Members without a role assigned match Unassigned."],
-      hidden = function() return not trigger.useUnitRoles or (trigger.unit ~= "group" and trigger.unit ~= "party" and trigger.unit ~= "raid") end,
+      hidden = function() return not trigger.useUnitRoles or NotGroupUnit() end,
       get = function(_, role) return (trigger.unitRoles or {})[role] or false end,
       set = function(_, role, value)
         trigger.unitRoles = trigger.unitRoles or {}
@@ -129,31 +131,78 @@ local function GetOptions(data, triggernum)
         Save("unitRoles", trigger.unitRoles)
       end,
     },
+    useUnitClass = {
+      type = "toggle", name = L["Class"], order = 8.3, width = "full",
+      desc = L["Only track units of the selected classes. Units left out get no part of the display."],
+      hidden = NoClass,
+      get = function() return trigger.useUnitClass or false end,
+      set = function(_, value) Save("useUnitClass", value or nil) end,
+    },
+    unitClass = {
+      type = "multiselect", name = L["Classes"], order = 8.31, width = "full",
+      values = WeakAuras.class_types,
+      hidden = function() return not trigger.useUnitClass or NoClass() end,
+      get = function(_, class) return (trigger.unitClass or {})[class] or false end,
+      set = function(_, class, value)
+        trigger.unitClass = trigger.unitClass or {}
+        trigger.unitClass[class] = value or nil
+        Save("unitClass", trigger.unitClass)
+      end,
+    },
     useIncludePets = {
-      type = "toggle", name = L["Include Pets"], order = 4.45, width = width,
-      hidden = function() return trigger.unit ~= "group" and trigger.unit ~= "party" and trigger.unit ~= "raid" end,
+      type = "toggle", name = L["Include Pets"], order = 8.4, width = width,
+      hidden = NotGroupUnit,
       get = function() return trigger.useIncludePets or false end,
       set = function(_, value) Save("useIncludePets", value) end,
     },
     includePets = {
-      type = "select", name = L["Include Pets"], order = 4.46, width = width,
+      type = "select", name = L["Include Pets"], order = 8.41, width = width,
       values = OptionsPrivate.Private.include_pets_types,
-      hidden = function() return trigger.unit ~= "group" and trigger.unit ~= "party" and trigger.unit ~= "raid" end,
+      hidden = NotGroupUnit,
       disabled = function() return not trigger.useIncludePets end,
       get = function() return trigger.includePets or "PlayersAndPets" end,
       set = function(_, value) Save("includePets", value) end,
     },
+    ignoreSelf = {
+      type = "toggle", name = L["Ignore Self"], order = 8.5, width = "full",
+      desc = L["Leave yourself (and your pet) out of the display."],
+      hidden = NoSelf,
+      get = function() return trigger.ignoreSelf or false end,
+      set = function(_, value) Save("ignoreSelf", value or nil) end,
+    },
     ignoreDead = {
-      type = "toggle", name = L["Ignore Dead"], order = 4.47, width = width,
+      type = "toggle", name = L["Ignore Dead"], order = 8.6, width = "full",
       desc = L["Hide this unit's part of the display while it is dead or a ghost."],
       get = function() return trigger.ignoreDead or false end,
       set = function(_, value) Save("ignoreDead", value or nil) end,
     },
     ignoreDisconnected = {
-      type = "toggle", name = L["Ignore Disconnected"], order = 4.48, width = width,
+      type = "toggle", name = L["Ignore Disconnected"], order = 8.7, width = "full",
       desc = L["Hide this unit's part of the display while it is offline."],
       get = function() return trigger.ignoreDisconnected or false end,
       set = function(_, value) Save("ignoreDisconnected", value or nil) end,
+    },
+    ignoreInvisible = {
+      type = "toggle", name = L["Ignore out of checking range"], order = 8.8, width = "full",
+      desc = L["Hide a member's part of the display while it is too far away for the client to see."],
+      hidden = NotGroupUnit,
+      get = function() return trigger.ignoreInvisible or false end,
+      set = function(_, value) Save("ignoreInvisible", value or nil) end,
+    },
+    -- As Aura (Legacy)'s Filter by Hostility (BuffTrigger2.lua), same fields:
+    -- nameplates, targets, focus, mouseover and specific units can be either
+    -- side (Display.HostilityMatches); a group is always friendly.
+    useHostility = {
+      type = "toggle", name = L["Filter by Hostility"], order = 8.9, width = "full",
+      hidden = NoHostility,
+      get = function() return trigger.useHostility or false end,
+      set = function(_, value) Save("useHostility", value or nil) end,
+    },
+    hostility = {
+      type = "select", name = L["Hostility"], order = 8.91, width = width, values = OptionsPrivate.Private.hostility_types,
+      hidden = function() return NoHostility() or not trigger.useHostility end,
+      get = function() return trigger.hostility or "hostile" end,
+      set = function(_, value) Save("hostility", value) end,
     },
     filtersHeader = {type = "header", name = L["Aura Filters"], order = 10},
     -- Maximum Duration is now Total Duration "<=" (AuraTriggerOptions.lua).
