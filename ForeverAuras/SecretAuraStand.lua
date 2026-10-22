@@ -265,8 +265,15 @@ local function Unlink(stand)
   for _, source in ipairs(kept) do stand.sources[#stand.sources + 1] = source end
   for _, copy in pairs(stand.pool) do
     if not (keep and copy.faSecure) then copy:Hide() end
-    -- A released glow copy stops glowing.
-    if copy.faGlowSource then copy.faGlowSource = nil; MirrorGlow(copy) end
+    -- A released glow copy stops glowing; the element draws its own glow
+    -- again (its SetVisible sees no active copy, Glow.lua).
+    if copy.faGlowSource then
+      local source = copy.faGlowSource
+      copy.faGlowSource = nil
+      MirrorGlow(copy)
+      -- Only when the stand is released (not relinked, which mirrors again).
+      if not stand.active and source.glow and source.SetVisible and not (keep and stand.secure[source]) then source:SetVisible(true) end
+    end
   end
 end
 
@@ -392,6 +399,22 @@ function Display.EnsureStand(region, normal)
   Unlink(stand)
   stand.active = true
   EnsureProxy(stand)
+  -- The copies are hidden in the editor and shown live (PlaceNormalRegion):
+  -- the mirrored Glow elements draw their own glow while the copies are
+  -- hidden and stop it when the copies show (SubRegionTypes/Glow.lua).
+  if not stand.frame.faGlowToggleHooked then
+    stand.frame.faGlowToggleHooked = true
+    local function RefreshSourceGlows(frame)
+      local current = frame.faStandForGlows
+      if not current then return end
+      for _, source in ipairs(current.sources) do
+        if source.type == "subglow" and source.glow and source.SetVisible then source:SetVisible(true) end
+      end
+    end
+    stand.frame:HookScript("OnShow", RefreshSourceGlows)
+    stand.frame:HookScript("OnHide", RefreshSourceGlows)
+  end
+  stand.frame.faStandForGlows = stand
   if Private.ReanchorAttachedTo then Private.ReanchorAttachedTo(region.id) end
   local frame = stand.frame
   if region.icon then
@@ -455,6 +478,10 @@ function Display.EnsureStand(region, normal)
       -- (the lines of a Pixel Glow are laid out for a size).
       if sub.type == "subglow" then
         copy.faGlowSource = sub
+        -- The element's own animated glow stops while the copy draws it
+        -- (SubRegionTypes/Glow.lua, SetVisible), which the element decides
+        -- from the stand frame's visibility: asked again once linked.
+        if sub.glow and sub.SetVisible then sub:SetVisible(true) end
         if not sub.faStandGlowHooked then
           sub.faStandGlowHooked = true
           hooksecurefunc(sub, "SetVisible", function(self)

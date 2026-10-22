@@ -209,20 +209,34 @@ local funcs = {
       color = self.glowColor
     end
 
+    -- ForeverAuras: in a Modern Aura Group the display is drawn by a stand-in
+    -- copy and parked off screen; the copy draws this glow itself
+    -- (SecretAuraStand.lua, MirrorGlow). The element still shows (the copy
+    -- follows it), but its own animated glow is not started: hundreds of
+    -- animated glows nobody could see cost the client every frame (#136).
+    -- Only while the stand-in frame is shown: in the editor the copies are
+    -- hidden and the display itself is shown, with its own glow.
+    local stand = self.faStand and self.faStand.stand
+    local mirrored = stand and stand.active and stand.copies[self] ~= nil and stand.frame ~= nil
+      and (function() local shown = stand.frame:IsShown(); return not issecretvalue(shown) and shown == true end)()
+    -- Likewise while the display is suppressed behind the editor's samples
+    -- (BlizzardAuraDisplay.lua, Suppress): the element is at alpha 0.
+    local parent = self.parent
+    if parent and parent.blizzardSuppressed and parent.blizzardSuppressed[self] ~= nil then mirrored = true end
     if MSQ and self.parentType == "icon" then
       if (visible) then
         local button = self:GetParent().button
         self._MSQ_CFG = button._MSQ_CFG
         self.__MSQ_Shape = button.__MSQ_Shape
         self:Show()
-        glowStart(self, self, color)
+        if mirrored then self.glowStop(self) else glowStart(self, self, color) end
       else
         self.glowStop(self)
         self:Hide()
       end
     elseif (visible) then
       self:Show()
-      glowStart(self, self, color)
+      if mirrored then self.glowStop(self) else glowStart(self, self, color) end
     else
       self.glowStop(self)
       self:Hide()

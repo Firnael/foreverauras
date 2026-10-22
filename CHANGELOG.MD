@@ -1,5 +1,20 @@
 # Changelog
 ## VERSIONS
+## 0.92.119
+- Old condition changes are no longer applied after a display is rebuilt or turned back on.
+- Cooldown Manager text follows the Number format you pick, including 'seconds only' and decimals.
+- The editor is much smoother with big packs. Clicking a group with hundreds of children loads them in small batches instead of freezing the game.
+- Group layouts are no longer redone over and over while a pack loads or you change settings.
+- The editor no longer leaves animations running on hidden samples.
+- Glows no longer animate twice when shown through a stand-in copy.
+- Pixel glows are capped at 60 updates a second.
+- Glows on normal and Cooldown Manager icons show again in the editor.
+- The 'limit' option on groups no longer hangs the game with a big pack open.
+- Cooldown Manager auras no longer stay empty after logging in or a loading screen. ForeverAuras retries a few times if the viewer wasn't ready.
+- Autocast Shine no longer causes taint when you change its colour or toggle it from a condition.
+- The 'Dynamic Information' dropdown only offers values that actually work with Aura (Modern) triggers.
+- `/fa cdm` shows more detail to help look into bars that don't show up.
+
 ## 0.92.97
 - You can now use gold, silver and copper from the Money trigger in conditions, like 'gold >= 2'.
 - Groups that grow by frame no longer show the move and resize handles in the editor. They didn't do anything there and could throw an error.
@@ -14,8 +29,8 @@
 
 ## 0.92.89
 - Auras set to load "Not in combat" now actually disappear the moment combat starts, even if they have click buttons or sit in a Modern Aura Group. The game does the hiding itself, so protected frames are no longer a problem
-- Aura (Modern) triggers have a new “Affected Unit Filters and Info” section, like Aura (Legacy): Class, Group Role, Player Names, Include Pets, Ignore Self, Ignore Dead, Ignore Disconnected, Ignore out of checking range and Filter by Hostility. Each option only appears for units it makes sense for, and Class works on Target, Focus, Mouseover and nameplates too. Sounds, glows, grids and linked countdown texts follow the same filters
-- Modern Aura Group > Group by Frame > Centered: a single “Show On: Missing” display now sits where the preview shows it, and switching to Group by Frame no longer throws an error
+- Aura (Modern) triggers have a new "Affected Unit Filters and Info" section, like Aura (Legacy): Class, Group Role, Player Names, Include Pets, Ignore Self, Ignore Dead, Ignore Disconnected, Ignore out of checking range and Filter by Hostility. Each option only appears for units it makes sense for, and Class works on Target, Focus, Mouseover and nameplates too. Sounds, glows, grids and linked countdown texts follow the same filters
+- Modern Aura Group > Group by Frame > Centered: a single "Show On: Missing" display now sits where the preview shows it, and switching to Group by Frame no longer throws an error
 - A displays own X / Y Offset now works inside a Modern Aura Group and only moves that display, not the rest of the row
 - Sorted Modern Aura Groups no longer merge two displays that watch different units
 - Dynamic Groups set to Group by Frame no longer show a stray selection box in the middle of the screen
@@ -24,7 +39,7 @@
 
 ## 0.92.71
 - Texture is now an Aura (Modern) display type. Any texture can show while a buff or debuff is up, with the normal Texture settings.
-- Progress Textures with an Aura (Modern) trigger can be set to Static (always full), for a shape that stays whole for the aura’s duration instead of sweeping.
+- Progress Textures with an Aura (Modern) trigger can be set to Static (always full), for a shape that stays whole for the aura's duration instead of sweeping.
 - Circular Progress Textures now fill from the top like they always should have, in the right direction.
 - Remaining Time icons: hardcoded text labels show properly, the countdown no longer freezes or gets stuck when you edit the trigger, and color, desaturate and glow conditions now reach the icon.
 - CDM Buff/Debuff triggers hold up through combat. A buff you apply or refresh mid-fight no longer drops to its missing look when combat ends.
@@ -79,26 +94,26 @@
 ## 0.92.6
 ### Cooldown Manager Triggers
 **Spell Cooldown trigger**
-- Remaining Time now works on secret cooldowns in combat (the display follows the cooldown’s own timer, same semantics as readable ones)
+- Remaining Time now works on secret cooldowns in combat (the display follows the cooldown's own timer, same semantics as readable ones)
 
 **Buff/Debuff trigger**
 - The trigger now works on its own, in and out of combat, with no fallback trigger needed. Visibility, swipe, countdown text and stack count are drawn by the games own aura slots when the aura is secret, so a target debuff keeps updating through a fight and survives a reload in combat. Show On: Aura(s) Found hides correctly when there is no target, and in combat the display is drawn through its slot so the game decides when it appears.
 - The options are laid out like the Aura (Modern) trigger: Spell Selection Filters, then Aura Filters (Remaining Time, Elapsed Time, Stack Count), then Show On, Show If Unit Does Not Exist, Auto-Clone and Preferred Match. Total Duration was removed (your own auras only vary by rank). The filters work natively in combat too - Remaining Time, Elapsed Time and Stack Count each gate the display through the slot while the values are secret.
 - Conditions: Aura Active, Remaining Time, Elapsed Time and Stack Count. Remaining Time, Elapsed Time and Stack Count > Glow work in combat natively; Aura Active conditions on colour, desaturation and element visibility are drawn by the slot while the aura is secret. The odd bookkeeping conditions (Displayed in CDM, CDM Category, Item ID) were dropped from the Buff/Debuff trigger
-- Entries Blizzard’s Cooldown Manager marks as unknown (Bane of Agony is one, despite the spell being known) get a note in the trigger options: their aura cant be read in combat, so Aura(s) Missing can’t be told with a target until Blizzard fixes the entry
+- Entries Blizzard's Cooldown Manager marks as unknown (Bane of Agony is one, despite the spell being known) get a note in the trigger options: their aura cant be read in combat, so Aura(s) Missing can't be told with a target until Blizzard fixes the entry
 
 **Cooldown trigger**
 - Laid out and conditioned like the spell Cooldown/Charges/Count trigger: Extra Options (Track Cooldowns, Show Global Cooldown, Show Global Cooldown Text, Disable Spell Known Check), Remaining Time, Charges and Spell Count filters, and Show: On Cooldown / Not on Cooldown / Always. Remaining Time disappears with Not on Cooldown, as on the spell trigger. Conditions: On Cooldown, Is Ready, Recharging, Charges, Spell Count, Remaining Time, Spell Usable, Insufficient Resources, Spell In Range, Spell ID, Spell Name
 
 **Modern Aura Groups and dynamic groups**
-- CDM displays now draw correctly inside a Modern Aura Group (swipe, countdown and glow follow the group’s stand-in) and target swaps no longer flicker the group. Dynamic groups hold a displays space during a secret filter window in combat - the game cant tell the group when the window opens - so those filters suit standalone displays or Modern Aura Groups best.
+- CDM displays now draw correctly inside a Modern Aura Group (swipe, countdown and glow follow the group's stand-in) and target swaps no longer flicker the group. Dynamic groups hold a displays space during a secret filter window in combat - the game cant tell the group when the window opens - so those filters suit standalone displays or Modern Aura Groups best.
 
 ### Other fixes
 - Warning cleanup
-- Native swipe direction matches the display’s Inverse setting. `%s` stack texts show in combat. Icon Inset works (Masque).
-- Option previews - CDM and Modern - format countdowns with the text’s own Time Format settings.
+- Native swipe direction matches the display's Inverse setting. `%s` stack texts show in combat. Icon Inset works (Masque).
+- Option previews - CDM and Modern - format countdowns with the text's own Time Format settings.
 - The CDM load hitch from spec detection is gone.
-- New option strings are translatable, and a “Set Up CDM” button sits next to Hide Blizzard’s CDM.
+- New option strings are translatable, and a "Set Up CDM" button sits next to Hide Blizzard's CDM.
 - Magnetic align is now off by default
 
 ## 0.90.67
@@ -106,7 +121,7 @@
 
 ## 0.90.63
 **NEW**
-- An API for custom code: `ForeverAuras.AuraOverlay(frame, {spellIDs = {...}, ...})` draws a native aura slot over any frame. Blizzard shows it while one of the spell IDs is on the unit - in combat and instances too - and drives its swipe and countdown from the aura’s own timer. Options for icon, swipe, countdown styling, border and unit; methods `SetSpellIDs`, `SetUnit`, `SetEnabled`, `SetBorderColor`, `Release.` Nothing reads aura data, so it works where `GetPlayerAuraBySpellID` returns nothing
+- An API for custom code: `ForeverAuras.AuraOverlay(frame, {spellIDs = {...}, ...})` draws a native aura slot over any frame. Blizzard shows it while one of the spell IDs is on the unit - in combat and instances too - and drives its swipe and countdown from the aura's own timer. Options for icon, swipe, countdown styling, border and unit; methods `SetSpellIDs`, `SetUnit`, `SetEnabled`, `SetBorderColor`, `Release.` Nothing reads aura data, so it works where `GetPlayerAuraBySpellID` returns nothing
 
 **Range Check works in instances**
 - The Range Check trigger and the Range condition now work inside dungeons and raids, in and out of combat, for hostile targets and party members alike
@@ -114,7 +129,7 @@
 - Precision in instances is the same as outside: it depends on which ranged spells your class knows (in combat, the friendly list is shorter)
 
 **Remaining Time glow conditions - exact, everywhere**
-- A "Remaining Time < X > Glow" condition now fires at exactly X seconds, driven by Blizzard’s own timer, no longer by an estimated duration. One aura with all rank IDs glows correctly whichever rank lands, with no duration to set or learn first.
+- A "Remaining Time < X > Glow" condition now fires at exactly X seconds, driven by Blizzard's own timer, no longer by an estimated duration. One aura with all rank IDs glows correctly whichever rank lands, with no duration to set or learn first.
 - Works on icons, bars, progress textures and texts, with all glow types and anchor areas.
 - Combines freely with Total Duration = / <= / >= and Remaining Time filters on the same trigger - the previous icon-only and no-filter restrictions are gone.
 - A %p text on the display is shown as countdown numbers, as wit the Total Duration gate.
@@ -125,34 +140,34 @@
 
 **Fixes**
 - `ForeverAuras.AuraOverlay` can draw a fixed texture (`texture`, `textureCoords`, `overlay:SetTexture()`) under its swipe and countdown, so an overlay can cover what the frame below draws while the aura is up
-- `ForeverAuras.AuraOverlay` accepts `debuffSpellIDs` and `overlay:SetSpellIDs(buffs, debuffs)`: a second slot with the HARMFUL filter, drawn with the same look, for self-debuffs such as a trinket’s stun. The overlay container no longer takes mouse clicks
+- `ForeverAuras.AuraOverlay` accepts `debuffSpellIDs` and `overlay:SetSpellIDs(buffs, debuffs)`: a second slot with the HARMFUL filter, drawn with the same look, for self-debuffs such as a trinket's stun. The overlay container no longer takes mouse clicks
 - Fixed a Modern (Aura) display in a Dynamic Group or on its own drawing a pixel shorter than the plain icons beside it: its button box is rounded to whole screen pixels only inside a Modern Aura Group
-- Stand-in copies of a display’s icon take their pixel snapping from the region’s own icon instead of always snapping
+- Stand-in copies of a display's icon take their pixel snapping from the region's own icon instead of always snapping
 - Gates on large displays (Total Duration, Remaining Time, Stack Count "=") could clip the display or its glow to a thin strip. Cause found in-game (font size cap, line breaks dropped); all gates now size their clip from the display, so there is no size limit any more.
 - Proc glow no longer draws its whole sprite sheet when used by a condition glow
-- Conditions on a CDM Buff trigger’s variables (Active, Aura Active, On Cooldown, Remaining Time…) now work when that trigger isn’t the display’s active one. A single-spell or single-entry CDM trigger kept its state under an internal key the display couldn’t see, so such conditions always read "inactive"
-- "Trigger N: Active is false > Desaturate" on a CDM target-debuff trigger now stays correct when the debuff’s presence is secret: the base icon is kept grey and a native slot draws a saturated copy only while your debuff is on the target
-- Normal displays inside a Modern Aura Group: text and border elements anchored to the icon’s Inner/Outer areas now sit where the preview shows them. The row’s stand-in copy had no Inner/Outer frames, so an Outer-anchored text landed ~2 px too high. (0.90.57)
-- Specialization load option draws its tri-state (green/red) boxes again when another addon ships the same AceConfigDialog version - FA’s patched copy now takes priority
-- Forever’s new talent UI stores talents as a single trait tree per class; the classic per-tab talent functions FA used to read points from no longer exist, so specialization was only recognised for characters who had taken a tree’s final talent
+- Conditions on a CDM Buff trigger's variables (Active, Aura Active, On Cooldown, Remaining Time…) now work when that trigger isn't the display's active one. A single-spell or single-entry CDM trigger kept its state under an internal key the display couldn't see, so such conditions always read "inactive"
+- "Trigger N: Active is false > Desaturate" on a CDM target-debuff trigger now stays correct when the debuff's presence is secret: the base icon is kept grey and a native slot draws a saturated copy only while your debuff is on the target
+- Normal displays inside a Modern Aura Group: text and border elements anchored to the icon's Inner/Outer areas now sit where the preview shows them. The row's stand-in copy had no Inner/Outer frames, so an Outer-anchored text landed ~2 px too high. (0.90.57)
+- Specialization load option draws its tri-state (green/red) boxes again when another addon ships the same AceConfigDialog version - FA's patched copy now takes priority
+- Forever's new talent UI stores talents as a single trait tree per class; the classic per-tab talent functions FA used to read points from no longer exist, so specialization was only recognised for characters who had taken a tree's final talent
 - FA now reads the active trait config directly
 
 ## 0.90.40
 **Aura (Modern)**
-- Nameplate unit: "Filter by Hostility" (Hostile / Friendly), re-checked when a plate’s faction changes
-- Show On: Gained no longer re-flashes a unit’s existing auras when its nameplate returns or the container is re-read
+- Nameplate unit: "Filter by Hostility" (Hostile / Friendly), re-checked when a plate's faction changes
+- Show On: Gained no longer re-flashes a unit's existing auras when its nameplate returns or the container is re-read
 - Remaining Time icons draw their Glow elements inside the exact-seconds window; "Remaining Time < X" glow conditions now work (they were never recognized) and are exact on Remaining Time icons
-- Approximate Match removed. Debuffs on friendly units are filtered explicitly by Total Duration =, dispel type and the aura flags - the properties it used to guess. The status line says so where spell IDs can’t be used
+- Approximate Match removed. Debuffs on friendly units are filtered explicitly by Total Duration =, dispel type and the aura flags - the properties it used to guess. The status line says so where spell IDs can't be used
 - Total Duration: tooltip notes that "=" also pins the duration assumed for glows.
 - "Target of Pet" renamed "Pet Target"
 - Aura (Modern) Settings: the Sort by tooltip is replaced by a note shown only while Blizzard debuff order is selected
 
 **Animations (Modern)**
-- Zoom / Spin / Bounce In hide the display’s borders, texts and glows while the icon animates; they reappear when it ends. Start animations play after a reload or target change
+- Zoom / Spin / Bounce In hide the display's borders, texts and glows while the icon animates; they reappear when it ends. Start animations play after a reload or target change
 
 **Glows**
 - Pixel Glow and Autocast Shine: one animation group per glow (or per edge) instead of one per sparkle, and the editor animates only the first sample of each display. Fixes multi-second freezes when selecting large groups
-- Autocast Shine sparkles are drawn additively again, matching the library’s look
+- Autocast Shine sparkles are drawn additively again, matching the library's look
 
 **Modern Aura Group**
 - Texture sub elements of normal displays are drawn in the row (they stayed on the parked original)
@@ -164,7 +179,7 @@
 - Fixed auras anchored to a display inside a Modern Aura Group landing off-screen. A non-Modern display in such a group is drawn by a stand-in and its own region is parked away; anchors to it now follow the stand-in where it is drawn, and are refreshed whenever the stand-in appears or goes
 - Added `ForeverAurasAPI` so WagoUI UI Packs can list, export and import ForeverAuras auras. Imports always go through the import window, where the player confirms them
 - Exports can leave out chosen auras and everything inside them
-- The import window now answers its caller exactly once: closing the options declines, hiding for combat doesn’t, and a new import replaces the previous one
+- The import window now answers its caller exactly once: closing the options declines, hiding for combat doesn't, and a new import replaces the previous one
 
 ## 0.90.23
 - Fix %p showing on weapon enchant scrolls
@@ -180,13 +195,13 @@ Modern Aura Groups
 - Spacing is now exact at every group scale: each gap is a whole number of screen pixels, so icons and pixel-perfect borders line up like a Dynamic Group
 - Show On Missing and Remaining Time displays no longer take one unit too much or too little space in the row
 - Centered rows and the Limit option start on the same pixel live as in the options preview; the preview no longer shifts when the editor closes
-- The Limit cut ends at the last icon’s edge, so the next icon’s border no longer peeks through in the preview
+- The Limit cut ends at the last icon's edge, so the next icon's border no longer peeks through in the preview
 - Mixed groups (normal icons alongside Modern auras) keep the same spacing rules
 
 Modern auras
 - Multiple Border elements can be added to a Modern aura
 - Sounds for Show On Missing play on the right event (aura lost / aura regained)
-- Progress Texture: the native background texture follows the foreground’s shape and rotation
+- Progress Texture: the native background texture follows the foreground's shape and rotation
 
 Load
 - Specialization now follows your talent points: the tree with 21 or more points (and the most points) counts as your specialization. Each spec can be ticked green (load) or red (do not load) in the same control
@@ -213,11 +228,11 @@ Fixes
 New
 - Load Flag, a new load condition. A display loads while an aura has set the named flag with ForeverAuras.SetLoadFlag(name, true) (or several with SetLoadFlags). Flags are session state, set again on each login by the aura that owns them; a change rescans only the displays that use a flag, once per frame
 - Spell Lists for Aura (Modern) triggers. A trigger whose saved data names a list (secretSpellList) takes its spell IDs, name, icon, %l label text and Remaining Time seconds from a list another aura publishes with ForeverAuras.SetAuraSpellList(key, {spellIDs, name, icon, label, remaining})
-- Same-name spell IDs for Aura (Modern) triggers. Selected spell IDs now also match every other ID with the same name, taken from the client’s own spell data
+- Same-name spell IDs for Aura (Modern) triggers. Selected spell IDs now also match every other ID with the same name, taken from the client's own spell data
 Frame names accept ForeverAuras:`<id>` as well as WeakAuras:`<id>` for anchoring to another aura, glow frames, the frame chooser, renames and import
 
 Fixed
-- Ammo: the equipped ammo’s count is no longer doubled
+- Ammo: the equipped ammo's count is no longer doubled
 - Autocast Shine on Aura (Modern) icons is drawn like LibCustomGlow again
 
 Notes
@@ -230,7 +245,7 @@ New
 
 ### Modern Aura Groups
 Fixed
-- **Glow on normal displays:** a Glow element on an Icon or Text display inside a Modern Aura Group is now drawn on the icon where the group shows it (0.84.1, 0.84.2). Such a display is shown by copies inside the row, and the glow was not among the copied pieces, so it played at the display’s parked position off screen. The glow is built in place from the element’s settings, follows Show Glow, conditions, setting changes and resizes, and is cleared when the display leaves the group. All four glow types.
+- **Glow on normal displays:** a Glow element on an Icon or Text display inside a Modern Aura Group is now drawn on the icon where the group shows it (0.84.1, 0.84.2). Such a display is shown by copies inside the row, and the glow was not among the copied pieces, so it played at the display's parked position off screen. The glow is built in place from the element's settings, follows Show Glow, conditions, setting changes and resizes, and is cleared when the display leaves the group. All four glow types.
 
 ### Aura (Modern) glows
 Changed
@@ -241,7 +256,7 @@ Fixed
 
 ### Item triggers
 New
-- **Ammo trigger counts the equipped ammo:** with Item IDs left blank, the trigger reads the ammo slot and shows that item’s icon and name, counting the loaded stack plus every stack of the same ammo in your bags (0.84.0). A new "Count" setting offers "Equipped ammo" (default) and "All carried ammo" for the old total of every projectile carried; it is greyed out once Item IDs are set. The loaded stack is now included when IDs are listed too. Swapping ammo updates the display immediately.
+- **Ammo trigger counts the equipped ammo:** with Item IDs left blank, the trigger reads the ammo slot and shows that item's icon and name, counting the loaded stack plus every stack of the same ammo in your bags (0.84.0). A new "Count" setting offers "Equipped ammo" (default) and "All carried ammo" for the old total of every projectile carried; it is greyed out once Item IDs are set. The loaded stack is now included when IDs are listed too. Swapping ammo updates the display immediately.
 
 ### Load conditions
 Fixed
@@ -249,7 +264,7 @@ Fixed
 
 ### Interface
 Changed
-- **Minimap icon:** redrawn from the logo master for the size the minimap button actually uses: the FA letters on the logo’s blue disc, no gold ring, soft edge, 32 px texture so it filters cleanly instead of aliasing (0.84.9).
+- **Minimap icon:** redrawn from the logo master for the size the minimap button actually uses: the FA letters on the logo's blue disc, no gold ring, soft edge, 32 px texture so it filters cleanly instead of aliasing (0.84.9).
 - **Options portrait centered:** the logo in the classic-style options window sat two pixels low because Blizzard's portrait mask is inset at the bottom; the portrait texture is now laid out to match that mask (0.84.5)
 
 ## 0.82.3
@@ -258,12 +273,12 @@ Changed
 ## 0.82.2
 ### Aura (Modern) trigger
 Changed
-- **Dynamic Information set explicitly:** saving a display with an Aura (Modern) trigger now points Dynamic Information at that trigger’s number instead of trusting "first active trigger", which resolved to another trigger whenever the aura trigger was not active and made the display ineligible (0.79.1).
+- **Dynamic Information set explicitly:** saving a display with an Aura (Modern) trigger now points Dynamic Information at that trigger's number instead of trusting "first active trigger", which resolved to another trigger whenever the aura trigger was not active and made the display ineligible (0.79.1).
 
 ### Aura (Modern) conditions
 New
-- **Aura Active (true / false):** Aura Present and Aura Missing are one check, "Aura Active", with a True or False value, like Legacy’s "Trigger active". It is offered on every Show On. Saved Aura Present / Aura Missing conditions migrate to Aura Active = True / False with their changes intact (0.80.0).
-- **True styles the live aura:** Aura Active = True now offers the same look properties as False — Alpha, Color, Desaturate, Zoom, Border, Texts and the highlights — painted when the aura’s button is set up, in or out of combat. Icon stays False-only, since a live button’s icon is bound to the aura. Useful on Show On: Always to give the live aura and the missing icon different looks (0.81.0).
+- **Aura Active (true / false):** Aura Present and Aura Missing are one check, "Aura Active", with a True or False value, like Legacy's "Trigger active". It is offered on every Show On. Saved Aura Present / Aura Missing conditions migrate to Aura Active = True / False with their changes intact (0.80.0).
+- **True styles the live aura:** Aura Active = True now offers the same look properties as False — Alpha, Color, Desaturate, Zoom, Border, Texts and the highlights — painted when the aura's button is set up, in or out of combat. Icon stays False-only, since a live button's icon is bound to the aura. Useful on Show On: Always to give the live aura and the missing icon different looks (0.81.0).
 
 Changed
 - **No clearing, no auto-changes:** conditions are never emptied and trigger settings are never changed to suit a condition. A check whose state is not drawn (for example Aura Active = False on Show On: Found without a fallback trigger) simply has nothing to paint (0.80.0).
@@ -271,7 +286,7 @@ Changed
 - **Status line:** the only remaining condition problem (a property an Aura (Modern) condition cannot apply, possible from imports only) shows as a red "Incompatible condition." (0.79.2).
 
 ### New trigger
-- **Spell → Spell in Range (Action Bar):** range of a spell that is on an action bar, against the current target, from the client’s own range-change event (`ACTION_RANGE_CHECK_UPDATE`); no per-frame polling and readable in combat. Enter the spell by name or ID (any rank on the bars counts unless Exact Spell ID is ticked); Show On: In Range, Out of Range or No Target. Spells inside macros are not seen. The existing Spell in Range and Range Check triggers are unchanged (0.82.0–0.82.2).
+- **Spell → Spell in Range (Action Bar):** range of a spell that is on an action bar, against the current target, from the client's own range-change event (`ACTION_RANGE_CHECK_UPDATE`); no per-frame polling and readable in combat. Enter the spell by name or ID (any rank on the bars counts unless Exact Spell ID is ticked); Show On: In Range, Out of Range or No Target. Spells inside macros are not seen. The existing Spell in Range and Range Check triggers are unchanged (0.82.0–0.82.2).
 
 ## 0.74.8
 - LibSerialize update
@@ -311,12 +326,12 @@ Fixes
 ## 0.72.4
 - Fixed the Talent load option's picker piling icons together in rare situations: talents now sit on a tidy grid, separate trees side by side, with a dark background
 - Add Humanoid Form
-- Stance/Form/Aura has a new Form option that lists every class’s forms. You can build form triggers without knowing the forms yourself, and they work on any character.
+- Stance/Form/Aura has a new Form option that lists every class's forms. You can build form triggers without knowing the forms yourself, and they work on any character.
 - In that Form list, entries are grouped by class, and Bear Form also matches Dire Bear Form.
 - The old option is now "Form (Bar Position)". Imported auras no longer show an empty dropdown.
 - Removed copies of FojjiCore icons from ForeverAuras, so the download is smaller.
 - ForeverAuras now keeps loading when another addon ships a stricter shared library (e.g. the latest BugSack).
-- If ForeverAuras can’t finish loading, it now says so once and leaves your auras untouched.
+- If ForeverAuras can't finish loading, it now says so once and leaves your auras untouched.
 - Updated LibSharedMedia-3.0 to the latest release.
 - Removed a sound that was listed but never included.
 
@@ -344,7 +359,7 @@ Fixes
 ## 0.70.28
 - Fixed: in a centered Modern Aura Group, Aura (Modern) icons could sit 1 pixel off from other icons at some group positions.
 - Fixed: in the options preview, Aura (Modern) icons in a centered Modern Aura Group could sit 1 pixel off with odd icon sizes.
-- Fixed: a display removed from a sorted Modern Aura Group could keep the group’s merged filters until /reload.
+- Fixed: a display removed from a sorted Modern Aura Group could keep the group's merged filters until /reload.
 - Fixed: Modern Aura Groups anchored to unit frames could try to move protected frames in combat.
 - Fixed: a spell could be treated as still on cooldown after it was briefly unavailable.
 - Fixed: border copies could follow the wrong border after elements were reordered.
@@ -357,9 +372,9 @@ Fixes
 - Fixed: Thrown was missing from the weapon item types in triggers and Load options.
 - Fixed: Alpha and Color set by an already-true condition were reset to default after combat when the aura also had a Health or Power condition.
 - Fixed: in a Modern Aura Group, displays with a Stack Count or Total Duration filter kept their place in the row even when hidden, which could push other icons past the Limit.
-- Fixed: Aura (Modern) icons and normal icons in a Modern Aura Group could sit 1 pixel apart or look blurry, depending on the group’s position and how many icons were shown.
+- Fixed: Aura (Modern) icons and normal icons in a Modern Aura Group could sit 1 pixel apart or look blurry, depending on the group's position and how many icons were shown.
 - Fixed: Show On Missing, Remaining Time, Total Duration and Stack Count icons could look blurry at some positions, including with Limit on.
-- Fixed: pixel-perfect borders on normal icons in a Modern Aura Group are now drawn exactly like the icon’s own border.
+- Fixed: pixel-perfect borders on normal icons in a Modern Aura Group are now drawn exactly like the icon's own border.
 - Removed: the "Secure frame detected" warning on displays in a Modern Aura Group that contains clickable displays.
 - Improved: lower CPU use for spell cooldown displays in combat, cooldown event handling, Aura (Modern) unit events, and unit frame scanning.
 
@@ -593,14 +608,14 @@ Fixes
 - **Translations:** fixed Simplified Chinese, Traditional Chinese and Russian texts that left out a name they should show.
 
 ## 0.13.5
-- Fixed Spell Cooldown conditions checking the wrong spell rank. Range, usability and insufficient-resource checks now follow the rank being tracked, even if you entered a higher rank you haven’t learned yet. Exact Spell ID settings are still respected.
+- Fixed Spell Cooldown conditions checking the wrong spell rank. Range, usability and insufficient-resource checks now follow the rank being tracked, even if you entered a higher rank you haven't learned yet. Exact Spell ID settings are still respected.
 
 ## 0.13.4
 - Combined Blizzard CDM Essential and Utility into one **Cooldown** trigger. Spells are detected in either category, and existing triggers convert automatically while preserving their settings.
 - Fixed delayed GCD refreshes on **Spell → Cooldown/Charges/Count**.
 - Fixed **Spell → Global Cooldown** trigger
 - Added optional **class-pack CDM setup** function: ForeverAuras.SetupClassPackCDM
-- When called, it enables CDM, populates Tracked Buffs, sets viewer visibility to Always, and enables ForeverAuras’ **Hide Blizzard’s CDM** option.
+- When called, it enables CDM, populates Tracked Buffs, sets viewer visibility to Always, and enables ForeverAuras' **Hide Blizzard's CDM** option.
 - Extended setup to restore hidden spell cooldowns to Essential or Utility while preserving already-displayed spell placements and excluding item entries from this step.
 - Setup waits until out of combat, preserves unrelated settings, backs up the original configuration, and prompts for a reload when required.
 - Added **Item → Ammo** trigger type.

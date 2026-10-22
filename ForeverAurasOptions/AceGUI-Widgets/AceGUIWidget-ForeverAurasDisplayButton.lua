@@ -1732,6 +1732,10 @@ local methods = {
     if (not WeakAuras.IsOptionsOpen()) then
       return;
     end
+    -- ForeverAuras: an explicit show or hide (the eye, priority 2) is
+    -- counted, so a batch still previewing a picked group's children
+    -- leaves a child the user has since toggled alone (OptionsFrame, #136).
+    if priority == 2 then self.explicitVisibility = (self.explicitVisibility or 0) + 1 end
     if(priority >= self.view.visibility and self.view.visibility ~= priority) then
       self.view.visibility = priority;
       self:SyncVisibility()
@@ -1746,6 +1750,7 @@ local methods = {
     if (not WeakAuras.IsOptionsOpen()) then
       return;
     end
+    if priority == 2 then self.explicitVisibility = (self.explicitVisibility or 0) + 1 end
     if(priority >= self.view.visibility and self.view.visibility ~= 0) then
       self.view.visibility = 0;
       self:SyncVisibility()

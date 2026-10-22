@@ -231,24 +231,29 @@ function Private.GetDurationTextFormatter(format, threshold, precision, secondsO
   local formatter = formatters[key]
   if formatter then return formatter end
   local rounding = Enum.NumericRuleFormatRounding
+  -- ForeverAuras: whole seconds round up (99, the countdown's way) or down
+  -- (0); 98 rounds to the nearest second, for the Number placeholder
+  -- format's "Round" mode (issue #138). Nearest is in the client's
+  -- enumeration (default of a breakpoint's rounding); Up stands in if not.
+  local roundMode = format == 99 and rounding.Up or format == 98 and (rounding.Nearest or rounding.Up) or rounding.Down
   local rules
   if Rules then
-    rules = Rules(threshold, precision, format == 99 and rounding.Up or rounding.Down)
+    rules = Rules(threshold, precision, roundMode)
   else
     rules = {
       {threshold = 0, format = ""},
-      {threshold = 0.000001, format = "%d", step = 1, rounding = format == 99 and rounding.Up or rounding.Down},
+      {threshold = 0.000001, format = "%d", step = 1, rounding = roundMode},
     }
     if threshold > 0 then
       rules[2] = {threshold = 0.000001, format = "%." .. precision .. "f"}
-      rules[#rules + 1] = {threshold = threshold, format = "%d", step = 1, rounding = format == 99 and rounding.Up or rounding.Down}
+      rules[#rules + 1] = {threshold = threshold, format = "%d", step = 1, rounding = roundMode}
     end
     if not secondsOnly then
       local minuteThreshold = math.max(60, threshold)
       if threshold == minuteThreshold then table.remove(rules) end
       rules[#rules + 1] = {
         threshold = minuteThreshold, format = "%d:%02d", step = 1,
-        rounding = format == 99 and rounding.Up or rounding.Down,
+        rounding = roundMode,
         components = {{div = 60}, {mod = 60}},
       }
     end
@@ -260,8 +265,9 @@ function Private.GetDurationTextFormatter(format, threshold, precision, secondsO
   return formatter
 end
 
-function Private.FormatDurationText(duration, total, format, threshold, precision, modRate, textStyle, style)
-  local formatter = Private.GetDurationTextFormatter(format, threshold, precision, nil, style, not total and textStyle or nil)
+-- secondsOnly: no minutes:seconds form (the "Number" placeholder format).
+function Private.FormatDurationText(duration, total, format, threshold, precision, modRate, textStyle, style, secondsOnly)
+  local formatter = Private.GetDurationTextFormatter(format, threshold, precision, secondsOnly, style, not total and textStyle or nil)
   local modifier = modRate == false and Enum.DurationTimeModifier.BaseTime or Enum.DurationTimeModifier.RealTime
   if total then return duration:FormatTotalDuration(formatter, modifier) end
   return duration:FormatRemainingDuration(formatter, modifier)

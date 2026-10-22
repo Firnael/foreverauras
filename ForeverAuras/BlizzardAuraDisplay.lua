@@ -809,11 +809,28 @@ local function UpdatePreviewNotice(region)
   end
 end
 
+-- ForeverAuras: a Glow element of a suppressed display (alpha 0 while the
+-- editor's samples stand for it) stops its own animated glow, which nobody
+-- could see; it starts again when the display's look is restored. Each
+-- glow moved its lines every frame, and a pack of a hundred glowing
+-- displays spent most of the frame on them in the editor (issue #136).
+local function StopSuppressedGlows(region)
+  for _, frame in ipairs(region.subRegions or {}) do
+    if frame.type == "subglow" and frame.glow and frame.glowStop and not frame.secretAuraDetached then frame.glowStop(frame) end
+  end
+end
+local function RestoreSuppressedGlows(region)
+  for _, frame in ipairs(region.subRegions or {}) do
+    if frame.type == "subglow" and frame.glow and frame.SetVisible and not frame.secretAuraDetached then frame:SetVisible(true) end
+  end
+end
 local function Suppress(region)
   local native = region.blizzardAuraDisplay
   if IsPreview() and not region.secretAuraSamplesActive and not (native and native.previewHasAuras) then
+    local wasSuppressed = region.blizzardSuppressed ~= nil
     for frame, alpha in pairs(region.blizzardSuppressed or {}) do frame:SetAlpha(alpha) end
     region.blizzardSuppressed = nil
+    if wasSuppressed then RestoreSuppressedGlows(region) end
     UpdatePreviewNotice(region)
     return
   end
@@ -862,6 +879,7 @@ local function Suppress(region)
       frame:SetAlpha(0)
     end
   end
+  StopSuppressedGlows(region)
 end
 
 function Display.Restore(region)
@@ -874,8 +892,10 @@ function Display.Restore(region)
   -- (SecretAuraConditions.ResetConditionProperty); replayed later it would
   -- paint an old saved value over a rebuilt display.
   region.secretAuraPendingResets = nil
+  local wasSuppressed = region.blizzardSuppressed ~= nil
   for frame, alpha in pairs(region.blizzardSuppressed or {}) do frame:SetAlpha(alpha) end
   region.blizzardSuppressed = nil
+  if wasSuppressed then RestoreSuppressedGlows(region) end
   if region.blizzardOriginalUpdate then
     region.Update = region.blizzardOriginalUpdate.func
     region.blizzardOriginalUpdate = nil
@@ -1207,14 +1227,24 @@ local function StyleAuraAnimations(native, data)
   end
 end
 
+-- ForeverAuras: the parts of a button's styling are timed for the profiler
+-- (/fa pprint), so a slow build of many displays can be read (issue #136).
 local function Style(native, data, region)
+  Private.StartProfileSystem("aura (modern) - style: appearance")
   Display.StyleAppearance(native, Display.PrepareConditionAppearance(data), ElementFrame, StyleText, StyleGlow)
+  Private.StopProfileSystem("aura (modern) - style: appearance")
+  Private.StartProfileSystem("aura (modern) - style: conditions")
   Display.ApplyPresentConditions(native, data, region and region.secretAuraGates)
   Display.ApplyConditionAppearance(native, region, data)
+  Private.StopProfileSystem("aura (modern) - style: conditions")
+  Private.StartProfileSystem("aura (modern) - style: eraser")
   if Display.StyleEraser then Display.StyleEraser(native, data) end
+  Private.StopProfileSystem("aura (modern) - style: eraser")
   -- Editor samples stay shown; only live buttons flash. Both play the aura animations.
+  Private.StartProfileSystem("aura (modern) - style: animations")
   if not native.preview then StyleFlash(native, data) end
   StyleAuraAnimations(native, data)
+  Private.StopProfileSystem("aura (modern) - style: animations")
 end
 
 local function SpellIDMap(values)
@@ -1658,7 +1688,11 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
   -- No Aura (Modern) trigger drives the display right now: nothing to bind.
   if not trigger then return end
   local settings = data.blizzardAuraDisplay
+  -- ForeverAuras: the parts of a refresh are timed for the profiler
+  -- (/fa pprint), to read a slow build of many displays (issue #136).
+  Private.StartProfileSystem("aura (modern) - units: tokens")
   local units = UnitTokens(trigger)
+  Private.StopProfileSystem("aura (modern) - units: tokens")
   local growth = Display.Growth(data)
   local vertical = growth == "UP" or growth == "DOWN" or growth == "CENTER_VERTICAL"
   -- A Modern Aura Group grouped by frame places these on unit frames or
@@ -1689,6 +1723,7 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
       end
       if anchorFrame and anchorFrame:IsForbidden() then anchorFrame = nil end
       -- Live aura visibility must not affect the editor samples.
+      Private.StartProfileSystem("aura (modern) - units: bind")
       local shown = not IsPreview() and unit ~= nil and region:IsShown() and (not (unitFrames or nameplates) or anchorFrame ~= nil)
         and not native.gridMember and Display.UnitEligible(trigger, unit)
       -- An erased Missing look (SecretAuraSingle.lua) draws the aura slot and
@@ -1730,6 +1765,8 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
       end
       -- Kept for the Missing look: containers in a Modern Aura Group report secret levels.
       instance.drawStrata, instance.drawLevel = strata, nil
+      Private.StopProfileSystem("aura (modern) - units: bind")
+      Private.StartProfileSystem("aura (modern) - units: anchor")
       if unitFrames then
         -- Keep native aura content above the unit glow and its two child layers.
         local level = anchorFrame and settings.unitGlow and anchorFrame:GetFrameLevel() + unitGlowFrameLevel + 3 or parent:GetFrameLevel() + 1
@@ -1776,6 +1813,8 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
           Display.AnchorToContent(container, anchor, region, anchor)
         end
       end
+      Private.StopProfileSystem("aura (modern) - units: anchor")
+      Private.StartProfileSystem("aura (modern) - units: status")
       if instance.missingSlot and reanchor then
         local slotPoint
         if frameMode then slotPoint = Display.FlowUnitStart(Display.FlowGroup(data))
@@ -1820,13 +1859,19 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
         -- without the enable cycle (which clears and lays out again).
         container:UpdateAllAuras(); Private.HitchCount("UpdateAllAuras")
       end
+      Private.StopProfileSystem("aura (modern) - units: status")
       -- The Missing container follows the same unit and visibility as the aura
       -- slot, and is refreshed with it when the unit behind the token can have
       -- changed: left alone, it kept the previous target's state (the Missing
       -- look stayed closed after de-targeting, and flickered on re-targeting).
+      Private.StartProfileSystem("aura (modern) - units: single")
       Display.RefreshSingle(instance, unit, shown, unitChanged or not unchanged)
+      Private.StopProfileSystem("aura (modern) - units: single")
       -- So does a centred Modern Aura Group's half-size shadow.
+      Private.StartProfileSystem("aura (modern) - units: shadow")
       Display.RefreshFlowShadow(instance, unit, shown, unitChanged or not unchanged)
+      Private.StopProfileSystem("aura (modern) - units: shadow")
+      Private.StartProfileSystem("aura (modern) - units: glow")
       if instance.unitGlow then
         local glowContainer = instance.unitGlow.container
         local frame = unitFrames and unit and settings.unitGlow and anchorFrame
@@ -1855,14 +1900,23 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
         glowContainer:SetEnabled(glowShown)
         if glowShown then glowContainer:UpdateAllAuras() end
       end
+      Private.StopProfileSystem("aura (modern) - units: glow")
     end
   end
   -- Every display in the group relinks all of them, so the order in which
   -- they rebind their units does not matter.
+  Private.StartProfileSystem("aura (modern) - units: relink")
   if frameMode then Display.RelinkFlowUnits(Display.FlowGroup(data)) end
+  Private.StopProfileSystem("aura (modern) - units: relink")
+  Private.StartProfileSystem("aura (modern) - units: levels")
   Display.UpdateDetachedFrameLevels(region)
+  Private.StopProfileSystem("aura (modern) - units: levels")
+  Private.StartProfileSystem("aura (modern) - units: preview")
   RefreshPreview(region)
+  Private.StopProfileSystem("aura (modern) - units: preview")
+  Private.StartProfileSystem("aura (modern) - units: grid")
   Display.RefreshGridFor(region)
+  Private.StopProfileSystem("aura (modern) - units: grid")
 end
 Display.RefreshUnits = RefreshUnits
 
@@ -1961,14 +2015,23 @@ local function FinishApply(region, data)
   local native = region.blizzardAuraDisplay
   -- Where the next display in a Modern Aura Group starts, then the whole chain.
   local single = native.instances[1] and native.instances[1].single
+  -- Timed per part for the profiler (see Style).
+  Private.StartProfileSystem("aura (modern) - finish: flow")
   Display.EnsureFlowShadows(region, data)
   Display.EnsureFlowRemaining(region, data)
   Display.SetFlowEnd(region, data, single and single.missing and single.missing.active and single.missing.presenceActive and single.missing.presence)
+  Private.StopProfileSystem("aura (modern) - finish: flow")
+  Private.StartProfileSystem("aura (modern) - finish: rechain")
   Display.RechainFlow(Display.FlowGroup(data))
+  Private.StopProfileSystem("aura (modern) - finish: rechain")
+  Private.StartProfileSystem("aura (modern) - finish: units")
   RefreshUnits(region)
+  Private.StopProfileSystem("aura (modern) - finish: units")
   pending[region] = nil
+  Private.StartProfileSystem("aura (modern) - finish: sounds and warnings")
   SyncSounds(region)
   Warn(data)
+  Private.StopProfileSystem("aura (modern) - finish: sounds and warnings")
 end
 
 local function DrainInstanceQueues()

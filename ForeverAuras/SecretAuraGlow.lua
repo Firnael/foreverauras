@@ -213,18 +213,37 @@ end
 -- start delays, so every texture keeps its own pace while sharing the group.
 local function FinishPaths(glow)
   for owner, moves in pairs(glow.paths or {}) do
-    local group = GroupFor(glow, owner, "path" .. #moves, function(g)
+    local shape = "path" .. #moves
+    local function Build(g)
       local list = {}
       for index = 1, #moves do list[index] = g:CreateAnimation("Translation") end
       return list
-    end)
-    for index, plan in ipairs(moves) do
-      local move = group.faAnimations[index]
-      move:SetTarget(plan.texture)
-      move:SetOrder(1)
-      move:SetStartDelay(plan.delay)
-      move:SetDuration(plan.duration)
-      move:SetOffset(plan.dx, plan.dy)
+    end
+    -- ForeverAuras: once a group has been handed to a live aura button
+    -- (AddAuraShownAnimation) the client forbids retargeting its animations.
+    -- A rebuilt glow (a colour change, say) takes its textures from the pool
+    -- in another order, so a reused group's moves would aim at other
+    -- textures: a move whose target cannot be changed makes the glow build
+    -- a fresh group with fresh animations instead (issue #119's sibling).
+    local function Configure(group)
+      for index, plan in ipairs(moves) do
+        local move = group.faAnimations[index]
+        local okTarget, target = pcall(move.GetTarget, move)
+        if not (okTarget and target == plan.texture) and not pcall(move.SetTarget, move, plan.texture) then return false end
+        move:SetOrder(1)
+        move:SetStartDelay(plan.delay)
+        move:SetDuration(plan.duration)
+        move:SetOffset(plan.dx, plan.dy)
+      end
+      return true
+    end
+    local group = GroupFor(glow, owner, shape, Build)
+    if not Configure(group) then
+      for index = #glow.groups, 1, -1 do
+        if glow.groups[index] == group then table.remove(glow.groups, index) end
+      end
+      owner.faGroups[shape] = nil
+      Configure(GroupFor(glow, owner, shape, Build))
     end
   end
   glow.paths = nil
