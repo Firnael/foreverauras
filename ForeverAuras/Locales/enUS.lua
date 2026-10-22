@@ -1565,6 +1565,7 @@ L["Zul'Gurub"] = "Zul'Gurub"
 L["Raid Leader"] = "Raid Leader"
 
 -- ForeverAuras: Aura (Modern), CDM and options window
+L["Money (total copper)"] = "Money (total copper)"
 L["Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM settings (backed up) and works on a copy of your Edit Mode layout named \"<layout>-FA\"; your own layout is left as it is. Needs a reload."] = "Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM settings (backed up) and works on a copy of your Edit Mode layout named \"<layout>-FA\"; your own layout is left as it is. Needs a reload."
 L["A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM settings and makes a copy of your Edit Mode layout named \"<layout>-FA\" with the viewers always visible; your own layout is left as it is. Needs a reload."] = "A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM settings and makes a copy of your Edit Mode layout named \"<layout>-FA\" with the viewers always visible; your own layout is left as it is. Needs a reload."
 L["Is Ready"] = "Is Ready"

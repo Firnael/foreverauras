@@ -92,7 +92,12 @@ function Native.Style(native, settings, inverse)
     if span >= 360 then startOffset, endOffset = 0, 0 end
     if not pcall(texture.SetRadialProgressBarStartOffset, texture, startOffset) then texture:SetRadialProgressBarStartOffset(0) end
     if not pcall(texture.SetRadialProgressBarEndOffset, texture, endOffset) then texture:SetRadialProgressBarEndOffset(0.9999) end
-    texture:SetRadialProgressBarReverse(settings.orientation == "ANTICLOCKWISE")
+    -- Measured in game: with an arc cut out (unequal offsets) the client's
+    -- bar sweeps the opposite way from the whole-circle case, so the reverse
+    -- flag is inverted for a partial arc to keep Clockwise clockwise.
+    local anticlockwise = settings.orientation == "ANTICLOCKWISE"
+    if span < 360 then anticlockwise = not anticlockwise end
+    texture:SetRadialProgressBarReverse(anticlockwise)
     texture:SetRadialProgressBarFeather(0)
   else
     if bar.SetRenderMode and Enum.StatusBarRenderMode then bar:SetRenderMode(Enum.StatusBarRenderMode.Linear) end

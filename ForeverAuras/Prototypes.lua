@@ -10581,14 +10581,16 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
       ]=]
     end,
     args = {
+      -- ForeverAuras: every coin part can be a trigger check and a condition
+      -- (only Gold could before); Money is the total in copper.
       {
         name = "money",
         init = "money",
         type = "number",
-        display = L["Money"],
+        display = L["Money (total copper)"],
         store = true,
-        hidden = true,
-        test = "true",
+        conditionType = "number",
+        formatter = "BigNumber"
       },
       {
         name = "gold",
@@ -10605,8 +10607,7 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
         type = "number",
         display = Private.coin_icons.silver .. L["Silver"],
         store = true,
-        hidden = true,
-        test = "true",
+        conditionType = "number",
       },
       {
         name = "copper",
@@ -10614,8 +10615,7 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
         type = "number",
         display = Private.coin_icons.copper .. L["Copper"],
         store = true,
-        hidden = true,
-        test = "true",
+        conditionType = "number",
       },
       {
         name = "icon",

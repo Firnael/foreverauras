@@ -909,7 +909,10 @@ function Private.PrintCDMDebug(id)
         count = count + 1
         Say("trigger", index, "clone", string.format("%q", cloneId), "show", Fmt(state.show), "auraActive", Fmt(state.auraActive),
           "nativeShow", Fmt(state.cdmNativeShow), "progress", Fmt(state.progressType), "duration", Fmt(state.duration),
-          "expires", Fmt(state.expirationTime), "cooldownID", Fmt(state.cooldownID), "spell", Fmt(state.spellId or state.spellID))
+          "expires", Fmt(state.expirationTime), "cooldownID", Fmt(state.cooldownID), "spell", Fmt(state.spellId or state.spellID),
+          -- ForeverAuras: the Stack Count / Remaining Time filters' path: the
+          -- applications the trigger read and whether the native gate decides.
+          "stacks", Fmt(state.stacks), "nativeFilter", Fmt(state.cdmNativeRemaining))
         for _, sid in ipairs(state.cdmAuraRenderSpellIDs or {}) do spellIDs[sid] = true end
       end
       if count == 0 then Say("trigger", index, "has no states (table", Fmt(states ~= nil), ")") end
@@ -1006,4 +1009,21 @@ function Private.PrintCDMDebug(id)
     harm[#harm + 1] = tostring(rankID) .. "=" .. (ok and Fmt(result) or "err")
   end
   Say("IsSpellHarmful", table.concat(harm, " "), "targets enemy", Fmt(Private.CDMSpellsTargetEnemy(ranks)), "target exists", Fmt(UnitExists("target")))
+  -- ForeverAuras: the display side of the native filter path (CDMAuraProgress):
+  -- for the display and each clone, whether a show gate hides it, whether a
+  -- timer slot with filter clips was built and the filters it was asked for.
+  local function SayRegion(label, region)
+    if not region then return end
+    local gate = region.nativeShowGate
+    local native = region.cdmAuraTimer
+    local window = region.cdmRemainingWindow
+    local stacks = window and window.stacks
+    Say(label, "type", Fmt(region.regionType), "shown", Fmt(region:IsShown()), "askedAlpha", Fmt(region.requestedAlpha),
+      "gate", gate and (Fmt(gate.mode) .. (gate.hide and " hide" or "")) or "none",
+      "slot", native and ("yes button " .. Fmt(native.button ~= nil) .. " clips " .. Fmt(native.filterClips and #native.filterClips or 0)) or "none",
+      "filterWanted", Fmt(region.cdmFilterWanted), "stackFilter", stacks and (Fmt(stacks.kind) .. " " .. Fmt(stacks.n)) or "none",
+      "timeFilters", Fmt(window and (window.remaining or window.elapsed) ~= nil))
+  end
+  SayRegion("display", WeakAuras.GetRegion(id))
+  for cloneId, region in pairs(Private.clones[id] or {}) do SayRegion("clone " .. string.format("%q", cloneId), region) end
 end
