@@ -870,6 +870,10 @@ function Display.Restore(region)
   if Display.RestorePreviewRegion then Display.RestorePreviewRegion(region) end
   if region.secretAuraPreviewNotice then region.secretAuraPreviewNotice:Hide() end
   region.secretAuraConditionValues = nil
+  -- ForeverAuras: a reset waiting for access belongs to the released look
+  -- (SecretAuraConditions.ResetConditionProperty); replayed later it would
+  -- paint an old saved value over a rebuilt display.
+  region.secretAuraPendingResets = nil
   for frame, alpha in pairs(region.blizzardSuppressed or {}) do frame:SetAlpha(alpha) end
   region.blizzardSuppressed = nil
   if region.blizzardOriginalUpdate then
@@ -2279,6 +2283,8 @@ function Display.Modify(region, data)
     or (Private.GetActiveTriggerFor and Private.GetActiveTriggerFor(data.id)) or 1 end
   region.secretAuraProgressSourceIndex = key
   region.secretAuraConditionValues = nil
+  -- ForeverAuras: see Display.Restore; the rebuilt display starts clean.
+  region.secretAuraPendingResets = nil
   if not Display.Enabled(data) then Display.Release(region); Warn(data); SoundWarning(data); return end
   Install(region)
   local native = region.blizzardAuraDisplay

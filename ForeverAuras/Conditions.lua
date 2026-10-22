@@ -309,6 +309,12 @@ function Private.ExecEnv.SetSecretAuraConditionProperty(region, property, ...)
   Private.BlizzardAuraDisplay.SetConditionProperty(region, property, ...)
 end
 
+-- ForeverAuras: no active condition changes the property any more; the
+-- native display drops its override and paints its own look (issue #143).
+function Private.ExecEnv.ResetSecretAuraConditionProperty(region, property, ...)
+  Private.BlizzardAuraDisplay.ResetConditionProperty(region, property, ...)
+end
+
 function Private.ExecEnv.SetSecretAuraConditionGate(region, index, on)
   Private.BlizzardAuraDisplay.SetConditionGate(region, index, on)
 end
@@ -1984,7 +1990,30 @@ local function ConstructConditionFunction(data)
       end
 
     if Private.BlizzardAuraDisplay.Enabled(data) and Private.BlizzardAuraDisplay.IsNativeConditionProperty(data, baseProperty) then
-      table.insert(ret, "    Private.ExecEnv.SetSecretAuraConditionProperty(region, " .. string.format("%q", baseProperty) .. ", " .. formatValueForCall(properties[baseProperty].type, baseProperty) .. ")\n")
+      -- ForeverAuras: the value alone cannot say whether a condition still
+      -- controls the property or has just restored the saved setting (both
+      -- reach the setter as, say, false). The native display is told which:
+      -- while a condition changing this property is active the value is an
+      -- override; otherwise the override is withdrawn and the display's own
+      -- look (the saved setting, or an Aura Active condition) returns.
+      local controllers = {}
+      for conditionNumber, condition in ipairs(data.conditions or {}) do
+        for _, change in ipairs(condition.changes or {}) do
+          if change.property then
+            local changeData = properties[change.property]
+            if ResolveBaseProperty(change.property, changeData and changeData.baseProperty or change.property) == baseProperty then
+              controllers[#controllers + 1] = "newActiveConditions[" .. conditionNumber .. "]"
+              break
+            end
+          end
+        end
+      end
+      local controlled = #controllers > 0 and table.concat(controllers, " or ") or "false"
+      table.insert(ret, "    if " .. controlled .. " then\n")
+      table.insert(ret, "      Private.ExecEnv.SetSecretAuraConditionProperty(region, " .. string.format("%q", baseProperty) .. ", " .. formatValueForCall(properties[baseProperty].type, baseProperty) .. ")\n")
+      table.insert(ret, "    else\n")
+      table.insert(ret, "      Private.ExecEnv.ResetSecretAuraConditionProperty(region, " .. string.format("%q", baseProperty) .. ", " .. formatValueForCall(properties[baseProperty].type, baseProperty) .. ")\n")
+      table.insert(ret, "    end\n")
     else
       table.insert(ret, "    " .. base .. properties[baseProperty].setter .. "(" .. arg1 .. formatValueForCall(properties[baseProperty].type, baseProperty)  .. ")\n")
     end

@@ -1,5 +1,17 @@
 # Changelog
 ## VERSIONS
+## 0.92.97
+- You can now use gold, silver and copper from the Money trigger in conditions, like 'gold >= 2'.
+- Groups that grow by frame no longer show the move and resize handles in the editor. They didn't do anything there and could throw an error.
+- 'Aura Active' conditions that change opacity now work on live icons. The aura's fade animation used to set it back to full.
+- Partial arc progress textures now fill in the direction you chose. Clockwise and anticlockwise were swapped.
+- 'Aura Active' conditions that turn a glow on or hide a text now actually show, both out of combat and after a fight.
+- When a normal condition stops applying, the look it changed goes back to how the display is set up, including anything an 'Aura Active' condition sets. A condition that's still active keeps control.
+- Conditions that stop during combat are now put back properly after combat for every property, not just glows and texts. If the condition comes back before the fight ends, it wins.
+- The 'Missing' sample updates right away when a condition stops during combat.
+- Leftover condition changes from an old setup are no longer applied after a display is rebuilt or turned back on.
+- `/fa cdm` shows a bit more detail now, to help look into stack count filters in combat.
+
 ## 0.92.89
 - Auras set to load "Not in combat" now actually disappear the moment combat starts, even if they have click buttons or sit in a Modern Aura Group. The game does the hiding itself, so protected frames are no longer a problem
 - Aura (Modern) triggers have a new “Affected Unit Filters and Info” section, like Aura (Legacy): Class, Group Role, Player Names, Include Pets, Ignore Self, Ignore Dead, Ignore Disconnected, Ignore out of checking range and Filter by Hostility. Each option only appears for units it makes sense for, and Class works on Target, Focus, Mouseover and nameplates too. Sounds, glows, grids and linked countdown texts follow the same filters

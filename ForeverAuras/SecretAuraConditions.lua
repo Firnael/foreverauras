@@ -634,6 +634,16 @@ local function SetFontSize(text, size)
   text:SetFont(font, size, flags)
 end
 
+-- Everything the addon draws on a live button hangs off these frames of its
+-- own (BuildButton, BlizzardAuraDisplay.lua); their alpha is the "Aura Active"
+-- alpha condition.
+local function SetPresentAlpha(native, alpha)
+  for _, key in ipairs({"gateClip", "inner", "outer"}) do
+    local frame = native[key]
+    if frame and frame.SetAlpha then frame:SetAlpha(alpha) end
+  end
+end
+
 local function ApplyProperty(button, data, property, value, overrides, setup)
   -- Native aura children deny addon access while aura information is secret.
   -- Sample icons (the preview and the static Missing icon) are the addon's own,
@@ -686,9 +696,16 @@ local function ApplyProperty(button, data, property, value, overrides, setup)
     -- Only reachable for the static Missing sample (Display.missingRootProperties).
     button.icon:SetTexture(value)
   elseif property == 'alpha' then
-    -- Only reachable for the static Missing sample (Display.missingRootProperties).
-    button.conditionAlpha = value
-    button.button:SetAlpha((button.visibleAlpha or 1) * value)
+    if button.preview then
+      -- The static Missing sample: its own button, whose alpha also carries its visibility.
+      button.conditionAlpha = value
+      button.button:SetAlpha((button.visibleAlpha or 1) * value)
+    else
+      -- A live button ("Aura Active = True"): the alpha goes on the frames the
+      -- addon owns on it, never on Blizzard's button, whose alpha the aura
+      -- animations (fade in, flash) drive back to 1 (issue #149).
+      SetPresentAlpha(button, value)
+    end
   elseif property == 'icon_color' then button.icon:SetVertexColor(unpack(value))
   elseif property == 'zoom' then
     -- Preserve the configured aspect ratio and texture offsets on condition edits.
@@ -719,6 +736,14 @@ local function ApplyKindConditions(native, data, wanted, setup, gates)
       end
     end
   end
+  -- ForeverAuras: the "Aura Active = True" values are kept on the live
+  -- button, so that the ordinary-condition pass (ApplyConditionAppearance)
+  -- starts from them instead of the saved settings, which reset a glow or a
+  -- text the condition had switched on (issue #143). Only the Present pass
+  -- is kept: the Missing sample repaints its own conditions after that pass
+  -- (KeepMissingDesaturated), and remembering them here would keep a removed
+  -- "Aura Active = False" change in force until the next restyle.
+  if wanted == "faAuraPresent" then native.kindConditionValues = values end
   for property, value in pairs(values) do ApplyProperty(native, data, property, value, values, setup) end
 end
 
@@ -731,6 +756,9 @@ end
 -- it is styled, never on the samples (the Missing look and the preview).
 function Display.ApplyPresentConditions(native, data, gates)
   if native.preview then return end
+  -- A Present alpha from an earlier paint (a gate now off, a condition
+  -- removed) is cleared before the current conditions paint again.
+  SetPresentAlpha(native, 1)
   ApplyKindConditions(native, data, "faAuraPresent", true, gates)
 end
 
@@ -764,10 +792,23 @@ function Display.RestyleButtons(region)
 end
 
 function Display.ApplyConditionAppearance(button, region, data)
-  local overrides = region.secretAuraConditionValues or {}
+  -- ForeverAuras: the precedence is the saved setting, then the "Aura Active
+  -- = True" conditions painted when the button was styled (kept in
+  -- kindConditionValues), then the ordinary conditions (issue #143). The
+  -- glow and text visibility below are reset to the saved setting only when
+  -- no Aura Active condition sets them; text visibility reads `overrides`,
+  -- so the Aura Active values are merged under the ordinary ones.
+  local kind = button.kindConditionValues or {}
+  local overrides = {}
+  for property, value in pairs(kind) do overrides[property] = value end
+  for property, value in pairs(region.secretAuraConditionValues or {}) do overrides[property] = value end
   for index, element in ipairs(data.subRegions or {}) do
     if not Display.IsDetachedElement(data, element) then
-      if element.type == 'subglow' then ApplyProperty(button, data, 'sub.' .. index .. '.glow', element.glow == true, overrides)
+      if element.type == 'subglow' then
+        local property = 'sub.' .. index .. '.glow'
+        local value = kind[property]
+        if value == nil then value = element.glow == true end
+        ApplyProperty(button, data, property, value, overrides)
       elseif element.type == 'subtext' then ApplyProperty(button, data, 'sub.' .. index .. '.text_visible', element.text_visible ~= false, overrides) end
     end
   end
@@ -784,6 +825,9 @@ function Display.SetConditionProperty(region, property, ...)
   local value = kind == 'color' and {...} or ...
   region.secretAuraConditionValues = region.secretAuraConditionValues or {}
   region.secretAuraConditionValues[property] = value
+  -- A condition setting the property again supersedes a reset still waiting
+  -- for access (ResetConditionProperty).
+  if region.secretAuraPendingResets then region.secretAuraPendingResets[property] = nil end
   -- While access to the native buttons is denied the values below are not
   -- applied; RefreshConditionAppearance applies them once access returns.
   if InCombatLockdown() or C_Secrets.ShouldAurasBeSecret() then region.secretAuraConditionDirty = true end
@@ -796,6 +840,70 @@ function Display.SetConditionProperty(region, property, ...)
       Display.KeepMissingDesaturated(missing.native, native.data, region.secretAuraGates)
     end
   end
+end
+
+-- ForeverAuras: paints one property's own look on every button of the
+-- display: the "Aura Active = True" value when the live button has one,
+-- otherwise `saved` (the setting the condition engine passes back), merged
+-- under the ordinary overrides that remain. Text visibility reads the
+-- overrides, so the Aura Active values are merged in under the ordinary
+-- ones, as ApplyConditionAppearance does. The Missing sample then repaints
+-- its Missing conditions on top.
+-- `missingOnly`: only the Missing samples, which are the addon's own and
+-- can be painted while the live buttons are denied.
+local function PaintBaseProperty(native, region, property, saved, missingOnly)
+  local values = region.secretAuraConditionValues or {}
+  local function paint(button)
+    local value = button.kindConditionValues and button.kindConditionValues[property]
+    if value == nil then value = saved end
+    local merged = {}
+    for key, entry in pairs(button.kindConditionValues or {}) do merged[key] = entry end
+    for key, entry in pairs(values) do merged[key] = entry end
+    ApplyProperty(button, native.data, property, value, merged)
+  end
+  for _, instance in ipairs(native.instances) do
+    if not missingOnly then
+      for _, button in ipairs(instance.buttons) do paint(button) end
+    end
+    local missing = instance.single and instance.single.missing
+    if missing and missing.native then
+      paint(missing.native)
+      Display.KeepMissingDesaturated(missing.native, native.data, region.secretAuraGates)
+    end
+  end
+end
+
+-- ForeverAuras: no active condition changes `property` any more (the
+-- generated condition code says so, Conditions.lua): the override is dropped
+-- and the display's own look returns, which is the "Aura Active = True"
+-- value when one is set on the live button and otherwise the saved setting
+-- the engine passes in. The value is not compared with anything: an active
+-- condition that sets the saved value on purpose stays an override through
+-- SetConditionProperty, so only a withdrawn condition reaches here (#143).
+function Display.ResetConditionProperty(region, property, ...)
+  local native = region.blizzardAuraDisplay
+  if not native or not native.active then return end
+  local kind = PropertyType(native.data, property)
+  if not kind then return end
+  local values = region.secretAuraConditionValues
+  if not values or values[property] == nil then return end
+  values[property] = nil
+  local saved = kind == 'color' and {...} or ...
+  -- While access to the live buttons is denied the repaint cannot happen
+  -- now, and the dropped override is no longer there for the refresh to
+  -- replay: the reset is kept, with its saved value, and painted by
+  -- RefreshConditionAppearance once access returns. A condition that sets
+  -- the property again before then supersedes it (SetConditionProperty).
+  if InCombatLockdown() or C_Secrets.ShouldAurasBeSecret() then
+    region.secretAuraConditionDirty = true
+    region.secretAuraPendingResets = region.secretAuraPendingResets or {}
+    region.secretAuraPendingResets[property] = {value = saved}
+    -- The Missing sample is the addon's own and repaints at once, as it
+    -- does for a condition value set while denied (SetConditionProperty).
+    PaintBaseProperty(native, region, property, saved, true)
+    return
+  end
+  PaintBaseProperty(native, region, property, saved)
 end
 
 -- Condition evaluation continues while access is denied; restore only its latest result.
@@ -819,6 +927,13 @@ function Display.RefreshConditionAppearance(region)
       Display.ApplyConditionAppearance(missing.native, region, native.data)
       Display.KeepMissingDesaturated(missing.native, native.data, region.secretAuraGates)
     end
+  end
+  -- Resets that waited for access (ResetConditionProperty): the properties
+  -- whose override was withdrawn while denied return to their own look.
+  local pending = region.secretAuraPendingResets
+  region.secretAuraPendingResets = nil
+  for property, entry in pairs(pending or {}) do
+    PaintBaseProperty(native, region, property, entry.value)
   end
 end
 
