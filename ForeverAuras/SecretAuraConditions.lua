@@ -945,7 +945,12 @@ function Display.StyleNativeConditionIndicators(native, data)
   -- Stop and reset pooled animation hosts before changing native registrations.
   native.conditionHosts = native.conditionHosts or {}
   for _, host in pairs(native.conditionHosts) do
-    if host.pulse then host.pulse:Stop() end
+    if host.pulse then
+      -- ForeverAuras: unregistered from the button before it is registered
+      -- again below (see there).
+      if button.RemoveAuraShownAnimation then button:RemoveAuraShownAnimation(host.pulse) end
+      host.pulse:Stop()
+    end
     host:SetAlpha(1)
   end
   -- Bindings are removed by texture reference; AddDispelTypeTexture returns no
@@ -1018,7 +1023,13 @@ function Display.StyleNativeConditionIndicators(native, data)
           end
           host.fadeOut:SetDuration(seconds / 2)
           host.fadeIn:SetDuration(seconds / 2)
-          host.pulse:Play()
+          -- ForeverAuras: played through the button, like the glows
+          -- (SecretAuraGlow.lua): the client runs it only while the button
+          -- shows an aura, and a sample stops it when it is hidden
+          -- (SecretAuraPreview.lua). Played directly, the looping group ran
+          -- from the first styling on, on every button and sample, whether
+          -- or not anything was shown.
+          if button.AddAuraShownAnimation then button:AddAuraShownAnimation(host.pulse) else host.pulse:Play() end
         end
         local color = Color(settings.faAuraHighlightColor, {1, 0.82, 0, 1})
         local r,g,b,alpha = color:GetRGBA()

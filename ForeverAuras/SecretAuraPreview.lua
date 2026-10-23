@@ -108,6 +108,8 @@ function Display.FillSampleBindings(button, iconID, name, data, timed)
   end
 end
 
+-- Samples whose hide waits for combat to end (HideSample below).
+local protectedHides = {}
 local function CreateSample(region)
   local native = Display.CreateSampleNative(region)
   local button = native.button
@@ -115,6 +117,10 @@ local function CreateSample(region)
   -- Only shown samples receive OnUpdate; keep text and bars in step with the swipe.
   button:SetScript("OnUpdate", function(self, elapsed)
     if not WeakAuras.IsOptionsOpen() then
+      -- ForeverAuras: a sample whose hide had to wait for combat (HideSample,
+      -- protectedHides) stays shown at alpha 0 until combat ends; asking
+      -- again every frame re-ran the whole preview teardown for the fight.
+      if protectedHides[self] then return end
       Display.HidePreview(region)
       if Display.FlushInstanceQueue then Display.FlushInstanceQueue(region) end
       return
@@ -153,7 +159,6 @@ end
 -- parented to a secure button, say) is protected itself, and hiding it during
 -- combat is blocked (ADDON_ACTION_BLOCKED: a display unloading on death). Such
 -- a sample goes invisible at once and hides when combat ends.
-local protectedHides = {}
 local protectedHideFrame
 local function HideSample(button)
   -- Animations are not protected: they stop even when the hide must wait.

@@ -1,5 +1,39 @@
 # Changelog
 ## VERSIONS
+## 1.0.0
+- Two gaps in the loading-screen settle closed: a reminder unloaded by the editor during the second after a loading screen stays unloaded, and one reloading during that second no longer sees the empty aura list as settled.
+- Dynamic groups can no longer be left stuck by an error in another aura, the editor, or a groups own layout: every group is resumed, and errors keep their traceback.
+- A failed display update is reported with its traceback and retried on the next update, rather than treated as done.
+- The editor's mass delete and button layout jobs release the groups they paused if they fail midway.
+- Aura (Modern) Aura(s) Missingdisplays no longer flash for a moment after a loading screen while the client's aura data settles.
+- Aura (Legacy) Aura(s) Missing triggers no longer flash after a loading screen: the players momentarily empty aura list is ignored and the player is rescanned a second after entering the world, including for reminders that load during that second.
+- Note: during that second the players last known auras are kept for every trigger type, so a buff that genuinely vanished in the zone can read as present for up to a second.
+- The Cast triggers note now says that another unit's spell is secret on this server in and out of combat.
+- A capture for Aura(s) Missing icons that show after a zone: /run ForeverAuras.debugMissing = true.
+- Spell Known load conditions go back to the plain check from .121; the rank-family handling added in .123 is removed as a precaution.
+- Unloading or hiding a Modern display now switches off everything it owns, including the group shadow and a unit frame glow that combat had locked; those are retried after the fight.
+- Stand-in copies in Modern Aura Groups stop their positioning and glow work while hidden, and pick it up again when shown.
+- Pulsing Border and Pulsing Glow highlights only run while an aura is shown.
+- Closing the editor during a fight no longer re-runs the preview teardown every frame.
+- A Modern aura whose load conditions first become true in combat is built and shown right away instead of after the fight.
+- Fixed an error when a Modern display had 'Icons per row' set and Max Icons was 1.
+- Went back to the nameplate handling from .126, at 40 plates, which keeps the anchor fix and drops the pool.
+- Removed the region warm-up. It built every unloaded aura after login, and the Modern ones stayed live in the client; that was the heavy feel after logging in.
+- Editing, importing or updating a pack no longer leaves live displays behind for auras that aren't loaded.
+- Unloading or hiding a Modern display now switches off everything it owns, including the group shadow and a unit frame glow locked by combat, which is retried after the fight.
+- Stand-in copies in Modern Aura Groups stop their positioning and glow work while hidden, and resume when shown.
+- Pulsing Border and Pulsing Glow highlights only run while an aura is shown.
+- Closing the editor during a fight no longer re-runs the preview teardown every frame.
+- A Modern aura whose load conditions first become true in combat is now built and shown right away, instead of waiting for the fight to end.
+- Fixed an error when a Modern display had 'Icons per row' set and Max Icons was 1.
+- Performance optimizations
+- Fix lua error for Max Icons under Aura Display
+- Displays prepared in the background while you're idle no longer keep watching unit and nameplate events until they first load. They're put to rest once their preparation finishes, so a combat-only aura doesn't end up with missing icons when it loads in combat.
+- Renaming an aura right after logging in no longer risks it being switched off by the background preparation.
+- Performance optimizations on PLAYER_REGEN_DISABLED
+- Aura (Modern) displays on nameplates now line up with the plate's health bar on the game's own nameplates. They used to sit off to the side because the plate frame is wider than the bar you see.
+- Aura (Modern) nameplate displays now watch up to 60 nameplates instead of 40. Friendly plates use up nameplate slots too, so enemies could end up past 40 and be missed.
+
 ## 0.92.125
 - Aura (Modern) displays on nameplates now sit against the visible health bar the same way Dynamic Groups do. They were anchored to the wider nameplate frame behind it, so they could float some way off to the side.
 

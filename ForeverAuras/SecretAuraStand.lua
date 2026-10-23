@@ -224,7 +224,13 @@ local function MirrorGlow(copy)
       width, height = sourceWidth, sourceHeight
     end
   end
-  if not sub or not sub.glow or not (width and width >= 1 and height and height >= 1) then
+  -- ForeverAuras: a copy nobody can see (its display hidden by its trigger,
+  -- unloaded, or the copies hidden for the editor) carries no glow: the
+  -- animations the copy plays itself would otherwise run on the hidden frame
+  -- for as long as it stayed hidden. The stand frame's OnShow asks again.
+  local visible = copy:IsVisible()
+  if issecretvalue(visible) then visible = true end
+  if not sub or not sub.glow or not visible or not (width and width >= 1 and height and height >= 1) then
     Display.ClearElementGlow(copy.faGlowEntry)
     return
   end
@@ -346,21 +352,31 @@ local function PlaceProxy(proxy)
   proxy:SetSize(math.max(width, 1), math.max(height, 1))
 end
 
+-- ForeverAuras: the proxy stops following while the stand frame is not
+-- visible (display hidden, unloaded, or its region discarded on conversion)
+-- and follows again from the stand frame's OnShow; before, it ran on for the
+-- session once its display had gone. It stays shown throughout: auras
+-- anchored to the display are parented to it, and would vanish with it.
+local function ProxyUpdate(self, elapsed)
+  self.elapsed = (self.elapsed or 0) + elapsed
+  if self.elapsed < 0.1 then return end
+  self.elapsed = 0
+  local shown = self.standFrame and self.standFrame:IsVisible()
+  if not issecretvalue(shown) and not shown then self:SetScript("OnUpdate", nil); return end
+  PlaceProxy(self)
+end
+
 local function EnsureProxy(stand)
   local proxy = stand.proxy
   if not proxy then
     proxy = CreateFrame("Frame", nil, UIParent)
     proxy:EnableMouse(false)
     proxy.standFrame = stand.frame
-    proxy:SetScript("OnUpdate", function(self, elapsed)
-      self.elapsed = (self.elapsed or 0) + elapsed
-      if self.elapsed < 0.1 then return end
-      self.elapsed = 0
-      PlaceProxy(self)
-    end)
+    proxy:SetScript("OnUpdate", ProxyUpdate)
     stand.proxy = proxy
   end
   proxy.standFrame = stand.frame
+  proxy:SetScript("OnUpdate", ProxyUpdate)
   PlaceProxy(proxy)
   proxy:Show()
   return proxy
@@ -388,7 +404,12 @@ function Display.EnsureStand(region, normal)
   -- made again on the new frame (the sources' hooks reach copies through
   -- stand.copies, so they follow the new ones).
   if stand.frame ~= normal.flow.start then
-    for _, copy in pairs(stand.pool) do pcall(copy.Hide, copy) end
+    for _, copy in pairs(stand.pool) do
+      -- ForeverAuras: a copy's mirrored glow stops with it; the glow's
+      -- frames are the copy's own, so they can still be reached.
+      if copy.faGlowEntry then Display.ClearElementGlow(copy.faGlowEntry) end
+      pcall(copy.Hide, copy)
+    end
     for _, source in ipairs(stand.sources) do
       if source.faStand and source.faStand.stand == stand then source.faStand = nil end
     end
@@ -413,6 +434,20 @@ function Display.EnsureStand(region, normal)
     end
     stand.frame:HookScript("OnShow", RefreshSourceGlows)
     stand.frame:HookScript("OnHide", RefreshSourceGlows)
+    -- ForeverAuras: the positioning proxy follows the stand frame's
+    -- visibility (see EnsureProxy); the copies' mirrored glows are cleared
+    -- or restyled by RefreshSourceGlows above (MirrorGlow).
+    stand.frame:HookScript("OnShow", function(frame)
+      local current = frame.faStandForGlows
+      if current and current.active and current.proxy then
+        current.proxy:SetScript("OnUpdate", ProxyUpdate)
+        PlaceProxy(current.proxy)
+      end
+    end)
+    stand.frame:HookScript("OnHide", function(frame)
+      local current = frame.faStandForGlows
+      if current and current.proxy then current.proxy:SetScript("OnUpdate", nil) end
+    end)
   end
   stand.frame.faStandForGlows = stand
   if Private.ReanchorAttachedTo then Private.ReanchorAttachedTo(region.id) end
