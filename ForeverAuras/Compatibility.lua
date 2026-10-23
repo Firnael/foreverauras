@@ -1,4 +1,4 @@
--- Modified for ForeverAuras, 2026-09-19.
+-- Modified for ForeverAuras, 2026-10-23.
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 -- This file is only for base functions that work differently or are deprecated in some versions of wow
 
@@ -39,7 +39,9 @@ do
     if entry == nil then
       entry = {GetSpellInfoRaw(spell)}
       entry.n = 8
-      infoCache[spell] = entry
+      -- A miss is not cached: spell data loads lazily on this client, and a
+      -- spell asked for before its data arrived answered nil once, not for good.
+      if entry[1] ~= nil then infoCache[spell] = entry end
     end
     return entry[1], entry[2], entry[3], entry[4], entry[5], entry[6], entry[7], entry[8]
   end
@@ -47,10 +49,11 @@ do
     if not Cacheable(spell) then return GetSpellNameRaw(spell) end
     local name = nameCache[spell]
     if name == nil then
-      name = GetSpellNameRaw(spell) or false
-      nameCache[spell] = name
+      name = GetSpellNameRaw(spell)
+      -- A miss is not cached (see GetSpellInfo above).
+      if name ~= nil then nameCache[spell] = name end
     end
-    return name or nil
+    return name
   end
   local invalidate = CreateFrame("Frame")
   -- Registered one by one in protected calls: an event unknown to this client

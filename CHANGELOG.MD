@@ -1,5 +1,8 @@
 # Changelog
 ## VERSIONS
+## 1.0.1
+- A non-exact 'Spell Known' load condition naming a rank you don't have no longer fails at login while the client is still loading that spell's data; the aura loads as soon as it arrives.
+
 ## 1.0.0
 - Two gaps in the loading-screen settle closed: a reminder unloaded by the editor during the second after a loading screen stays unloaded, and one reloading during that second no longer sees the empty aura list as settled.
 - Dynamic groups can no longer be left stuck by an error in another aura, the editor, or a groups own layout: every group is resumed, and errors keep their traceback.
