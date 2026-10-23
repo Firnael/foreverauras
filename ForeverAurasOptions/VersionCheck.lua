@@ -7,7 +7,7 @@ local Private = select(2, ...)
 
 local L = WeakAuras.L
 
-local optionsVersion = "1.0.1"
+local optionsVersion = "1.0.2"
 
 
 if optionsVersion ~= WeakAuras.versionString then
