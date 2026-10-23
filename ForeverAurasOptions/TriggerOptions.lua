@@ -112,6 +112,16 @@ local function GetGlobalOptions(data)
         if not display.GetSavedTrigger(data) then
           text = text .. "\n\n|cffff9900Dynamic Information does not come from an Aura (Modern) trigger, so this has no effect.|r"
         end
+        -- ForeverAuras: the fallback is drawn by ForeverAuras in place of the
+        -- client's display, which is not possible inside an Aura (Modern)
+        -- group or on a unit frame or nameplate; say so instead of offering
+        -- a choice that does nothing there.
+        local anchor = display.FrameAnchorType and display.FrameAnchorType(data)
+        if display.FlowGroup and display.FlowGroup(data) then
+          text = text .. "\n\n|cffff9900" .. L["This display is in an Aura (Modern) group, where the fallback is not available."] .. "|r"
+        elseif anchor == "UNITFRAME" or anchor == "NAMEPLATE" then
+          text = text .. "\n\n|cffff9900" .. L["This display is anchored to unit frames or nameplates, where the fallback is not available."] .. "|r"
+        end
         return text
       end,
       width = WeakAuras.doubleWidth,
