@@ -1,5 +1,11 @@
 # Changelog
 ## VERSIONS
+## 0.92.123
+- 'Spell Known' load conditions now work for classes that forget old ranks, like Warriors and Rogues. Entering any rank of a spell counts as known if you know that rank or a higher one. 'Exact Spell ID' still means that one rank only.
+- Added the Forever ranks of Charge so they're recognized too.
+- Conditions on an Aura (Modern) display that come from other triggers now show a note explaining they can't change the live icon during combat. This is a game restriction, not a bug.
+- The fallback option now tells you when it can't apply, such as inside an Aura (Modern) group or on unit frames and nameplates.
+
 ## 0.92.120
 - Changing a glow's colour no longer builds a new set of animations every time. Pieces are reused in the same order, so repeated edits don't pile up.
 - Cooldown Manager retries no longer stop early when something else rebuilt the list a moment before. They keep going until the viewer is ready or the limit is reached.

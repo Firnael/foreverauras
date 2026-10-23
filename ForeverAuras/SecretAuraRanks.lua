@@ -493,7 +493,7 @@ local families = {
   {2687}, -- Warrior / Bloodrage
   {23881, 23892, 23893, 23894}, -- Warrior / Bloodthirst
   {1161}, -- Warrior / Challenging Shout
-  {100, 6178, 11578}, -- Warrior / Charge
+  {100, 6178, 11578, 1240287, 1240288, 1240289}, -- Warrior / Charge (Forever ranks 4-6 added)
   {845, 7369, 11608, 11609, 20569}, -- Warrior / Cleave
   {12809}, -- Warrior / Concussion Blow
   {12328}, -- Warrior / Death Wish

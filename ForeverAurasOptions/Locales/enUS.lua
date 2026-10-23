@@ -971,6 +971,7 @@ WeakAuras will always run custom grow code if you include 'changed' in this list
 	L["Zoom Out"] = "Zoom Out"
 
 -- ForeverAuras: Aura (Modern), CDM and options window
+L["In combat the game forbids addon changes to a live aura icon, so while the aura is shown this condition takes effect when combat ends. The Missing look is the addon's own and follows it at once. Only an 'Aura Active' condition on its own changes the live icon during combat."] = "In combat the game forbids addon changes to a live aura icon, so while the aura is shown this condition takes effect when combat ends. The Missing look is the addon's own and follows it at once. Only an 'Aura Active' condition on its own changes the live icon during combat."
 L["This display is in an Aura (Modern) group, where the fallback is not available."] = "This display is in an Aura (Modern) group, where the fallback is not available."
 L["This display is anchored to unit frames or nameplates, where the fallback is not available."] = "This display is anchored to unit frames or nameplates, where the fallback is not available."
 L["An Aura (Modern) trigger draws the display itself, so Dynamic Information must come from it. To show another trigger's timer while its aura filters are not met, use \"When Aura (Modern) Filters Are Not Met, Use\" below."] = "An Aura (Modern) trigger draws the display itself, so Dynamic Information must come from it. To show another trigger's timer while its aura filters are not met, use \"When Aura (Modern) Filters Are Not Met, Use\" below."

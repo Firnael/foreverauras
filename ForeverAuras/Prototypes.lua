@@ -1212,11 +1212,36 @@ function WeakAuras.IsSpellKnownForLoad(spell, exact)
   if exact or result then
     return result
   end
+  -- ForeverAuras: some classes forget a rank when they learn the next one
+  -- (a warrior's IsPlayerSpell on Charge rank 1 is false once rank 2 is
+  -- known), so a load condition naming a rank is met while that rank or a
+  -- higher one is known: a higher rank is only ever learnt after the lower
+  -- ones. A lower rank never stands in for a higher one, so a class that
+  -- keeps every rank still needs the named rank. Rank order comes from the
+  -- bundled rank families (SecretAuraRanks.lua, lowest rank first).
+  if Private.GetAuraSpellRanks then
+    local family, after = Private.GetAuraSpellRanks(spell), false
+    for _, rankID in ipairs(family) do
+      if after and (IsPlayerSpell(rankID) or IsSpellKnownOrOverridesAndBaseIsKnown(rankID, false)) then return true end
+      if rankID == spell then after = true end
+    end
+  end
   -- Dance through the spellname to the current spell id
   local spellName = Private.ExecEnv.GetSpellName(spell or "")
   if (spellName) then
     local otherSpell = select(7, Private.ExecEnv.GetSpellInfo(spellName))
     if otherSpell and otherSpell ~= spell then
+      -- ForeverAuras: the name may resolve to a lower rank of the same spell
+      -- (the rank-1 ID, say); that is not the named rank, so it does not
+      -- count. Any other ID of that name is checked as before.
+      if Private.GetAuraSpellRanks then
+        local family, named, other = Private.GetAuraSpellRanks(spell)
+        for index, rankID in ipairs(family) do
+          if rankID == spell then named = index end
+          if rankID == otherSpell then other = index end
+        end
+        if named and other and other < named then return false end
+      end
       return WeakAuras.IsSpellKnownForLoad(otherSpell)
     end
   end
