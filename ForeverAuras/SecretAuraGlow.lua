@@ -108,7 +108,11 @@ end
 
 local function NewTexture(glow, parent, layer)
   local free = glow.entry.freeTextures and glow.entry.freeTextures[parent]
-  local texture = free and table.remove(free)
+  -- ForeverAuras: taken from the front, so a rebuilt glow (a colour change,
+  -- say) gets its textures back in the order it built them; a registered
+  -- animation cannot be retargeted, and the old back-to-front order made
+  -- FinishPaths build a fresh group on every colour edit.
+  local texture = free and table.remove(free, 1)
   if texture then
     ResetTexture(texture, layer)
   else
@@ -124,7 +128,8 @@ end
 
 local function NewFrame(glow, parent)
   local free = glow.entry.freeFrames and glow.entry.freeFrames[parent]
-  local frame = free and table.remove(free)
+  -- ForeverAuras: front first, as NewTexture (the edges keep their textures).
+  local frame = free and table.remove(free, 1)
   if frame then
     frame:ClearAllPoints()
   else

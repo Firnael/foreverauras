@@ -72,9 +72,15 @@ local function GetCatalog(refresh)
   -- A refresh event (a loading screen, a spell change, the options' refresh)
   -- starts a new episode of bounded retries.
   if refresh then catalogRetries = 0 end
-  if catalog and not refresh and CatalogIncomplete(catalog) and catalogRetries < 10 and catalogTime and GetTime() - catalogTime >= 1 then
-    refresh = true
-    catalogRetries = catalogRetries + 1
+  if catalog and not refresh and CatalogIncomplete(catalog) and catalogRetries < 10 then
+    if catalogTime and GetTime() - catalogTime >= 1 then
+      refresh = true
+      catalogRetries = catalogRetries + 1
+    else
+      -- Rebuilt by an event moments ago: the timed retry that found it too
+      -- fresh must still lead to another look, or the chain would end here.
+      ScheduleCatalogRetry()
+    end
   end
   if catalog and not refresh then
     if batch then batch.catalog = catalog end

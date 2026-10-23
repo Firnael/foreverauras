@@ -37,7 +37,13 @@ local function SelectModernTrigger(data)
   local chosen = mode > 0 and data.triggers[mode]
   chosen = type(chosen) == "table" and chosen.trigger
   local source = data.progressSource and data.progressSource[1]
-  if chosen and chosen.type == "secretAura" and not (source and source > 0 and source ~= mode) then return end
+  if chosen and chosen.type == "secretAura" then
+    -- ForeverAuras: the chosen trigger stands; a progress source naming
+    -- another trigger goes back to Automatic (it used to switch the choice
+    -- to the first Aura (Modern) trigger instead, undoing the selection).
+    if source and source > 0 and source ~= mode then data.progressSource = {-1, ""} end
+    return
+  end
   local first
   for index, entry in ipairs(data.triggers) do
     if type(entry) == "table" and entry.trigger and entry.trigger.type == "secretAura" then first = index; break end

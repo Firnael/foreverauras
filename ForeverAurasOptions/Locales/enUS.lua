@@ -971,6 +971,8 @@ WeakAuras will always run custom grow code if you include 'changed' in this list
 	L["Zoom Out"] = "Zoom Out"
 
 -- ForeverAuras: Aura (Modern), CDM and options window
+L["This display is in an Aura (Modern) group, where the fallback is not available."] = "This display is in an Aura (Modern) group, where the fallback is not available."
+L["This display is anchored to unit frames or nameplates, where the fallback is not available."] = "This display is anchored to unit frames or nameplates, where the fallback is not available."
 L["An Aura (Modern) trigger draws the display itself, so Dynamic Information must come from it. To show another trigger's timer while its aura filters are not met, use \"When Aura (Modern) Filters Are Not Met, Use\" below."] = "An Aura (Modern) trigger draws the display itself, so Dynamic Information must come from it. To show another trigger's timer while its aura filters are not met, use \"When Aura (Modern) Filters Are Not Met, Use\" below."
 L["Classes"] = "Classes"
 L["Only track units of the selected classes. Units left out get no part of the display."] = "Only track units of the selected classes. Units left out get no part of the display."

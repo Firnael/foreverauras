@@ -1,5 +1,11 @@
 # Changelog
 ## VERSIONS
+## 0.92.120
+- Changing a glow's colour no longer builds a new set of animations every time. Pieces are reused in the same order, so repeated edits don't pile up.
+- Cooldown Manager retries no longer stop early when something else rebuilt the list a moment before. They keep going until the viewer is ready or the limit is reached.
+- Picking an Aura (Modern) trigger for Dynamic Information now sticks. It used to jump back to the first Modern trigger if your progress source pointed elsewhere.
+- The "When Aura (Modern) Filters Are Not Met" option now tells you when it can't apply, such as inside an Aura (Modern) group or on unit frames and nameplates.
+
 ## 0.92.119
 - Old condition changes are no longer applied after a display is rebuilt or turned back on.
 - Cooldown Manager text follows the Number format you pick, including 'seconds only' and decimals.
