@@ -1,5 +1,8 @@
 # Changelog
 ## VERSIONS
+## 0.92.125
+- Aura (Modern) displays on nameplates now sit against the visible health bar the same way Dynamic Groups do. They were anchored to the wider nameplate frame behind it, so they could float some way off to the side.
+
 ## 0.92.123
 - 'Spell Known' load conditions now work for classes that forget old ranks, like Warriors and Rogues. Entering any rank of a spell counts as known if you know that rank or a higher one. 'Exact Spell ID' still means that one rank only.
 - Added the Forever ranks of Charge so they're recognized too.

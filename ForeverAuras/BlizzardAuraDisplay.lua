@@ -1718,7 +1718,8 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
         if unitFrames then
           anchorFrame = WeakAuras.GetUnitFrame(unit)
         elseif nameplates and unit ~= removedUnit then
-          anchorFrame = C_NamePlate.GetNamePlateForUnit(unit)
+          -- ForeverAuras: the plate's visible bar, as the flow groups use (SecretAuraFlow.lua, NameplateAnchor).
+          anchorFrame = Display.NameplateAnchor and Display.NameplateAnchor(unit) or C_NamePlate.GetNamePlateForUnit(unit)
         end
       end
       if anchorFrame and anchorFrame:IsForbidden() then anchorFrame = nil end
@@ -1919,6 +1920,34 @@ local function RefreshUnits(region, removedUnit, changedUnit, unitChanged)
   Private.StopProfileSystem("aura (modern) - units: grid")
 end
 Display.RefreshUnits = RefreshUnits
+
+-- ForeverAuras: LibGetFrame rescans the unit frames a second after a roster
+-- change (GROUP_ROSTER_UPDATE), so a display grouped by unit frame sat on
+-- the old frame for about that long after a party became a raid, or the
+-- reverse. Blizzard's frames announce the change themselves when they are
+-- given their units (CompactUnitFrame_SetUnit for raid-style frames,
+-- UnitFrame_SetUnit for the party frames); a rescan is asked for at once,
+-- once per frame, and only while a shown display is placed on unit frames.
+-- The rescan fires FRAME_UNIT_UPDATE, which reaches UnitFramesChanged.
+local unitFrameRescanQueued = false
+local function QueueUnitFrameRescan(unit)
+  if unitFrameRescanQueued or (issecretvalue and issecretvalue(unit)) then return end
+  if type(unit) ~= "string" or not (unit:find("^party") or unit:find("^raid")) then return end
+  local needed
+  for region in pairs(activeRegions) do
+    local data = region.blizzardAuraDisplay.data
+    if data.anchorFrameType == "UNITFRAME" or Display.FlowFrameMode(data) == "UNITFRAME" then needed = true; break end
+  end
+  if not needed then return end
+  unitFrameRescanQueued = true
+  C_Timer.After(0, function()
+    unitFrameRescanQueued = false
+    local LGF = LibStub and LibStub("LibGetFrame-1.0", true)
+    if LGF and LGF.ScanForUnitFrames then LGF.ScanForUnitFrames() end
+  end)
+end
+if CompactUnitFrame_SetUnit then hooksecurefunc("CompactUnitFrame_SetUnit", function(_, unit) QueueUnitFrameRescan(unit) end) end
+if UnitFrame_SetUnit then hooksecurefunc("UnitFrame_SetUnit", function(_, unit) QueueUnitFrameRescan(unit) end) end
 
 local unitFrameRefreshPending
 function Display.UnitFramesChanged()

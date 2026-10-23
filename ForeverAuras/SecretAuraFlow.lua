@@ -1027,8 +1027,20 @@ local function AlignedPoints(group, g)
   return Align(g.start), Align(g.listEnd), Align(g.far)
 end
 
+-- ForeverAuras: the plate's visible bar (WeakAuras.GetUnitNameplate: the
+-- nameplate addon's health bar, or the client's unit frame inside the
+-- plate), as a Dynamic Group grouped by nameplate uses. The NamePlate frame
+-- itself is wider than the bar drawn in it, so a row anchored to its edge
+-- sat well clear of the plate.
+local function NameplateAnchor(unit)
+  local frame = WeakAuras.GetUnitNameplate and WeakAuras.GetUnitNameplate(unit)
+  if frame and frame.IsForbidden and not frame:IsForbidden() then return frame end
+  return C_NamePlate.GetNamePlateForUnit(unit)
+end
+Display.NameplateAnchor = NameplateAnchor
+
 local function UnitAnchor(mode, unit)
-  local frame = mode == "UNITFRAME" and WeakAuras.GetUnitFrame(unit) or (mode == "NAMEPLATE" and C_NamePlate.GetNamePlateForUnit(unit))
+  local frame = mode == "UNITFRAME" and WeakAuras.GetUnitFrame(unit) or (mode == "NAMEPLATE" and NameplateAnchor(unit))
   if frame and not frame:IsForbidden() then return frame end
 end
 
