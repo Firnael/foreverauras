@@ -1,7 +1,3 @@
-# UNDER DEVELOPMENT DURING BETA
-
-**REPORT ISSUES ON [GITHUB](https://github.com/neroxrw/foreverauras/issues)**
-
 # ForeverAuras
 ForeverAuras is a powerful and flexible framework that allows the display of highly customizable graphics on World of Warcraft's user interface to indicate buffs, debuffs, and other relevant information. This addon was created to be a replacement for WeakAuras2 in WoW Forever.
 
