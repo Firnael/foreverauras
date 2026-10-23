@@ -1,4 +1,4 @@
--- Modified for ForeverAuras, 2026-09-19.
+-- Modified for ForeverAuras, 2026-10-23.
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 ---@type string
 local AddonName = ...
@@ -7,7 +7,7 @@ local Private = select(2, ...)
 
 local L = WeakAuras.L
 
-local optionsVersion = "0.92.125-BETA"
+local optionsVersion = "1.0.0"
 
 
 if optionsVersion ~= WeakAuras.versionString then

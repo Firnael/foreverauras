@@ -1032,10 +1032,35 @@ end
 -- plate), as a Dynamic Group grouped by nameplate uses. The NamePlate frame
 -- itself is wider than the bar drawn in it, so a row anchored to its edge
 -- sat well clear of the plate.
+-- The client's own plates on this client keep their bar in an unnamed frame
+-- (no UnitFrame field for the lookup to find), so the first status bar
+-- inside the plate is taken as the bar; the plate itself when there is none.
+local barOf = setmetatable({}, {__mode = "k"})
+local function FirstStatusBar(frame, depth)
+  for _, child in ipairs({frame:GetChildren()}) do
+    if child:GetObjectType() == "StatusBar" then return child end
+    if depth > 1 then
+      local found = FirstStatusBar(child, depth - 1)
+      if found then return found end
+    end
+  end
+end
 local function NameplateAnchor(unit)
   local frame = WeakAuras.GetUnitNameplate and WeakAuras.GetUnitNameplate(unit)
   if frame and frame.IsForbidden and not frame:IsForbidden() then return frame end
-  return C_NamePlate.GetNamePlateForUnit(unit)
+  local plate = C_NamePlate.GetNamePlateForUnit(unit)
+  if not plate or plate:IsForbidden() then return plate end
+  local unitFrame = plate.UnitFrame
+  local bar = unitFrame and (unitFrame.healthBar or (unitFrame.HealthBarsContainer and unitFrame.HealthBarsContainer.healthBar))
+  if not bar then
+    bar = barOf[plate]
+    if bar == nil then
+      bar = FirstStatusBar(plate, 3) or false
+      barOf[plate] = bar
+    end
+  end
+  if bar and bar.IsForbidden and not bar:IsForbidden() then return bar end
+  return plate
 end
 Display.NameplateAnchor = NameplateAnchor
 

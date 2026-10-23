@@ -1,4 +1,5 @@
--- Modified for ForeverAuras, 2026-09-18.
+-- Modified for ForeverAuras, 2026-10-23.
+-- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 local L = WeakAuras.L
 
 -- ForeverAuras
@@ -1565,6 +1566,9 @@ L["Zul'Gurub"] = "Zul'Gurub"
 L["Raid Leader"] = "Raid Leader"
 
 -- ForeverAuras: Aura (Modern), CDM and options window
+L["Won't match:"] = "Won't match:"
+L["Another unit's spell is secret on this server, in and out of combat; only your own casts can be filtered by spell."] = "Another unit's spell is secret on this server, in and out of combat; only your own casts can be filtered by spell."
+L["Another unit's casts are secret on this server, in and out of combat: they show with their bar and timer, but cannot be filtered by spell."] = "Another unit's casts are secret on this server, in and out of combat: they show with their bar and timer, but cannot be filtered by spell."
 L["Money (total copper)"] = "Money (total copper)"
 L["Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM settings (backed up) and works on a copy of your Edit Mode layout named \"<layout>-FA\"; your own layout is left as it is. Needs a reload."] = "Set up Blizzard's Cooldown Manager for ForeverAuras? This changes your CDM settings (backed up) and works on a copy of your Edit Mode layout named \"<layout>-FA\"; your own layout is left as it is. Needs a reload."
 L["A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM settings and makes a copy of your Edit Mode layout named \"<layout>-FA\" with the viewers always visible; your own layout is left as it is. Needs a reload."] = "A ForeverAuras class pack can set up Blizzard's Cooldown Manager for its auras (%d buffs, %d spell cooldowns). This changes your CDM settings and makes a copy of your Edit Mode layout named \"<layout>-FA\" with the viewers always visible; your own layout is left as it is. Needs a reload."

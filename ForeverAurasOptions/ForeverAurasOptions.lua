@@ -1,4 +1,4 @@
--- Modified for ForeverAuras, 2026-09-30.
+-- Modified for ForeverAuras, 2026-10-23.
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
 ---@type string
@@ -39,11 +39,14 @@ function OptionsPrivate.SyncAllVisibility()
     if run ~= syncRun or not WeakAuras.IsOptionsOpen() then return end
     local start = debugprofilestop()
     local suspended = OptionsPrivate.Private.PauseAllDynamicGroups()
+    -- ForeverAuras: a failing preview must not leave every dynamic group
+    -- suspended; the error is reported with its traceback, the rest of the
+    -- batch runs, and the groups are resumed regardless.
     while index <= #ids do
       local button = displayButtons[ids[index]]
       index = index + 1
       if button then
-        button:SyncVisibility()
+        xpcall(button.SyncVisibility, geterrorhandler(), button)
       end
       if debugprofilestop() - start > 8 then break end
     end
@@ -744,6 +747,7 @@ local function LayoutDisplayButtons(msg)
   frame.buttonsScroll:AddChild(frame.loadedButton);
   frame.buttonsScroll:AddChild(frame.unloadedButton);
 
+  local layoutSuspended
   local func2 = function()
     local num = frame.loadProgressNum or 0;
     for _, id in pairs(unloadedSorted) do
@@ -771,7 +775,9 @@ local function LayoutDisplayButtons(msg)
     frame.buttonsScroll:PerformLayout()
     OptionsPrivate.SortDisplayButtons(msg);
 
-    local suspended = OptionsPrivate.Private.PauseAllDynamicGroups()
+    -- ForeverAuras: held in layoutSuspended so the job's Finally can release
+    -- the groups if the job dies between these yields.
+    layoutSuspended = OptionsPrivate.Private.PauseAllDynamicGroups()
     if (WeakAuras.IsOptionsOpen()) then
       for id, button in pairs(displayButtons) do
         if OptionsPrivate.Private.loaded[id] then
@@ -783,6 +789,8 @@ local function LayoutDisplayButtons(msg)
       OptionsPrivate.Private.OptionsFrame().loadedButton:RecheckVisibility()
       coroutine.yield()
     end
+    local suspended = layoutSuspended
+    layoutSuspended = nil
     OptionsPrivate.Private.ResumeAllDynamicGroups(suspended)
 
     frame:SetLoadProgressVisible(false)
@@ -813,13 +821,22 @@ local function LayoutDisplayButtons(msg)
       coroutine.yield();
     end
 
-   OptionsPrivate.Private:Async({name = "LayoutDisplayButtons2"}, func2)
+   -- ForeverAuras: a job that errors out between its pause and its resume
+   -- (the thread dies and is removed) still releases the groups it paused.
+   OptionsPrivate.Private:Async({name = "LayoutDisplayButtons2"}, func2):Finally(function()
+     if layoutSuspended then
+       local suspended = layoutSuspended
+       layoutSuspended = nil
+       OptionsPrivate.Private.ResumeAllDynamicGroups(suspended)
+     end
+   end)
   end
 
   OptionsPrivate.Private:Async({name = "LayoutDisplayButtons1"}, func1)
 end
 
 function OptionsPrivate.DeleteAuras(auras, parents)
+  local deleteSuspended
   local func1 = function()
     frame:SetLoadProgressVisible(true)
     local num = 0
@@ -830,7 +847,9 @@ function OptionsPrivate.DeleteAuras(auras, parents)
 
     frame.loadProgress:SetText(L["Deleting auras: "]..num.."/"..total)
 
-    local suspended = OptionsPrivate.Private.PauseAllDynamicGroups()
+    -- ForeverAuras: held in deleteSuspended so the job's Finally can release
+    -- the groups if the job dies between its yields.
+    deleteSuspended = OptionsPrivate.Private.PauseAllDynamicGroups()
     OptionsPrivate.massDelete = true
     for _, auraData in pairs(auras) do
       WeakAuras.Delete(auraData)
@@ -858,13 +877,23 @@ function OptionsPrivate.DeleteAuras(auras, parents)
         coroutine.yield()
       end
     end
+    local suspended = deleteSuspended
+    deleteSuspended = nil
     OptionsPrivate.Private.ResumeAllDynamicGroups(suspended)
     OptionsPrivate.SortDisplayButtons(nil, true)
 
     frame:SetLoadProgressVisible(false)
   end
 
-  OptionsPrivate.Private:Async({name = "Deleting Auras"}, func1)
+  -- ForeverAuras: see LayoutDisplayButtons2.
+  OptionsPrivate.Private:Async({name = "Deleting Auras"}, func1):Finally(function()
+    OptionsPrivate.massDelete = false
+    if deleteSuspended then
+      local suspended = deleteSuspended
+      deleteSuspended = nil
+      OptionsPrivate.Private.ResumeAllDynamicGroups(suspended)
+    end
+  end)
 end
 
 function WeakAuras.ShowOptions(msg)

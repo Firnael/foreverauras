@@ -1,4 +1,4 @@
--- Modified for ForeverAuras, 2026-10-08.
+-- Modified for ForeverAuras, 2026-10-23.
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 ---@type string
 local AddonName = ...
@@ -1637,10 +1637,21 @@ function Private.SuspendGroupsOf(ids)
   return suspended
 end
 
+-- ForeverAuras: every group is resumed even when one fails: a Resume also
+-- runs the group's delayed layout, and an error there used to stop the loop
+-- and leave the remaining groups suspended. Each failure is reported with
+-- its own traceback.
 function Private.ResumeGroups(suspended)
   for _, parentRegion in ipairs(suspended) do
-    parentRegion:Resume()
+    xpcall(parentRegion.Resume, geterrorhandler(), parentRegion)
   end
+end
+
+-- ForeverAuras: an xpcall handler that keeps the traceback of the point of
+-- failure in the message, for an error that is raised again after cleanup
+-- (groups resumed) has run.
+function Private.CaptureError(err)
+  return tostring(err) .. "\n" .. debugstack(2)
 end
 
 function Private.PauseAllDynamicGroups()
@@ -1658,7 +1669,8 @@ function Private.ResumeAllDynamicGroups(suspended)
   for _, id in ipairs(suspended) do
     local region = WeakAuras.GetRegion(id)
     if (region and region.Resume) then
-      region:Resume();
+      -- ForeverAuras: see Private.ResumeGroups.
+      xpcall(region.Resume, geterrorhandler(), region)
     end
   end
 end
@@ -1890,7 +1902,11 @@ local function scanForLoadsImpl(toCheck, event, arg1, ...)
       if(shouldBeLoaded and not loaded[id]) then
         changed = changed + 1;
         toLoad[id] = true;
+        -- ForeverAuras: timed apart from the load functions, to tell a slow
+        -- load condition from the regions built for auras loading now.
+        Private.StartProfileSystem("load: ensure regions")
         Private.EnsureRegion(id)
+        Private.StopProfileSystem("load: ensure regions")
         for parent in Private.TraverseParents(data) do
           parentsToCheck[parent.id] = true
         end
@@ -2210,6 +2226,10 @@ function Private.Resume()
 
   local suspended = Private.PauseAllDynamicGroups()
 
+  -- ForeverAuras: protected so a failing display cannot leave every dynamic
+  -- group suspended (see ApplyStatesToRegions); the error, with its
+  -- traceback, is raised again once the groups are resumed.
+  local ok, err = xpcall(function()
   for id, region in pairs(Private.regions) do
     if region.region then
       region.region:Collapse();
@@ -2228,8 +2248,11 @@ function Private.Resume()
   if loadEvents["GROUP"] then
     Private.ScanForLoadsGroup(loadEvents["GROUP"])
   end
+  end, Private.CaptureError)
+  unloadingAllDisplays = false
 
   Private.ResumeAllDynamicGroups(suspended)
+  if not ok then error(err, 0) end
 end
 
 -- /fa unloadall: unloads and hides every display for this session only, so
@@ -5161,6 +5184,10 @@ do
 
   local function UpdateFakeTimers()
     local suspended = Private.PauseAllDynamicGroups()
+    -- ForeverAuras: protected so an aura's failing update cannot leave every
+    -- dynamic group suspended (see ApplyStatesToRegions); the error is
+    -- reported with its traceback and the groups are resumed regardless.
+    xpcall(function()
     local t = GetTime()
     for id, triggers in pairs(triggerState) do
       local changed = false
@@ -5183,6 +5210,7 @@ do
         Private.UpdatedTriggerState(id)
       end
     end
+    end, geterrorhandler())
     Private.ResumeAllDynamicGroups(suspended)
   end
 
@@ -5404,6 +5432,14 @@ local function ApplyStatesToRegions(id, activeTrigger, states)
   if parent and parent.Suspend then
     parent:Suspend()
   end
+  -- ForeverAuras: protected, as the load scan is, so a failing display
+  -- cannot leave its group suspended: a group left suspended never sorts or
+  -- positions its children again until a reload, and the children that
+  -- change after that vanish or sit in the wrong place. The error, with the
+  -- traceback captured where it happened, is raised again once the group
+  -- has been resumed, so the caller still stops as it always did and the
+  -- failed update stays marked as changed for the next update to retry.
+  local ok, err = xpcall(function()
   for cloneId, state in pairs(states) do
     if (state.show) then
       local region = Private.EnsureRegion(id, cloneId);
@@ -5433,9 +5469,11 @@ local function ApplyStatesToRegions(id, activeTrigger, states)
       end
     end
   end
+  end, Private.CaptureError)
   if parent and parent.Resume then
     parent:Resume()
   end
+  if not ok then error(err, 0) end
 end
 
 -- handle trigger updates that have been requested to be sent into custom

@@ -1,4 +1,4 @@
--- Modified for ForeverAuras, 2026-10-08.
+-- Modified for ForeverAuras, 2026-10-23.
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
 local L = WeakAuras.L
@@ -14,6 +14,9 @@ local lockedHide = setmetatable({}, {__mode = "k"})
 local lockedUnits = setmetatable({}, {__mode = "k"})
 local pendingSounds = {}
 local activeRegions = {}
+-- ForeverAuras: the active Modern displays, for the Missing veil across
+-- loading screens (SecretAuraSingle.lua, Display.SettleMissing).
+function Display.ActiveRegions() return pairs(activeRegions) end
 -- For the hitch report: how many Modern displays are active and how many
 -- native aura containers they hold (shown ones counted separately).
 function Display.CountContainers()
@@ -906,14 +909,63 @@ function Display.Restore(region)
   end
 end
 
+-- ForeverAuras: switches off one display's client work: every container
+-- it owns (the aura list, its list shadow in a Modern Aura Group, its unit
+-- glow, and the Missing parts through RefreshSingle). A frame the client has
+-- locked (in combat, when it hangs from a protected unit frame or plate) is
+-- noted in lockedHide and switched off when restrictions end; before, only
+-- the aura list was retried then, so a unit glow or list shadow locked at
+-- release time stayed enabled, bound to its unit and processed by the
+-- client for the rest of the session.
+local function QuietInstance(region, instance)
+  local locked = false
+  if Locked(instance.container) then
+    locked = true
+  else
+    instance.container:SetEnabled(false)
+    instance.container:Hide()
+  end
+  local shadow = instance.flowShadow
+  if shadow then
+    if Locked(shadow) then
+      locked = true
+    elseif shadow.faEnabled or shadow:IsShown() then
+      shadow.faEnabled = false
+      shadow:SetEnabled(false)
+      shadow:Hide()
+    end
+  end
+  local glow = instance.unitGlow and instance.unitGlow.container
+  if glow then
+    if Locked(glow) then
+      locked = true
+    else
+      glow:SetEnabled(false)
+      glow:Hide()
+    end
+  end
+  -- The Missing parts are switched off by RefreshSingle (the caller), which
+  -- gives up on a locked one; it is retried from here as well.
+  local missing = instance.single and instance.single.missing
+  if missing and missing.active and (Locked(missing.container) or Locked(missing.clip)
+    or (missing.presence and Locked(missing.presence)) or (missing.flowShadow and Locked(missing.flowShadow))) then
+    locked = true
+  end
+  if locked then lockedHide[region] = true end
+end
+
 function Display.HideUnitGlows(region)
   local native = region.blizzardAuraDisplay
   if not native then return end
   native.unitGlowsHidden = true
   for _, instance in ipairs(native.instances) do
-    if instance.unitGlow and not Locked(instance.unitGlow.container) then
-      instance.unitGlow.container:SetEnabled(false)
-      instance.unitGlow.container:Hide()
+    if instance.unitGlow then
+      if Locked(instance.unitGlow.container) then
+        lockedHide[region] = true
+      else
+        instance.unitGlow.container:SetEnabled(false)
+        instance.unitGlow.container:Hide()
+      end
     end
   end
 end
@@ -929,12 +981,7 @@ function Display.Release(region)
     native.active = false
     native.instanceQueue = nil
     for _, instance in ipairs(native.instances) do
-      if Locked(instance.container) then
-        lockedHide[region] = true
-      else
-        instance.container:SetEnabled(false)
-        instance.container:Hide()
-      end
+      QuietInstance(region, instance)
       Display.RefreshSingle(instance, nil, false)
     end
     -- A released display draws nothing, so no Missing or Remaining Time part can be failing.
@@ -1354,6 +1401,10 @@ end
 
 function Display.IconsPerRow(data)
   if Display.FlowGroup(data) or Display.DrawsOne(data) or Display.UsesGate(data) or CompactUnits(data) then return end
+  -- One icon has nothing to wrap, and a display limited to one aura is drawn
+  -- with an aura slot (WantsSlot), which has no group layout to set: the row
+  -- layout below would raise "aura group 'Auras' was not found".
+  if Display.MaxAuras(data) == 1 then return end
   local count = tonumber(data.blizzardAuraDisplay and data.blizzardAuraDisplay.perRow)
   if count and count >= 1 then return math.floor(count) end
 end
@@ -2072,12 +2123,13 @@ local function DrainInstanceQueues()
     local queue = native and native.instanceQueue
     if not queue or not native.active or native.data ~= queue.data then
       instanceQueues[region] = nil
-    elseif Restricted() then
-      -- Kept; the end of restrictions restarts the drain.
-      if not queue.background then
-        native.instanceQueue, instanceQueues[region] = nil, nil
-        pending[region] = queue.data
-      end
+    elseif Restricted() and not queue.background then
+      -- An editor rebuild waits for restrictions to end (Apply). The reserve
+      -- of a display built in the background keeps growing in combat: its
+      -- new containers hold no auras yet, and a nameplate display loaded
+      -- during a fight needs them for the plates that appear in it.
+      native.instanceQueue, instanceQueues[region] = nil, nil
+      pending[region] = queue.data
     elseif debugprofilestop() > deadline then
       more = true
     else
@@ -2163,7 +2215,14 @@ function ApplyDisplay(region, data)
     pending[region] = data
     return
   end
-  if Restricted() then
+  -- ForeverAuras: only a display that already exists waits for restrictions
+  -- to end, since its buttons may hold live auras the client will not let
+  -- an addon touch. A first build has none: the client lets an addon create
+  -- a container, add its group, bind a unit and enable it in combat (probed
+  -- in game with auras secret), so an aura whose load conditions first
+  -- become true in combat is drawn then, not when the fight is over.
+  local existing = region.blizzardAuraDisplay
+  if Restricted() and existing and #existing.instances > 0 then
     pending[region] = data
     Warn(data, L["Display > Secret Aura Settings changes will apply when aura restrictions end."])
     return
@@ -2185,12 +2244,7 @@ function ApplyDisplay(region, data)
     TimedHookScript(region, "OnHide", function()
       Display.HideUnitGlows(region)
       for _, instance in ipairs(native.instances) do
-        if Locked(instance.container) then
-          lockedHide[region] = true
-        else
-          instance.container:SetEnabled(false)
-          instance.container:Hide()
-        end
+        QuietInstance(region, instance)
         Display.RefreshSingle(instance, nil, false)
       end
       SyncSounds(region)
@@ -2603,11 +2657,11 @@ events:SetScript("OnEvent", function(_, event, unit)
     lockedHide[region] = nil
     local native = region.blizzardAuraDisplay
     if native and not (native.active and region:IsShown()) then
+      -- ForeverAuras: the same switch-off as at release time, now that the
+      -- frames can be reached; a frame still locked is noted again.
       for _, instance in ipairs(native.instances) do
-        if not Locked(instance.container) then
-          instance.container:SetEnabled(false)
-          instance.container:Hide()
-        end
+        QuietInstance(region, instance)
+        Display.RefreshSingle(instance, nil, false)
       end
     end
   end

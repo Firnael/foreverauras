@@ -1,4 +1,4 @@
--- Modified for ForeverAuras, 2026-09-19.
+-- Modified for ForeverAuras, 2026-10-23.
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 ---@type string
 local AddonName = ...
@@ -387,8 +387,8 @@ WeakAuras.normalWidth = 1.3
 WeakAuras.halfWidth = WeakAuras.normalWidth / 2
 WeakAuras.doubleWidth = WeakAuras.normalWidth * 2
 local versionStringFromToc = C_AddOns.GetAddOnMetadata("ForeverAuras", "Version")
-local versionString = "0.92.125-BETA"
-local buildTime = "2026-10-15"
+local versionString = "1.0.0"
+local buildTime = "2026-10-23"
 
 -- Prerelease labels are case-insensitive; packages use the requested BETA spelling.
 if not versionString:lower():find("beta", 1, true) then

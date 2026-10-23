@@ -171,7 +171,10 @@ local function CreateNameOptions(aura_options, data, triggernum, size, isExactSp
     if collapsible and i == COLLAPSED_ROWS + 1 then
       aura_options[prefix .. "expand"] = {
         type = "execute",
-        width = WeakAuras.normalWidth,
+        -- ForeverAuras: a whole line. At normal width the button shared its
+        -- line with the next row's "or" and icon, and every row after it
+        -- wrapped one column out of step.
+        width = WeakAuras.doubleWidth,
         name = function()
           return expandedNameLists[listKey] and L["Show Fewer"] or (L["Show All (%d)"]):format(size - 1)
         end,

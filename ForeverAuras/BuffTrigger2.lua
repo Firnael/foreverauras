@@ -1,4 +1,4 @@
--- Modified for ForeverAuras, 2026-09-19.
+-- Modified for ForeverAuras, 2026-10-23.
 -- Modifications Copyright (C) 2026 ForeverAuras. Licensed under the GNU GPL v2 (see LICENSE).
 --[=[ BuffTrigger2.lua
 This file contains the "aura2" trigger for buffs and debuffs. It has replaced the older Bufftrigger 1, which is now gone.
@@ -1573,6 +1573,34 @@ local function SortMatchDataByUnitIndex(a, b)
   return a.expirationTime < b.expirationTime
 end
 
+-- ForeverAuras: diagnostic for Aura(s) Missing icons that show after a zone
+-- (see UpdateTriggerState). Prints the trigger, the time since the last
+-- loading screen and world entry, and the unit's auras as the client reports
+-- them at that moment: how many, how many with secret names or spell IDs,
+-- and whether the trigger's first name or spell ID is among them.
+local lastLoadingScreen, lastEnteringWorld = 0, 0
+function Private.DebugMissing(id, triggernum, triggerInfo, unit)
+  local now = GetTime()
+  local count, secret, found = 0, 0, false
+  local wantName = triggerInfo.auranames and triggerInfo.auranames[1]
+  local wantId = triggerInfo.auraspellids and triggerInfo.auraspellids[1]
+  local filter = triggerInfo.debuffType or "HELPFUL"
+  if unit and C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+    for index = 1, 80 do
+      local aura = C_UnitAuras.GetAuraDataByIndex(unit, index, filter)
+      if not aura then break end
+      count = count + 1
+      if issecretvalue(aura.name) or issecretvalue(aura.spellId) then
+        secret = secret + 1
+      elseif (wantName and aura.name == wantName) or (wantId and aura.spellId == wantId) then
+        found = true
+      end
+    end
+  end
+  print(("|cffff8800FA missing:|r %s #%d unit %s: %.2fs after loading screen, %.2fs after entering world; %d auras, %d secret, wanted %s"):format(
+    tostring(id), triggernum, tostring(unit), now - lastLoadingScreen, now - lastEnteringWorld, count, secret, found and "present" or "absent"))
+end
+
 local function UpdateTriggerState(time, id, triggernum)
   local triggerStates = WeakAuras.GetTriggerStateForTrigger(id, triggernum)
   local triggerInfo = triggerInfos[id][triggernum]
@@ -1612,6 +1640,13 @@ local function UpdateTriggerState(time, id, triggernum)
       if bestMatch then
         updated = UpdateStateWithMatch(time, bestMatch, triggerStates, cloneId, matchCount, unitCount, maxUnitCount, matchCount, totalStacks, affected, affectedUnits, unaffected, unaffectedUnits, role, mark)
       else
+        -- ForeverAuras: /run ForeverAuras.debugMissing = true logs every
+        -- "missing" result of a single-unit Aura(s) Missing trigger, with the
+        -- time since the last loading screen and what the client reports for
+        -- the unit right then, to capture the icons that show after a zone.
+        if WeakAuras.debugMissing and triggerInfo.singleMissing then
+          Private.DebugMissing(id, triggernum, triggerInfo, unit)
+        end
         updated = UpdateStateWithNoMatch(time, triggerStates, triggerInfo, cloneId, unit, 0, 0, maxUnitCount, 0, 0, affected, affectedUnits, unaffected, unaffectedUnits, role, mark)
       end
     else
@@ -1806,6 +1841,16 @@ recheckTriggerInfo = function(triggerInfo)
   triggerInfo.nextScheduledCheck = nil
 end
 
+-- ForeverAuras: the settle window after a loading screen (ScanUnitWithFilter,
+-- PrepareMatchData).
+local settling = false
+local settleGeneration = 0
+local SETTLE_DELAY = 1
+local EndSettle
+-- Triggers whose first evaluation waits for the window's rescan (LoadAura);
+-- an entry is dropped when its aura unloads (UnloadDisplays).
+local settleDeferred = {}
+
 local PrepareMatchData
 do
   local _time, _unit, _filter
@@ -1820,6 +1865,13 @@ do
 
   PrepareMatchData = function(unit, filter)
     if not matchDataUpToDate[unit] or not matchDataUpToDate[unit][filter] then
+      -- ForeverAuras: a trigger loading inside the settle window (an Out of
+      -- Combat aura loading as combat ends during a zone) must not record the
+      -- player's momentarily empty list as up to date; it is left unprepared
+      -- and the real scan at the end of the window fills it in.
+      if newAPI and settling and unit == "player" and C_UnitAuras.GetAuraDataByIndex(unit, 1, filter) == nil then
+        return
+      end
       if newAPI then
         _time = GetTime()
         _unit = unit
@@ -2008,6 +2060,17 @@ do
               end
             end
           end
+        elseif settling and unit == "player" and C_UnitAuras.GetAuraDataByIndex(unit, 1, filter) == nil then
+          -- ForeverAuras: the player's aura list is empty from the start of a
+          -- loading screen until shortly after entering the world (captured:
+          -- "0 auras" at 0.00s after entering world, the auras back a moment
+          -- later). A full scan that finds it empty in that window is skipped,
+          -- so the matches from before the zone stay and Aura(s) Missing
+          -- triggers do not flash; the player is scanned again, for real,
+          -- when the window ends (EndSettle). The cache is not marked up to
+          -- date by a skipped scan: a trigger loading before the rescan must
+          -- still see it as unprepared (LoadAura).
+          return
         else
           -- full
           -- clean first
@@ -2144,6 +2207,39 @@ end
 
 local function ScanUnit(time, unit, unitAuraUpdateInfo)
   ScanGroupUnit(time, matchDataChanged, UnitToUnitType(unit), unit, unitAuraUpdateInfo)
+end
+
+-- ForeverAuras: see ScanUnitWithFilter. The window opens at LOADING_SCREEN_ENABLED
+-- and at PLAYER_ENTERING_WORLD, and closes a second after the latter with a
+-- real scan of the player, so what the client reports then is what counts,
+-- whether or not an aura event announced it.
+local function BeginSettle(closing)
+  settleGeneration = settleGeneration + 1
+  settling = true
+  if not closing then return end
+  local generation = settleGeneration
+  C_Timer.After(SETTLE_DELAY, function()
+    -- A later loading screen owns the window now.
+    if generation ~= settleGeneration then return end
+    EndSettle()
+  end)
+end
+
+EndSettle = function()
+  settling = false
+  -- Always: a player whose first scan found nothing has no cache table yet,
+  -- and a unit nothing watches costs the scan an early return.
+  ScanUnit(GetTime(), "player")
+  -- The triggers that loaded during the window are evaluated now, on the
+  -- rescanned list (a buff really missing shows here, a present one does not).
+  local deferred = settleDeferred
+  settleDeferred = {}
+  for id, triggers in pairs(deferred) do
+    matchDataChanged[id] = matchDataChanged[id] or {}
+    for triggernum in pairs(triggers) do
+      matchDataChanged[id][triggernum] = true
+    end
+  end
 end
 
 local function AddScanFuncs(triggerInfo, filter, unit, scanFuncName, scanFuncSpellId, scanFuncGeneral)
@@ -2354,7 +2450,13 @@ local function EventHandler(frame, event, arg1, arg2, ...)
     else
       ScanUnit(time, arg1)
     end
+  elseif event == "LOADING_SCREEN_ENABLED" then
+    lastLoadingScreen = GetTime()
+    -- ForeverAuras: settle window (ScanUnitWithFilter).
+    BeginSettle(false)
   elseif event == "PLAYER_ENTERING_WORLD" then
+    lastEnteringWorld = GetTime()
+    BeginSettle(true)
     for unit in pairs(matchData) do
       ScanUnit(time, unit)
       if not UnitExistsFixed(unit) then
@@ -2446,6 +2548,7 @@ Buff2Frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 Buff2Frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 Buff2Frame:RegisterEvent("GROUP_ROSTER_UPDATE")
 Buff2Frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+Buff2Frame:RegisterEvent("LOADING_SCREEN_ENABLED")
 Buff2Frame:RegisterEvent("PARTY_MEMBER_DISABLE")
 Buff2Frame:RegisterEvent("PARTY_MEMBER_ENABLE")
 Buff2Frame:RegisterEvent("UNIT_TARGETABLE_CHANGED")
@@ -2646,6 +2749,8 @@ function BuffTrigger.UnloadAll()
   wipe(scanFuncSpellIdMulti)
   wipe(unitExistScanFunc)
   wipe(groupRoleScanFunc)
+  -- ForeverAuras: nothing unloaded here is evaluated by EndSettle.
+  wipe(settleDeferred)
   wipe(groupScanFuncs)
   wipe(rangeScanFuncs)
   wipe(raidMarkScanFuncs)
@@ -2714,6 +2819,22 @@ local function LoadAura(id, triggernum, triggerInfo)
   --   tinsert(rangeScanFuncs[triggerInfo.unit], triggerInfo)
   -- end
 
+  -- ForeverAuras: a single-unit Aura(s) Missing trigger on the player that
+  -- loads inside the settle window, while the player's list is still the
+  -- empty one (cache not prepared, PrepareMatchData), is not evaluated now:
+  -- with nothing in the cache it would show "missing" until the window's
+  -- rescan. It is evaluated by EndSettle instead, after that rescan.
+  local prepared = matchDataUpToDate.player or {}
+  if triggerInfo.debuffType == "BOTH" then
+    prepared = prepared.HELPFUL and prepared.HARMFUL
+  else
+    prepared = prepared[triggerInfo.debuffType]
+  end
+  if settling and triggerInfo.singleMissing and triggerInfo.unit == "player" and not prepared then
+    settleDeferred[id] = settleDeferred[id] or {}
+    settleDeferred[id][triggernum] = true
+    return
+  end
   matchDataChanged[id] = matchDataChanged[id] or {}
   matchDataChanged[id][triggernum] = true
 end
@@ -2775,6 +2896,8 @@ function BuffTrigger.UnloadDisplays(toUnload)
     raidMarkScanFuncs[id] = nil
     matchDataByTrigger[id] = nil
     matchDataChanged[id] = nil
+    -- ForeverAuras: an unloaded aura is not evaluated by EndSettle.
+    settleDeferred[id] = nil
   end
 
   for unitType, funcs in pairs(groupScanFuncs) do
@@ -3306,6 +3429,8 @@ function BuffTrigger.Add(data)
         fetchRole = trigger.unit ~= "multi" and trigger.fetchRole,
         fetchRaidMark = trigger.unit ~= "multi" and trigger.fetchRaidMark,
         groupTrigger = IsGroupTrigger(trigger),
+        -- ForeverAuras: for the Missing settle (UpdateTriggerState).
+        singleMissing = IsSingleMissing(trigger),
         ignoreSelf = effectiveIgnoreSelf,
         ignoreDead = effectiveIgnoreDead,
         ignoreDisconnected = effectiveIgnoreDisconnected,

@@ -2680,10 +2680,87 @@ local function RaiseMissing(missing, strata, level)
   missing.raisedLevel = level
 end
 
+-- ForeverAuras: the Missing veil. Across a loading screen the client reports
+-- a unit's auras absent for a moment before they arrive again, and a Show On
+-- Missing look flashed for that moment. From the start of a loading screen
+-- until a second after PLAYER_ENTERING_WORLD such a look is veiled (the clip's
+-- alpha, like a unit that does not exist). A clip the client will not let addon
+-- code touch right now (combat) is tried again each second, a limited number of
+-- times, so a veil never outlives combat.
+local settling = false
+local settleGeneration = 0
+local settleRetries = 0
+local settleTimer
+local SETTLE_DELAY = 1
+local SETTLE_RETRIES = 60
+
+local function MissingVeiled(missing, instance)
+  if not settling then return false end
+  local trigger = instance.data and Display.GetTrigger(instance.data)
+  return trigger ~= nil and Display.RawShowOn(trigger) == "showOnMissing"
+end
+
+local function MissingAlpha(missing, instance)
+  if missing.unitExists and not instance.statusHidden and not MissingVeiled(missing, instance) then return 1 end
+  return 0
+end
+
+function Display.SettleMissing()
+  -- One retry timer at most: a pending one is dropped whenever a pass runs
+  -- (an event, the unveil, or the timer itself).
+  if settleTimer then settleTimer:Cancel() end
+  settleTimer = nil
+  local retry = false
+  for region in Display.ActiveRegions() do
+    local native = region.blizzardAuraDisplay
+    for _, instance in ipairs(native and native.instances or {}) do
+      local missing = instance.single and instance.single.missing
+      if missing and missing.active and missing.clip then
+        if Locked(missing.clip) then
+          retry = true
+        else
+          missing.clip:SetAlpha(MissingAlpha(missing, instance))
+        end
+      end
+    end
+  end
+  if retry and settleRetries < SETTLE_RETRIES then
+    settleRetries = settleRetries + 1
+    settleTimer = C_Timer.NewTimer(1, Display.SettleMissing)
+  end
+end
+
+local settleEvents = CreateFrame("Frame")
+settleEvents:RegisterEvent("LOADING_SCREEN_ENABLED")
+settleEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+settleEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+settleEvents:SetScript("OnEvent", function(_, event)
+  if event == "PLAYER_REGEN_ENABLED" then
+    -- Clips locked in combat get their veil, or its lifting, now.
+    settleRetries = 0
+    Display.SettleMissing()
+    return
+  end
+  settleGeneration = settleGeneration + 1
+  settleRetries = 0
+  settling = true
+  Display.SettleMissing()
+  if event == "PLAYER_ENTERING_WORLD" then
+    local generation = settleGeneration
+    C_Timer.After(SETTLE_DELAY, function()
+      -- A later loading screen owns the veil now.
+      if generation ~= settleGeneration then return end
+      settling = false
+      settleRetries = 0
+      Display.SettleMissing()
+    end)
+  end
+end)
+
 function Display.RefreshSingleStatus(instance)
   local missing = instance.single and instance.single.missing
   if missing and missing.active and not Locked(missing.clip) then
-    missing.clip:SetAlpha(missing.unitExists and not instance.statusHidden and 1 or 0)
+    missing.clip:SetAlpha(MissingAlpha(missing, instance))
   end
 end
 
@@ -2753,7 +2830,8 @@ function Display.RefreshSingle(instance, unit, shown, force)
   local trigger = instance.data and Display.GetTrigger(instance.data)
   local keepWithoutUnit = trigger and trigger.unitExists
   missing.unitExists = keepWithoutUnit or Display.SingleUnitExists({unit = unit})
-  missing.clip:SetAlpha(missing.unitExists and not instance.statusHidden and 1 or 0)
+  -- ForeverAuras: veiled across loading screens (MissingAlpha).
+  missing.clip:SetAlpha(MissingAlpha(missing, instance))
   if shown and refresh then container:UpdateAllAuras(); Private.HitchCount("UpdateAllAuras") end
 end
 
