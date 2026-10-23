@@ -2873,6 +2873,32 @@ local function addControlsForCondition(args, order, data, conditionVariable, tot
     order = addControlsForChange(args, order, data, conditionVariable, totalAuraCount, conditions, i, j, allProperties, usedProperties, conditionTemplates);
   end
 
+  -- ForeverAuras: on an Aura (Modern) display, a condition the addon checks
+  -- itself (another trigger, a range check, a custom check, or the ordinary
+  -- part of an All of / Any of) cannot reach the live aura icon in combat:
+  -- the client forbids addon changes to it then, so the look is applied when
+  -- combat ends. Said here, where the condition is set up, so a working
+  -- setup is not reported as a bug (only Aura Active conditions on their own
+  -- are painted by the client during combat).
+  do
+    local display = OptionsPrivate.Private.BlizzardAuraDisplay
+    local deferred = false
+    if not data.controlledChildren and display.Enabled(data) and not display.NativeConditionKind(data, conditions[i].check) then
+      for _, change in ipairs(conditions[i].changes or {}) do
+        if change.property and display.IsNativeConditionProperty(data, change.property) then deferred = true; break end
+      end
+    end
+    if deferred then
+      args["condition" .. i .. "_combatNote"] = {
+        type = "description",
+        width = WeakAuras.doubleWidth,
+        name = "|cffff9900" .. L["In combat the game forbids addon changes to a live aura icon, so while the aura is shown this condition takes effect when combat ends. The Missing look is the addon's own and follows it at once. Only an 'Aura Active' condition on its own changes the live icon during combat."] .. "|r",
+        order = order,
+      }
+      order = order + 1
+    end
+  end
+
   args["condition" .. i .. "_addChange"] = {
     type = "execute",
     width = WeakAuras.normalWidth,
