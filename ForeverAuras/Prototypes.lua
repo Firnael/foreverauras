@@ -1219,6 +1219,38 @@ function WeakAuras.IsSpellKnownForLoad(spell, exact)
     if otherSpell and otherSpell ~= spell then
       return WeakAuras.IsSpellKnownForLoad(otherSpell)
     end
+  else
+    -- ForeverAuras: no name yet. Spell data loads lazily on this client, so
+    -- a rank the player does not know (the usual case for a Spell Known
+    -- condition naming one rank, matched by name) can have no name at
+    -- login; the load scan then said "not known" and nothing re-asked. The
+    -- data is requested, and its arrival runs the load scan again.
+    Private.RequestSpellKnownData(spell)
+  end
+end
+
+-- ForeverAuras: see IsSpellKnownForLoad. One load scan per frame however
+-- many requested spells arrive together.
+do
+  local requested = {}
+  local scanQueued = false
+  local frame = CreateFrame("Frame")
+  frame:RegisterEvent("SPELL_DATA_LOAD_RESULT")
+  frame:SetScript("OnEvent", function(_, _, spellId)
+    if issecretvalue(spellId) or not requested[spellId] then return end
+    requested[spellId] = nil
+    if scanQueued then return end
+    scanQueued = true
+    C_Timer.After(0, function()
+      scanQueued = false
+      Private.ScanForLoads(nil, "SPELLS_CHANGED")
+    end)
+  end)
+  function Private.RequestSpellKnownData(spell)
+    if type(spell) ~= "number" or requested[spell] or not (C_Spell and C_Spell.RequestLoadSpellData) then return end
+    if C_Spell.DoesSpellExist and not C_Spell.DoesSpellExist(spell) then return end
+    requested[spell] = true
+    pcall(C_Spell.RequestLoadSpellData, spell)
   end
 end
 
