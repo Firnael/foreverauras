@@ -1230,27 +1230,42 @@ function WeakAuras.IsSpellKnownForLoad(spell, exact)
 end
 
 -- ForeverAuras: see IsSpellKnownForLoad. One load scan per frame however
--- many requested spells arrive together.
+-- many requested spells arrive together. A spell the client reports it could
+-- not load, or whose request threw, is not asked for again this session. A
+-- scan wanted before login has finished waits for it (ScanForLoads declines
+-- to run until then) rather than being dropped.
 do
-  local requested = {}
+  local requested, failed = {}, {}
   local scanQueued = false
+  local function RunScan()
+    if not WeakAuras.IsLoginFinished() then
+      C_Timer.After(1, RunScan)
+      return
+    end
+    scanQueued = false
+    Private.ScanForLoads(nil, "SPELLS_CHANGED")
+  end
   local frame = CreateFrame("Frame")
   frame:RegisterEvent("SPELL_DATA_LOAD_RESULT")
-  frame:SetScript("OnEvent", function(_, _, spellId)
+  frame:SetScript("OnEvent", function(_, _, spellId, success)
     if issecretvalue(spellId) or not requested[spellId] then return end
     requested[spellId] = nil
+    if issecretvalue(success) or success == false then
+      failed[spellId] = true
+      return
+    end
     if scanQueued then return end
     scanQueued = true
-    C_Timer.After(0, function()
-      scanQueued = false
-      Private.ScanForLoads(nil, "SPELLS_CHANGED")
-    end)
+    C_Timer.After(0, RunScan)
   end)
   function Private.RequestSpellKnownData(spell)
-    if type(spell) ~= "number" or requested[spell] or not (C_Spell and C_Spell.RequestLoadSpellData) then return end
+    if type(spell) ~= "number" or requested[spell] or failed[spell] or not (C_Spell and C_Spell.RequestLoadSpellData) then return end
     if C_Spell.DoesSpellExist and not C_Spell.DoesSpellExist(spell) then return end
     requested[spell] = true
-    pcall(C_Spell.RequestLoadSpellData, spell)
+    if not pcall(C_Spell.RequestLoadSpellData, spell) then
+      requested[spell] = nil
+      failed[spell] = true
+    end
   end
 end
 

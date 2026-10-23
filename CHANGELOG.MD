@@ -1,5 +1,8 @@
 # Changelog
 ## VERSIONS
+## 1.0.2
+- The spell-data request behind non-exact ‘Spell Known’ now survives a result that arrives during login, stops after a failed load, and doesn’t get stuck if the request itself fails.
+
 ## 1.0.1
 - A non-exact 'Spell Known' load condition naming a rank you don't have no longer fails at login while the client is still loading that spell's data; the aura loads as soon as it arrives.
 

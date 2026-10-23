@@ -2,7 +2,7 @@
 ## Interface: 16001, 120105
 ## Title: ForeverAuras
 ## Author: m33shoq, WeakAuras contributors
-## Version: 1.0.1
+## Version: 1.0.2
 ## X-License: GPL-2.0
 ## X-Copyright: ForeverAuras changes (C) 2026 ForeverAuras; WeakAuras (C) its contributors
 ## IconTexture: Interface\AddOns\ForeverAuras\Media\Textures\foreverauras_logo_64.tga
