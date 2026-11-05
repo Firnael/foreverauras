@@ -86,8 +86,8 @@ local function AddOptionsForSupportedSubRegion(regionOption, data, supported)
         result[kind .. "Detached"] = {
           type = "execute",
           width = WeakAuras.normalWidth,
-          name = "Add Detached " .. OptionsPrivate.Private.subRegionTypes[kind].displayName,
-          desc = "Appears once at this display's anchor. Conditions from other triggers can change it in combat. It does not follow individual secret auras. To show it only under a condition, turn off Show Text or Show Texture, then use a Visibility condition.",
+          name = L["Add Detached %s"]:format(OptionsPrivate.Private.subRegionTypes[kind].displayName),
+          desc = L["Appears once at this display's anchor. Conditions from other triggers can change it in combat. It does not follow individual secret auras. To show it only under a condition, turn off Show Text or Show Texture, then use a Visibility condition."],
           order = order,
           func = function() AddSubRegion(data, kind, true) end,
         }
@@ -311,7 +311,7 @@ function OptionsPrivate.GetDisplayOptions(data)
           allOptions.secretAura = OptionsPrivate.GetSecretAuraSettings(child)
         end
         if child.regionType == "icon" and allOptions.icon and not allOptions.icon.secretSwipeColor then
-          allOptions.icon.secretSwipeColor = {type = "color", name = "Swipe Color", hasAlpha = true, order = 11.9, width = WeakAuras.normalWidth}
+          allOptions.icon.secretSwipeColor = {type = "color", name = L["Swipe Color"], hasAlpha = true, order = 11.9, width = WeakAuras.normalWidth}
         end
       end
     end

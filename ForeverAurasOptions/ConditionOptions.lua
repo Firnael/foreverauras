@@ -1090,8 +1090,8 @@ local function addControlsForChange(args, order, data, conditionVariable, totalA
 
     args["condition" .. i .. "value" .. j .. "sound_fojji"] = {
       type = "input", width = WeakAuras.doubleWidth,
-      name = blueIfNoValue2(data, conditions[i].changes[j], "value", "sound_fojji", "Recorded phrase", "Recorded phrase"),
-      desc = "Exact phrase in your selected FojjiCore recorded voice pack. Live TTS is not supported.",
+      name = blueIfNoValue2(data, conditions[i].changes[j], "value", "sound_fojji", L["Recorded phrase"], L["Recorded phrase"]),
+      desc = L["Exact phrase in your selected FojjiCore recorded voice pack. Live TTS is not supported."],
       order = order,
       get = function()
         return type(conditions[i].changes[j].value) == "table" and conditions[i].changes[j].value.sound_fojji

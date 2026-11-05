@@ -420,7 +420,7 @@ function Theme.ShowLayoutMenu(anchor)
         ForeverAurasOptionsSaved = ForeverAurasOptionsSaved or {}
         if (value == "modern") ~= Theme.IsModern() then
           ForeverAurasOptionsSaved.windowStyle = value
-          WeakAuras.prettyPrint("The layout changes after /reload.")
+          WeakAuras.prettyPrint(L["The layout changes after /reload."])
         end
         LibDD:CloseDropDownMenus()
       end,
@@ -428,7 +428,7 @@ function Theme.ShowLayoutMenu(anchor)
   end
   ToggleMenu({
     {text = L["Layout"], isTitle = true, notCheckable = true},
-    Style("classic", "Classic"),
-    Style("modern", "Modern"),
+    Style("classic", L["Classic"]),
+    Style("modern", L["Modern"]),
   }, anchor)
 end

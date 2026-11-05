@@ -104,7 +104,7 @@ end
 -- Define the premade snippets
 local premadeSnippets = {
   {
-    name = "Basic function",
+    name = L["Basic function"],
     snippet = [=[
 function()
 
@@ -112,14 +112,14 @@ function()
 end]=]
   },
   {
-    name = "Custom Activation",
+    name = L["Custom Activation"],
     snippet = [=[
 function(trigger)
     return trigger[1] and (trigger[2] or trigger[3])
 end]=]
   },
   {
-    name = "Trigger: CLEU",
+    name = L["Trigger: CLEU"],
     snippet = [=[
 function(event, timestamp, subEvent, hideCaster, sourceGUID, sourceName, sourceFlags, sourceRaidFlags, destGUID, destName, destFlags, destRaidFlags, ...)
 
@@ -127,7 +127,7 @@ function(event, timestamp, subEvent, hideCaster, sourceGUID, sourceName, sourceF
 end]=]
   },
   {
-    name = "Simple throttle",
+    name = L["Simple throttle"],
     snippet = [=[
 if not aura_env.last or aura_env.last < GetTime() - 1 then
     aura_env.last = GetTime()
@@ -135,7 +135,7 @@ if not aura_env.last or aura_env.last < GetTime() - 1 then
 end]=]
   },
   {
-    name = "Trigger State Updater",
+    name = L["Trigger State Updater"],
     snippet = [=[
 function(allstates, event, ...)
     allstates:Update("", {
