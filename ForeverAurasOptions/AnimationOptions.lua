@@ -1126,11 +1126,11 @@ function OptionsPrivate.GetAnimationOptions(data)
     Section("start", L["Start"], 1, Display.auraStartTypes, {"none", "fade", "zoom", "spin", "bounce"}, 0.3)
     animation.args.start_gained = {type = "description", order = 3.5, width = "full", fontSize = "small",
       hidden = function() return not gained end,
-      name = "Show On: Aura(s) Gained plays its own fade in and out."}
+      name = L["Show On: Aura(s) Gained plays its own fade in and out."]}
     Section("main", L["Main"], 10, Display.auraMainTypes, {"none", "pulse", "spin", "wobble", "bounce"}, 1)
     animation.args.main_gained = {type = "description", order = 12.5, width = "full", fontSize = "small",
       hidden = function() return not gained end,
-      name = "Pulse is not available with Show On: Aura(s) Gained."}
+      name = L["Pulse is not available with Show On: Aura(s) Gained."]}
     animation.args.finish_header = {type = "header", name = L["Finish"], order = 20}
     animation.args.finish_type = {type = "select", name = L["Type"], order = 21, width = WeakAuras.normalWidth,
       values = {none = L["None"]}, disabled = true, get = function() return "none" end, set = function() end}

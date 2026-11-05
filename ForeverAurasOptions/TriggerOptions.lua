@@ -105,12 +105,12 @@ local function GetGlobalOptions(data)
     },
     secretFallback = {
       type = "select",
-      name = "When Aura (Modern) Filters Are Not Met, Use",
+      name = L["When Aura (Modern) Filters Are Not Met, Use"],
       desc = function()
-        local text = "Aura (Modern) triggers are always active. When their filters are not met, the display can use another trigger's information as a fallback. Select that trigger here."
+        local text = L["Aura (Modern) triggers are always active. When their filters are not met, the display can use another trigger's information as a fallback. Select that trigger here."]
         local display = OptionsPrivate.Private.BlizzardAuraDisplay
         if not display.GetSavedTrigger(data) then
-          text = text .. "\n\n|cffff9900Dynamic Information does not come from an Aura (Modern) trigger, so this has no effect.|r"
+          text = text .. L["\n\n|cffff9900Dynamic Information does not come from an Aura (Modern) trigger, so this has no effect.|r"]
         end
         -- ForeverAuras: the fallback is drawn by ForeverAuras in place of the
         -- client's display, which is not possible inside an Aura (Modern)
@@ -127,7 +127,7 @@ local function GetGlobalOptions(data)
       width = WeakAuras.doubleWidth,
       order = 2.35,
       values = function()
-        local vals = {next = "Next Active Trigger", none = "None"}
+        local vals = {next = L["Next Active Trigger"], none = L["None"]}
         for i, entry in ipairs(data.triggers) do
           if type(entry) == "table" and entry.trigger and entry.trigger.type ~= "secretAura" then
             vals[i] = ("Trigger %i"):format(i)
@@ -378,9 +378,9 @@ function OptionsPrivate.GetTriggerTitle(data, triggernum)
       local triggerType = trigger.type
       local name
       if triggerType == "secretAura" then
-        name = "Aura (Modern)"
+        name = L["Aura (Modern)"]
       elseif triggerType == "aura2" then
-        name = "Aura (Legacy)"
+        name = L["Aura (Legacy)"]
       elseif triggerType == "custom" then
         name = L["Custom"]
       elseif event_prototype then

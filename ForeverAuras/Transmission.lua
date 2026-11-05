@@ -243,7 +243,7 @@ local tooltipLoading;
 local receivedData;
 
 StaticPopupDialogs["FOREVERAURAS_COPY_URL"] = {
-  text = "%s\nPress Ctrl+C to copy the link.",
+  text = L["%s\nPress Ctrl+C to copy the link."],
   button1 = CLOSE,
   hasEditBox = true,
   editBoxWidth = 320,

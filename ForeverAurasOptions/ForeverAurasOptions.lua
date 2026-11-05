@@ -404,7 +404,7 @@ function OptionsPrivate.MultipleDisplayTooltipMenu()
     },
     -- A Group whose Aura (Modern) displays grow together (SecretAuraFlow.lua).
     {
-      text = "Add to new Modern Aura Group",
+      text = L["Add to new Modern Aura Group"],
       notCheckable = 1,
       func = function()
         CreateNewGroupFromSelection("group", false, {blizzardFlow = true, blizzardFlowGrowth = "RIGHT", blizzardFlowSpacing = 2, blizzardFlowOrigin = "group"})
@@ -1861,10 +1861,10 @@ local BaseDynamicTextCodes = {
 local function CDMTextCodes(trigger)
   if not trigger or trigger.type ~= "cdm" or trigger.event ~= "Blizzard CDM Buff" then return BaseDynamicTextCodes.trigger end
   return {
-    {type = "mini", name = "p", desc = "Blizzard duration text. Use alone in a text field. Native formatting and aura-detail options are available when the buff supplies progress."},
-    {type = "mini", name = "s", desc = "Blizzard stack text. Use alone in a text field. Native stack formatting is available when the buff supplies progress."},
-    {type = "mini", name = "caster", desc = "Blizzard aura caster name. Use alone in a text field."},
-    {type = "mini", name = "dispel", desc = "Blizzard aura dispel type. Use alone in a text field."},
+    {type = "mini", name = "p", desc = L["Blizzard duration text. Use alone in a text field. Native formatting and aura-detail options are available when the buff supplies progress."]},
+    {type = "mini", name = "s", desc = L["Blizzard stack text. Use alone in a text field. Native stack formatting is available when the buff supplies progress."]},
+    {type = "mini", name = "caster", desc = L["Blizzard aura caster name. Use alone in a text field."]},
+    {type = "mini", name = "dispel", desc = L["Blizzard aura dispel type. Use alone in a text field."]},
     BaseDynamicTextCodes.trigger[3], BaseDynamicTextCodes.trigger[4],
   }
 end
@@ -1873,9 +1873,9 @@ end
 -- the duration, stacks and name, each in its own text element
 -- (Display.ValidateAppearance). Other codes are not listed for those displays.
 local ModernTextCodes = {
-  {type = "mini", name = "p", desc = "Remaining time, drawn by Blizzard. Put it in its own text element."},
-  {type = "mini", name = "s", desc = "Stacks, drawn by Blizzard. Put it in its own text element."},
-  {type = "mini", name = "n", desc = "Aura name, drawn by Blizzard. Put it in its own text element."},
+  {type = "mini", name = "p", desc = L["Remaining time, drawn by Blizzard. Put it in its own text element."]},
+  {type = "mini", name = "s", desc = L["Stacks, drawn by Blizzard. Put it in its own text element."]},
+  {type = "mini", name = "n", desc = L["Aura name, drawn by Blizzard. Put it in its own text element."]},
   {type = "mini", name = "%", desc = L["% - To show a percent sign"]},
 }
 
@@ -1888,7 +1888,7 @@ function OptionsPrivate.UpdateTextReplacements(frame, data)
   local sortedProps = {}
 
   -- Add global header and markers
-  table.insert(sortedProps, {type = "header", triggerNum = 0, name = "Global Properties"})
+  table.insert(sortedProps, {type = "header", triggerNum = 0, name = L["Global Properties"]})
   for index, icon in ipairs(ICON_LIST) do
     table.insert(sortedProps, {type = "marker", triggerNum = 0, name = "{rt"..index.."}", desc = icon..":0|t", widthFraction = #ICON_LIST})
   end

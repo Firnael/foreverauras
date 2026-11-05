@@ -413,12 +413,12 @@ function OptionsPrivate.CreateFrame()
     end
   end
 
-  local fontButton = Theme.TextButton(frame, "Font")
+  local fontButton = Theme.TextButton(frame, L["Font"])
   fontButton:SetFrameLevel(frame.TitleContainer:GetFrameLevel() + 1)
   fontButton:SetPoint("RIGHT", minimizebutton, "LEFT", -4, 0)
   fontButton:SetScript("OnClick", function(self) Theme.ShowFontMenu(self) end)
   frame.fontButton = fontButton
-  local layoutButton = Theme.TextButton(frame, "Layout")
+  local layoutButton = Theme.TextButton(frame, L["Layout"])
   layoutButton:SetFrameLevel(frame.TitleContainer:GetFrameLevel() + 1)
   layoutButton:SetPoint("RIGHT", fontButton, "LEFT", -2, 0)
   layoutButton:SetScript("OnClick", function(self) Theme.ShowLayoutMenu(self) end)
@@ -591,7 +591,7 @@ function OptionsPrivate.CreateFrame()
   -- Restore the community footer link using the existing selectable-URL popup.
   -- This keeps link copying consistent with Find Auras and the original editor.
   local discordButton = addFooter("Discord", [[Interface\AddOns\ForeverAuras\Media\Textures\discord.tga]],
-    "https://discord.gg/UUMfEWD4Cy", "Join the ForeverAuras Discord community.", nil, nil, true)
+    "https://discord.gg/UUMfEWD4Cy", L["Join the ForeverAuras Discord community."], nil, nil, true)
   discordButton:SetParent(tipFrame)
   discordButton:SetPoint("RIGHT", wagoButton, "LEFT", -12, 0)
 
@@ -775,7 +775,7 @@ function OptionsPrivate.CreateFrame()
 
   if C_CooldownViewer then
     local hideCDM = AceGUI:Create("CheckBox")
-    hideCDM:SetLabel("Hide Blizzard's CDM")
+    hideCDM:SetLabel(L["Hide Blizzard's CDM"])
     hideCDM:SetWidth(150)
     hideCDM:SetValue(OptionsPrivate.Private.db.cdmHideBlizzard == true)
     hideCDM:SetCallback("OnValueChanged", function(_, _, value)
@@ -784,9 +784,9 @@ function OptionsPrivate.CreateFrame()
     end)
     hideCDM:SetCallback("OnEnter", function(widget)
       GameTooltip:SetOwner(widget.frame, "ANCHOR_RIGHT")
-      GameTooltip:SetText("Hide Blizzard's CDM")
+      GameTooltip:SetText(L["Hide Blizzard's CDM"])
       -- These native settings must be changed through Blizzard's own UI.
-      GameTooltip:AddLine("Keeps Blizzard's cooldown manager enabled for tracking while hiding its four viewers. Set each viewer's Visibility to Always in Blizzard's Edit Mode, and turn Show Tooltips off there if needed. Turning this off restores their previous opacity and leaves tracking enabled. Changes apply out of combat.", 1, 1, 1, true)
+      GameTooltip:AddLine(L["Keeps Blizzard's cooldown manager enabled for tracking while hiding its four viewers. Set each viewer's Visibility to Always in Blizzard's Edit Mode, and turn Show Tooltips off there if needed. Turning this off restores their previous opacity and leaves tracking enabled. Changes apply out of combat."], 1, 1, 1, true)
       GameTooltip:Show()
     end)
     hideCDM:SetCallback("OnLeave", function() GameTooltip:Hide() end)
@@ -1086,7 +1086,7 @@ function OptionsPrivate.CreateFrame()
     dynamicTextCodesFrameTitle = dynamicTextCodesFrame.TitleText
   end
   if dynamicTextCodesFrameTitle then
-    dynamicTextCodesFrameTitle:SetText("Dynamic Text Replacements")
+    dynamicTextCodesFrameTitle:SetText(L["Dynamic Text Replacements"])
     dynamicTextCodesFrameTitle:SetJustifyH("CENTER")
     dynamicTextCodesFrameTitle:SetPoint("LEFT", dynamicTextCodesFrame, "TOPLEFT")
     dynamicTextCodesFrameTitle:SetPoint("RIGHT", dynamicTextCodesFrame, "TOPRIGHT", -10, 0)
@@ -1595,11 +1595,11 @@ function OptionsPrivate.CreateFrame()
     -- (SecretAuraFlow.lua), listed first.
     if not targetIsDynamicGroup then
       local flowButton = AceGUI:Create("WeakAurasNewButton")
-      flowButton:SetTitle("Modern Aura Group")
+      flowButton:SetTitle(L["Modern Aura Group"])
       -- Its own icon frame: a frame shown on one button cannot be shared.
       frame.modernGroupIcon = frame.modernGroupIcon or OptionsPrivate.CreateModernGroupIcon()
       flowButton:SetIcon(frame.modernGroupIcon)
-      flowButton:SetDescription("A group whose Aura (Modern) displays grow together, also in combat")
+      flowButton:SetDescription(L["A group whose Aura (Modern) displays grow together, also in combat"])
       flowButton:SetClick(function()
         WeakAuras.NewAura({blizzardFlow = true, blizzardFlowGrowth = "RIGHT", blizzardFlowSpacing = 2, blizzardFlowOrigin = "group"}, "group", self:GetTargetAura())
       end)

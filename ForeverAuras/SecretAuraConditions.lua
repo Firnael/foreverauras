@@ -24,11 +24,11 @@ local elementProperties = {
 
 -- These checks are declarations consumed by Blizzard, never Lua state predicates.
 local durationVariables = {
-  faAuraRemaining = {"RemainingDuration", "Remaining Time", 1},
+  faAuraRemaining = {"RemainingDuration", L["Remaining Time"], 1},
   faAuraRemainingPercent = {"RemainingPercent", L["Remaining Time (%)"], 100},
-  faAuraElapsed = {"ElapsedDuration", "Elapsed Time", 1},
+  faAuraElapsed = {"ElapsedDuration", L["Elapsed Time"], 1},
   faAuraElapsedPercent = {"ElapsedPercent", L["Elapsed Time (%)"], 100},
-  faAuraTotal = {"TotalDuration", "Total Duration", 1},
+  faAuraTotal = {"TotalDuration", L["Total Duration"], 1},
   -- Game-clock timestamps (GetTime), not countdowns. Offered only where a
   -- display already uses them (Display.FilterConditionTemplates).
   faAuraStart = {"StartTime", L["Start Time (game clock)"], 1},
@@ -546,7 +546,7 @@ function Display.FilterConditionTemplates(data, templates)
         faAuraStealable = {display = L["Buff Is Stealable"], type = "alwaystrue"},
         faAuraNotStealable = {display = L["Buff Is Not Stealable"], type = "alwaystrue"},
         faAuraActive = {display = L["Aura Active"], type = "bool"},
-        faAuraType = {display = L["Aura Type"], type = "select", operator_types = "native_aura_dispel", values = {HELPFUL = "Buff", HARMFUL = "Debuff"}},
+        faAuraType = {display = L["Aura Type"], type = "select", operator_types = "native_aura_dispel", values = {HELPFUL = L["Buff"], HARMFUL = L["Debuff"]}},
         faAuraDispel = {display = L["Dispel Type"], type = "select", operator_types = "native_aura_dispel",
           values = {Magic = L["Magic"], Curse = L["Curse"], Disease = L["Disease"], Poison = L["Poison"], Bleed = L["Bleed"], Enrage = L["Enrage"], None = L["None"]}},
       }

@@ -1685,7 +1685,7 @@ Private.load_prototype = {
         end
         return ("Private.ExecEnv.ForeverSpecLoad({%s}, {%s})"):format(table.concat(positive, ", "), table.concat(negative, ", "))
       end,
-      desc = "Your specialization is the talent tree with 21 or more points; with several, the one with the most points. Click a tree once to load for it (green), twice to never load for it (red). With only red trees, every other tree loads. Feral Combat includes both cat and bear builds.",
+      desc = L["Your specialization is the talent tree with 21 or more points; with several, the one with the most points. Click a tree once to load for it (green), twice to never load for it (red). With only red trees, every other tree loads. Feral Combat includes both cat and bear builds."],
     },
     {
       name = "talent",
@@ -2380,7 +2380,7 @@ local unitHelperFunctions = {
 }
 
 Private.event_categories = {
-  cdm = {name = "Blizzard Cooldown Manager", default = "Blizzard Cooldown Manager"},
+  cdm = {name = L["Blizzard Cooldown Manager"], default = "Blizzard Cooldown Manager"},
   spell = {
     name = L["Spell"],
     default = "Cooldown Progress (Spell)"
@@ -2418,9 +2418,9 @@ local GetNameAndIconForSpellName = function(trigger)
 end
 
 local castReadableArgs = {
-  {"spellNames", "Name(s)"}, {"spellIds", "Exact Spell ID(s)"}, {"spellId", "Spell ID"}, {"spell", "Spellname"},
-  {"interruptible", "Interruptible"}, {"remaining", "Remaining Time"},
-  {"empowered", "Empowered"}, {"stage", "Stage"}, {"stageTotal", "Stage Total"}, {"charged", "Charged"},
+  {"spellNames", L["Name(s)"]}, {"spellIds", L["Exact Spell ID(s)"]}, {"spellId", L["Spell ID"]}, {"spell", L["Spellname"]},
+  {"interruptible", L["Interruptible"]}, {"remaining", L["Remaining Time"]},
+  {"empowered", L["Empowered"]}, {"stage", L["Stage"]}, {"stageTotal", L["Stage Total"]}, {"charged", L["Charged"]},
 }
 local castSpellArgs = {spellNames = true, spellIds = true}
 
@@ -2447,21 +2447,20 @@ end
 function Private.CurveCombatStatus(kind, trigger, data, triggernum)
   trigger = type(trigger) == "table" and trigger or {}
   if kind == "power" and trigger.use_powertype and trigger.powertype == 99 then
-    return "|cffff2020Won't work in combat:|r Stagger checks."
+    return "|cffff2020" .. L["Won't work in combat:"] .. "|r " .. L["Stagger checks."]
   end
   local report = data and triggernum and Private.CurveCombatReport(data, triggernum)
-  if not report then return "|cff33ff99Works in combat.|r" end
+  if not report then return "|cff33ff99" .. L["Works in combat."] .. "|r" end
   local lines = {}
   local filters = report.filters or {}
   if #report.works > 0 then
-    lines[#lines + 1] = "|cff33ff99Works in combat:|r " .. table.concat(report.works, "; ") .. "."
+    lines[#lines + 1] = "|cff33ff99" .. L["Works in combat:"] .. "|r " .. table.concat(report.works, "; ") .. "."
   end
-  lines[#lines + 1] = "|cff33ff99You can use Conditions on " .. (kind == "power" and "Power" or "Health")
-    .. " values to change Alpha and Color, in and out of combat.|r"
+  lines[#lines + 1] = "|cff33ff99" .. (kind == "power" and L["You can use Conditions on Power values to change Alpha and Color, in and out of combat."] or L["You can use Conditions on Health values to change Alpha and Color, in and out of combat."]) .. "|r"
   for _, line in ipairs(filters) do lines[#lines + 1] = line end
   if #report.notes > 0 then lines[#lines + 1] = "|cffff9933" .. table.concat(report.notes, " ") .. "|r" end
   if #report.fails > 0 then
-    lines[#lines + 1] = "|cffff2020Won't work in combat:|r " .. table.concat(report.fails, "; ") .. "."
+    lines[#lines + 1] = "|cffff2020" .. L["Won't work in combat:"] .. "|r " .. table.concat(report.fails, "; ") .. "."
   end
   return table.concat(lines, "\n")
 end
@@ -2470,7 +2469,7 @@ function Private.CastCombatStatus(trigger)
   trigger = type(trigger) == "table" and trigger or {}
   local unit = trigger.unit or "player"
   if unit == "member" and type(trigger.specificUnit) == "string" and trigger.specificUnit:lower() == "player" then unit = "player" end
-  if unit == "player" then return "|cff33ff99Works in combat.|r" end
+  if unit == "player" then return "|cff33ff99" .. L["Works in combat."] .. "|r" end
   local blocked = {}
   for _, entry in ipairs(castReadableArgs) do
     local key, label = entry[1], entry[2]
@@ -2502,7 +2501,7 @@ Private.event_prototypes = {
   ["Blizzard CDM Item"] = Private.CooldownViewerItemPrototype,
   ["Swing Timer"] = {
     type = "unit",
-    name = "Swing Timer",
+    name = L["Swing Timer"],
     events = {},
     internal_events = {"FA_SWING_TIMER_UPDATE"},
     force_events = "FA_SWING_TIMER_UPDATE",
@@ -2519,10 +2518,10 @@ Private.event_prototypes = {
       ]]):format(hand, hand)
     end,
     args = {
-      {name = "swingType", display = "Weapon", type = "select", required = true, default = 0,
-        values = function() return {[0] = "Main Hand", [1] = "Off Hand", [2] = "Ranged"} end, test = "true"},
-      {name = "inRange", display = "Target In Range", type = "tristate", init = "inRange", store = true,
-        conditionType = "bool", desc = "Whether your target is within reach of this weapon."},
+      {name = "swingType", display = L["Weapon"], type = "select", required = true, default = 0,
+        values = function() return {[0] = L["Main Hand"], [1] = L["Off Hand"], [2] = L["Ranged"]} end, test = "true"},
+      {name = "inRange", display = L["Target In Range"], type = "tristate", init = "inRange", store = true,
+        conditionType = "bool", desc = L["Whether your target is within reach of this weapon."]},
       {name = "duration", hidden = true, init = "duration", test = "true", store = true},
       {name = "expirationTime", hidden = true, init = "expirationTime", test = "true", store = true},
       {name = "progressType", hidden = true, init = "progressType", test = "true", store = true},
@@ -4856,8 +4855,8 @@ Private.event_prototypes = {
       },
       {
         name = "showgcdtext",
-        display = "Show Global Cooldown Text",
-        desc = "Show countdown numbers for the global cooldown. Leave this off to show only spell cooldown and charge recharge text while keeping the GCD swipe.",
+        display = L["Show Global Cooldown Text"],
+        desc = L["Show countdown numbers for the global cooldown. Leave this off to show only spell cooldown and charge recharge text while keeping the GCD swipe."],
         type = "toggle",
         test = "true",
         enable = function(trigger) return trigger.use_showgcd == true end,
@@ -6729,11 +6728,11 @@ if issecretvalue(role) or role == nil or role == "NONE" then return false end
 ]]
     end,
     args = {
-      {name = "role", display = "Role", type = "select", required = true, default = "DAMAGER",
-        values = function() return {TANK = "Tank", HEALER = "Healer", DAMAGER = "Damager"} end,
+      {name = "role", display = L["Role"], type = "select", required = true, default = "DAMAGER",
+        values = function() return {TANK = L["Tank"], HEALER = L["Healer"], DAMAGER = L["Damager"]} end,
         init = "role", store = true, conditionType = "select"},
       {name = "name", init = "role", hidden = true, store = true, test = "true"},
-      {name = "roleNote", type = "description", display = "", text = function() return "Checks your assigned role. No match when the game reports no assigned role." end},
+      {name = "roleNote", type = "description", display = "", text = function() return L["Checks your assigned role. No match when the game reports no assigned role."] end},
     },
   },
   ["Tracking"] = {
@@ -6749,17 +6748,17 @@ if (showOn == "active" and not active) or (showOn == "inactive" and active) then
 ]]):format(trigger.trackingType or "", trigger.trackingShow or "active")
     end,
     args = {
-      {name = "trackingType", display = "Tracking Type", type = "select", required = true,
+      {name = "trackingType", display = L["Tracking Type"], type = "select", required = true,
         values = function(trigger) return Private.ExecEnv.GetTrackingChoices(trigger.trackingType) end, test = "true"},
-      {name = "trackingShow", display = "Show On", type = "select", required = true,
-        default = "active", values = function() return {active = "Active", inactive = "Inactive", always = "Always"} end, test = "true"},
-      {name = "active", display = "Tracking Active", init = "active", hidden = true, store = true, test = "true", conditionType = "bool"},
+      {name = "trackingShow", display = L["Show On"], type = "select", required = true,
+        default = "active", values = function() return {active = L["Active"], inactive = L["Inactive"], always = L["Always"]} end, test = "true"},
+      {name = "active", display = L["Tracking Active"], init = "active", hidden = true, store = true, test = "true", conditionType = "bool"},
       {name = "name", init = "name", hidden = true, store = true, test = "true"},
       {name = "icon", init = "icon", hidden = true, store = true, test = "true"},
     },
   },
   ["Equipment Durability"] = {
-    type = "item", name = "Equipment Durability", statesParameter = "one",
+    type = "item", name = L["Equipment Durability"], statesParameter = "one",
     automaticrequired = true, progressType = "static",
     events = {events = {"UPDATE_INVENTORY_DURABILITY","PLAYER_EQUIPMENT_CHANGED","PLAYER_ENTERING_WORLD"}},
     force_events = "PLAYER_ENTERING_WORLD",
@@ -6771,30 +6770,30 @@ local progress = %s
 ]]):format(slot, trigger.durabilityProgress == "lowest" and "lowest" or "overall")
     end,
     args = {
-      {name = "durabilitySlot", display = "Equipment Slot", type = "select", required = true, default = 0,
+      {name = "durabilitySlot", display = L["Equipment Slot"], type = "select", required = true, default = 0,
         values = function()
-          local slots = {[0] = "All Equipped Items"}
+          local slots = {[0] = L["All Equipped Items"]}
           for slot, name in pairs(Private.item_slot_types) do
             if slot >= 1 and slot <= 19 then slots[slot] = name end
           end
           return slots
         end, test = "true"},
-      {name = "durabilityProgress", display = "Progress Value", type = "select", required = true, default = "overall",
-        values = function() return {overall = "Overall Durability (%)", lowest = "Lowest Item Durability (%)"} end, test = "true"},
-      {name = "durabilityNote", type = "description", display = "", text = function() return "Checks equipped items only. Empty slots and items without durability are ignored. Progress Value controls %p. Values are percentages from 0 to 100." end},
-      {name = "lowest", display = "Lowest Item Durability (%)", type = "number", init = "lowest", store = true, conditionType = "number"},
-      {name = "overall", display = "Overall Durability (%)", type = "number", init = "overall", store = true, conditionType = "number"},
-      {name = "broken", display = "Broken Items", type = "number", init = "broken", store = true, conditionType = "number"},
-      {name = "itemCount", display = "Items with Durability", type = "number", init = "itemCount", store = true, conditionType = "number", hidden = true, test = "true"},
-      {name = "value", display = "Progress Value", type = "number", init = "progress", store = true, conditionType = "number", hidden = true, test = "true"},
-      {name = "total", display = "Progress Total", type = "number", init = "100", store = true, conditionType = "number", hidden = true, test = "true"},
+      {name = "durabilityProgress", display = L["Progress Value"], type = "select", required = true, default = "overall",
+        values = function() return {overall = L["Overall Durability (%)"], lowest = L["Lowest Item Durability (%)"]} end, test = "true"},
+      {name = "durabilityNote", type = "description", display = "", text = function() return L["Checks equipped items only. Empty slots and items without durability are ignored. Progress Value controls %p. Values are percentages from 0 to 100."] end},
+      {name = "lowest", display = L["Lowest Item Durability (%)"], type = "number", init = "lowest", store = true, conditionType = "number"},
+      {name = "overall", display = L["Overall Durability (%)"], type = "number", init = "overall", store = true, conditionType = "number"},
+      {name = "broken", display = L["Broken Items"], type = "number", init = "broken", store = true, conditionType = "number"},
+      {name = "itemCount", display = L["Items with Durability"], type = "number", init = "itemCount", store = true, conditionType = "number", hidden = true, test = "true"},
+      {name = "value", display = L["Progress Value"], type = "number", init = "progress", store = true, conditionType = "number", hidden = true, test = "true"},
+      {name = "total", display = L["Progress Total"], type = "number", init = "100", store = true, conditionType = "number", hidden = true, test = "true"},
       {name = "progressType", init = "'static'", hidden = true, store = true, test = "true"},
       {name = "name", init = "'Equipment Durability'", hidden = true, store = true, test = "true"},
       {name = "icon", init = "132530", hidden = true, store = true, test = "true"},
     },
   },
   ["Bag Space"] = {
-    type = "item", name = "Bag Space", statesParameter = "one",
+    type = "item", name = L["Bag Space"], statesParameter = "one",
     automaticrequired = true, progressType = "static",
     events = {events = {"BAG_UPDATE_DELAYED","BAG_CONTAINER_UPDATE","PLAYER_ENTERING_WORLD"}},
     force_events = "PLAYER_ENTERING_WORLD",
@@ -6804,14 +6803,14 @@ if free == nil then return false end
 ]]):format(trigger.use_includeSpecialty and "true" or "false")
     end,
     args = {
-      {name = "includeSpecialty", display = "Include Specialty Bags", type = "toggle", test = "true"},
-      {name = "bagNote", type = "description", display = "", text = function() return "Counts carried bags, not bank storage. By default only general-purpose slots count. Specialty bags may only accept certain item types." end},
-      {name = "free", display = "Free Slots", type = "number", init = "free", store = true, conditionType = "number"},
-      {name = "used", display = "Used Slots", type = "number", init = "used", store = true, conditionType = "number"},
-      {name = "totalSlots", display = "Total Slots", type = "number", init = "totalSlots", store = true, conditionType = "number"},
-      {name = "freePercent", display = "Free Space (%)", type = "number", init = "freePercent", store = true, conditionType = "number"},
-      {name = "value", display = "Progress Value", type = "number", init = "free", store = true, conditionType = "number", hidden = true, test = "true"},
-      {name = "total", display = "Progress Total", type = "number", init = "totalSlots", store = true, conditionType = "number", hidden = true, test = "true"},
+      {name = "includeSpecialty", display = L["Include Specialty Bags"], type = "toggle", test = "true"},
+      {name = "bagNote", type = "description", display = "", text = function() return L["Counts carried bags, not bank storage. By default only general-purpose slots count. Specialty bags may only accept certain item types."] end},
+      {name = "free", display = L["Free Slots"], type = "number", init = "free", store = true, conditionType = "number"},
+      {name = "used", display = L["Used Slots"], type = "number", init = "used", store = true, conditionType = "number"},
+      {name = "totalSlots", display = L["Total Slots"], type = "number", init = "totalSlots", store = true, conditionType = "number"},
+      {name = "freePercent", display = L["Free Space (%)"], type = "number", init = "freePercent", store = true, conditionType = "number"},
+      {name = "value", display = L["Progress Value"], type = "number", init = "free", store = true, conditionType = "number", hidden = true, test = "true"},
+      {name = "total", display = L["Progress Total"], type = "number", init = "totalSlots", store = true, conditionType = "number", hidden = true, test = "true"},
       {name = "progressType", init = "'static'", hidden = true, store = true, test = "true"},
       {name = "name", init = "'Bag Space'", hidden = true, store = true, test = "true"},
       {name = "icon", init = "133633", hidden = true, store = true, test = "true"},
@@ -6836,20 +6835,20 @@ if count == nil then return false end
     args = {
       {
         name = "ammoItemIDs",
-        display = "Item IDs",
+        display = L["Item IDs"],
         type = "string",
         required = true,
         test = "true",
         default = "",
         reloadOptions = true,
-        desc = "Leave blank to count the equipped ammo (or all carried ammo, see Count). Enter comma-separated item IDs to count only those ammo items. Bank storage is excluded.",
+        desc = L["Leave blank to count the equipped ammo (or all carried ammo, see Count). Enter comma-separated item IDs to count only those ammo items. Bank storage is excluded."],
         validate = function(_, value) return Private.ExecEnv.ValidateAmmoItemIDs(value) end,
       },
       -- With the IDs blank: the equipped ammo's icon and amount (what is
       -- shot), or every kind carried under a generic icon.
       {
         name = "ammoMode",
-        display = "Count",
+        display = L["Count"],
         type = "select",
         values = "ammo_mode_types",
         required = true,
@@ -6860,7 +6859,7 @@ if count == nil then return false end
       },
       {
         name = "count",
-        display = "Ammo Count",
+        display = L["Ammo Count"],
         type = "number",
         init = "count",
         store = true,
@@ -6921,7 +6920,7 @@ if count == nil then return false end
   -- changes for the slots holding the spell, so this never polls.
   ["Spell in Range (Action Bar)"] = {
     type = "spell",
-    name = "Spell in Range (Action Bar)",
+    name = L["Spell in Range (Action Bar)"],
     statesParameter = "one",
     automaticrequired = true,
     progressType = "none",
@@ -6948,19 +6947,19 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
         type = "spell",
         test = "true",
         showExactOption = true,
-        desc = "The spell must be on an action bar (any page). Without Exact Spell ID, any rank on the bars counts.",
+        desc = L["The spell must be on an action bar (any page). Without Exact Spell ID, any rank on the bars counts."],
       },
       {
         name = "actionBarNote",
         type = "description",
         display = "",
-        text = function() return "Spell must be on the Action Bar. Cheaper than the Spell in Range trigger." end,
+        text = function() return L["Spell must be on the Action Bar. Cheaper than the Spell in Range trigger."] end,
       },
       -- Range is only ever checked against the current target; Out of Range
       -- means a target exists and is out of range, so no-target is neither.
       {
         name = "rangeState",
-        display = "Show On",
+        display = L["Show On"],
         type = "select",
         values = "action_range_types",
         init = "rangeState",
@@ -6969,7 +6968,7 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
       },
       {
         name = "inRange",
-        display = "In Range",
+        display = L["In Range"],
         init = "inRange == true",
         hidden = true,
         store = true,
@@ -6978,7 +6977,7 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
       },
       {
         name = "slot",
-        display = "Action Slot",
+        display = L["Action Slot"],
         init = "slot",
         hidden = true,
         store = true,
@@ -7413,7 +7412,7 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
       {
         name = "stacks",
         display = L["Charges"],
-        desc = "Charges left on the enchant, such as poison charges. Also shown as %s in texts.",
+        desc = L["Charges left on the enchant, such as poison charges. Also shown as %s in texts."],
         type = "number",
         conditionType = "number",
         test = "true",
@@ -10451,7 +10450,7 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
         name = "spellName",
         required = true,
         display = L["Spell"],
-        desc = "Tracks whether Blizzard reports this spell as current or queued, including next-swing attacks such as Heroic Strike.",
+        desc = L["Tracks whether Blizzard reports this spell as current or queued, including next-swing attacks such as Heroic Strike."],
         type = "spell",
         test = "true",
         showExactOption = true,
@@ -10520,7 +10519,7 @@ local rangeState = inRange and "inRange" or (checksRange and "outOfRange") or "n
       {
         name = "inverse",
         display = L["Inverse"],
-        desc = "Show while the unit is out of the spell's range instead.",
+        desc = L["Show while the unit is out of the spell's range instead."],
         type = "toggle",
         test = "true",
       },

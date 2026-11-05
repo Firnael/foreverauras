@@ -230,7 +230,7 @@ function Trigger.Rename(oldid, newid)
 end
 
 function Trigger.FinishLoadUnload() end
-function Trigger.GetName() return "Aura (Modern)" end
+function Trigger.GetName() return L["Aura (Modern)"] end
 function Trigger.CanHaveTooltip() return false end
 function Trigger.SetToolTip() return false end
 function Trigger.GetOverlayInfo() return {} end

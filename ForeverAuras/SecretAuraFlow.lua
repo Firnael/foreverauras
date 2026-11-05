@@ -249,9 +249,9 @@ function Display.FlowFrameMode(data)
 end
 
 Display.flowSortModes = {
-  none = "None", ascending = "Ascending", descending = "Descending",
-  expiration = "Remaining time (Blizzard priority)", name = L["Name"], namePriority = "Name (Blizzard priority)",
-  blizzard = "Blizzard default", important = "Importance only", bigDefensive = "Big defensives", applied = "Order applied",
+  none = L["None"], ascending = L["Ascending"], descending = L["Descending"],
+  expiration = L["Remaining time (Blizzard priority)"], name = L["Name"], namePriority = L["Name (Blizzard priority)"],
+  blizzard = L["Blizzard default"], important = L["Importance only"], bigDefensive = L["Big defensives"], applied = L["Order applied"],
 }
 Display.flowSortOrder = {"ascending", "descending", "expiration", "name", "namePriority", "blizzard", "important", "bigDefensive", "applied", "none"}
 -- ForeverAuras: the Sort list offers the orders that differ on this client.

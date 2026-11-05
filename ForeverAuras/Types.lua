@@ -3290,7 +3290,7 @@ Register("sound", "Yeehaw", PowerAurasSoundPath.."yeehaw.ogg")
 
 ---@type table<string, string>
 Private.sound_types = {
-  [" Fojji"] = "FojjiCore recorded voice",
+  [" Fojji"] = L["FojjiCore recorded voice"],
   [" custom"] = " " .. L["Custom"],
   [" KitID"] = " " .. L["Sound by Kit ID"]
 }
@@ -3685,7 +3685,7 @@ Private.update_categories = {
       "exrtToSend",
     },
     default = false,
-    label = "WASync settings",
+    label = L["WASync settings"],
   },
 }
 

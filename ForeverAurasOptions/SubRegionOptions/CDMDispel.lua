@@ -16,4 +16,4 @@ local function createOptions(parentData, data, index, subIndex)
   OptionsPrivate.AddUpDownDeleteDuplicate(options, parentData, index, "subcdmdispel")
   return options
 end
-WeakAuras.RegisterSubRegionOptions("subcdmdispel", createOptions, "Shows Blizzard's native dispel-type icon.")
+WeakAuras.RegisterSubRegionOptions("subcdmdispel", createOptions, L["Shows Blizzard's native dispel-type icon."])

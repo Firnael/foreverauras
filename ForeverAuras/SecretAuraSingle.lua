@@ -2987,7 +2987,7 @@ function Display.StyleDurationGate(native, data)
     -- Remaining Time on bars, progress textures and texts: the same gate on
     -- the time left.
     local remainingLower, remainingUpper = Display.RemainingGateRange(data, trigger)
-    if remainingLower then lower, upper, property, label = remainingLower, remainingUpper, "RemainingDuration", "Remaining Time" end
+    if remainingLower then lower, upper, property, label = remainingLower, remainingUpper, "RemainingDuration", L["Remaining Time"] end
   end
   if not lower then
     gate:Hide()

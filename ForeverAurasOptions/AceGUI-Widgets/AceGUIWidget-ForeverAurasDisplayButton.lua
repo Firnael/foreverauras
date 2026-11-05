@@ -1186,7 +1186,7 @@ local methods = {
     local regionData = OptionsPrivate.Private.regionOptions[data.regionType or ""]
     local displayName = regionData and regionData.displayName or "";
     -- A Modern Aura Group is a Group with its own name.
-    if data.regionType == "group" and data.blizzardFlow then displayName = "Modern Aura Group" end
+    if data.regionType == "group" and data.blizzardFlow then displayName = L["Modern Aura Group"] end
     self:SetDescription({data.id, displayName}, unpack(namestable));
   end,
   ["ReloadTooltip"] = function(self)

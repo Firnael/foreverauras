@@ -1,6 +1,7 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
 -- ForeverAuras colour palette, 2026-09-18. The native picker owns preview, opacity and cancellation.
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 local _, OptionsPrivate = ...
 local panel, session
 -- Alpha is opacity: expose percentages without changing the stored 0..1 value.
@@ -99,13 +100,13 @@ local function CreatePalette()
     end)
     button:SetScript("OnEnter", function()
       GameTooltip:SetOwner(button, "ANCHOR_TOP")
-      GameTooltip:SetText((button.title or "#" .. Hex(button.color)) .. (list == "favorites" and "\nRight-click to remove" or list == "recent" and "\nRight-click to favourite" or ""))
+      GameTooltip:SetText((button.title or "#" .. Hex(button.color)) .. (list == "favorites" and L["\nRight-click to remove"] or list == "recent" and L["\nRight-click to favourite"] or ""))
       GameTooltip:Show()
     end)
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return button
   end
-  Label("Class colours", -12)
+  Label(L["Class colours"], -12)
   local classes = {}
   for class in pairs(RAID_CLASS_COLORS) do classes[#classes + 1] = class end
   table.sort(classes)
@@ -115,13 +116,13 @@ local function CreatePalette()
     button.color = {color.r, color.g, color.b}; button.title = LOCALIZED_CLASS_NAMES_MALE[class] or class
     button.texture:SetColorTexture(unpack(button.color))
   end
-  Label("Favourites", -88)
-  Label("Recent colours", -162)
+  Label(L["Favourites"], -88)
+  Label(L["Recent colours"], -162)
   panel.favorites, panel.recent = {}, {}
   for i = 1, 16 do panel.favorites[i] = Swatch(i, -108, "favorites") end
   for i = 1, 8 do panel.recent[i] = Swatch(i, -182, "recent") end
   local favorite = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-  favorite:SetSize(116, 24); favorite:SetPoint("BOTTOMRIGHT", -10, 12); favorite:SetText("Save favourite")
+  favorite:SetSize(116, 24); favorite:SetPoint("BOTTOMRIGHT", -10, 12); favorite:SetText(L["Save favourite"])
   favorite:SetScript("OnClick", function() Remember(Database().favorites, {ColorPickerFrame:GetColorRGB()}, 16); Refresh() end)
   panel.hex = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
   panel.hex:SetSize(84, 24); panel.hex:SetPoint("BOTTOMLEFT", 18, 12); panel.hex:SetAutoFocus(false); panel.hex:SetMaxLetters(7)
@@ -142,7 +143,7 @@ local function CreatePalette()
   panel.alpha:SetPoint("BOTTOMRIGHT", content.HexBox, "TOPRIGHT", 0, 8)
   panel.alphaLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   panel.alphaLabel:SetPoint("BOTTOMLEFT", panel.alpha, "TOPLEFT", 0, 2)
-  panel.alphaLabel:SetText("Alpha (%)")
+  panel.alphaLabel:SetText(L["Alpha (%)"])
   panel.alpha:SetAutoFocus(false); panel.alpha:SetMaxLetters(12)
   panel.alpha:SetScript("OnTextChanged", function(self, userInput)
     if not userInput or not session or session.cancelled or not session.hasOpacity then return end

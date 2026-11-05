@@ -1,5 +1,6 @@
 -- Copyright (C) 2026 ForeverAuras. Part of ForeverAuras, licensed under the GNU GPL v2 (see LICENSE).
 if not WeakAuras.IsLibsOK() then return end
+local L = WeakAuras.L
 local _, Private = ...
 -- Frames and hooks from this file are timed by the profiler (see Private.TimedAPI).
 local CreateFrame, hooksecurefunc, TimedHookScript = Private.TimedAPI("SubCDMDispel")
@@ -47,6 +48,6 @@ local function release(region)
   region:Hide()
 end
 local function supports(kind) return kind == "icon" or kind == "aurabar" or kind == "progresstexture" end
-WeakAuras.RegisterSubRegionType("subcdmdispel", "Dispel Type Icon", supports, create, modify,
+WeakAuras.RegisterSubRegionType("subcdmdispel", L["Dispel Type Icon"], supports, create, modify,
   function(region) region:Show() end, release, defaults, nil,
-  {dispelVisible = {display = "Visibility", setter = "SetVisible", type = "bool", defaultProperty = true}})
+  {dispelVisible = {display = L["Visibility"], setter = "SetVisible", type = "bool", defaultProperty = true}})

@@ -55,7 +55,7 @@ local function GetOptions(data, triggernum)
     },
     specificUnit = {
       type = "input", name = L["Specific Unit"], order = 3.03, width = width,
-      desc = "party1-4, partypet1-4, raid1-40, raidpet1-40, boss1-8 or arena1-5.",
+      desc = L["party1-4, partypet1-4, raid1-40, raidpet1-40, boss1-8 or arena1-5."],
       hidden = function() return trigger.unit ~= "member" end,
       validate = function(_, value)
         if display.SpecificUnit({specificUnit = value}) then return true end
@@ -315,7 +315,7 @@ local function GetOptions(data, triggernum)
       options[key].desc = (key == "nameplateShowAll"
         and L["Only match auras Blizzard marks for display on all nameplates."]
         or L["Only match auras marked for Blizzard's personal-debuff display on nameplates. This does not refer to your personal resource bar."])
-        .. " This checks Blizzard's nameplate flag. It does not change where the icon appears or who cast the aura."
+        .. L[" This checks Blizzard's nameplate flag. It does not change where the icon appears or who cast the aura."]
     end
   end
   for index, key in ipairs({"includeDispelTypes", "excludeDispelTypes"}) do

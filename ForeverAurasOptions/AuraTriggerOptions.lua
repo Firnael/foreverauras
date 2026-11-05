@@ -122,7 +122,7 @@ function Editor.AddOptions(options, data, triggernum)
     -- everywhere; "=" and ">=" are drawn by a clip (Icons on screen). "=" also
     -- replaces every learned or described duration (glows).
     options.useTotal = {type = "toggle", name = L["Total Duration"], order = 10.05, width = WeakAuras.normalWidth,
-      desc = "= matches only auras of exactly this length and sets the duration assumed for glows.",
+      desc = L["= matches only auras of exactly this length and sets the duration assumed for glows."],
       hidden = function() return Gained() end,
       get = function() return trigger.secretUseTotal or false end,
       set = function(_, value)

@@ -616,7 +616,7 @@ local function createOptions(id, data)
   end
   local function FlowOff() return not data.blizzardFlow end
   local options = {
-    __title = data.blizzardFlow and "Modern Aura Group Settings" or L["Group Settings"],
+    __title = data.blizzardFlow and L["Modern Aura Group Settings"] or L["Group Settings"],
     __order = 1,
     -- Shown only for a Modern Aura Group (made from New or the group menu),
     -- laid out like the Dynamic Group settings.
@@ -662,7 +662,7 @@ local function createOptions(id, data)
     blizzardFlowGridType = {
       type = "select", width = WeakAuras.normalWidth, order = 0.631, name = L["Grid direction"],
       values = OptionsPrivate.Private.grid_types,
-      desc = "Every aura needs Show On: Aura(s) Found and the same single unit. A centered last row lines up with the rows above.",
+      desc = L["Every aura needs Show On: Aura(s) Found and the same single unit. A centered last row lines up with the rows above."],
       hidden = function() return FlowOff() or not Display.FlowGrid(data) end,
       get = function() return Display.GridType(data) end,
       set = function(_, v) SaveFlow("blizzardFlowGridType", v) end,
@@ -691,13 +691,13 @@ local function createOptions(id, data)
     },
     blizzardFlowUseFrames = {
       type = "toggle", width = WeakAuras.normalWidth, order = 0.62, name = L["Group by Frame"], hidden = FlowOff,
-      desc = "Show the auras on each unit's frame or nameplate. The Position and Size settings place them on the frame.",
+      desc = L["Show the auras on each unit's frame or nameplate. The Position and Size settings place them on the frame."],
       get = function() return data.blizzardFlowFrames ~= nil end,
       set = function(_, v) SaveFlow("blizzardFlowFrames", v and "UNITFRAME" or nil) end,
     },
     blizzardFlowFrames = {
       type = "select", width = WeakAuras.normalWidth, order = 0.63, name = L["Group by Frame"], hidden = FlowOff,
-      values = {UNITFRAME = "Unit Frames", NAMEPLATE = "Nameplates"}, sorting = {"UNITFRAME", "NAMEPLATE"},
+      values = {UNITFRAME = L["Unit Frames"], NAMEPLATE = L["Nameplates"]}, sorting = {"UNITFRAME", "NAMEPLATE"},
       disabled = function() return data.blizzardFlowFrames == nil end,
       get = function() return data.blizzardFlowFrames end,
       set = function(_, v) SaveFlow("blizzardFlowFrames", v) end,

@@ -5137,7 +5137,7 @@ end
 function GenericTrigger.GetProgressSources(data, triggernum, values)
   local prototype = GenericTrigger.GetPrototype(data.triggers[triggernum].trigger)
   if prototype and prototype.cooldownViewerProgress then
-    tinsert(values, {trigger = triggernum, property = "expirationTime", type = "timer", display = "Cooldown / aura duration", total = "duration", modRate = "modRate"})
+    tinsert(values, {trigger = triggernum, property = "expirationTime", type = "timer", display = L["Cooldown / aura duration"], total = "duration", modRate = "modRate"})
     return
   end
   if prototype and prototype.displayOnlyProgress then

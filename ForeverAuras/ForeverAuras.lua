@@ -6410,7 +6410,7 @@ local function ensureMouseFrame()
   label:SetJustifyH("LEFT")
   label:SetJustifyV("TOP")
   label:SetPoint("TOPLEFT", moverFrame, "BOTTOMLEFT");
-  label:SetText("ForeverAuras Anchor");
+  label:SetText(L["ForeverAuras Anchor"]);
 
   moverFrame:Hide();
 
@@ -6548,7 +6548,7 @@ function Private.ensurePRDFrame()
 
   local label = moverFrame:CreateFontString(nil, "BACKGROUND", "GameFontHighlight")
   label:SetPoint("CENTER", moverFrame, "CENTER");
-  label:SetText("ForeverAuras Anchor");
+  label:SetText(L["ForeverAuras Anchor"]);
 
   personalRessourceDisplayFrame:RegisterEvent('NAME_PLATE_UNIT_ADDED');
   personalRessourceDisplayFrame:RegisterEvent('NAME_PLATE_UNIT_REMOVED');
