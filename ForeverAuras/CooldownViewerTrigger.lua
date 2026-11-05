@@ -493,8 +493,8 @@ local function GetValues(trigger)
     if info then
       local identity = Private.CDMIdentity(id, entry, info, frames[id])
       local placement = entry.displayed == true and L["Displayed"] or entry.displayed == false and L["Not displayed"] or L["Layout unavailable"]
-      local learned = entry.known and "" or " â€” " .. L["Not learned"]
-      values[id] = placement .. " â€” " .. Private.CDMCategoryName(entry.category) .. " â€” " .. identity.name .. " [" .. (identity.spellID or identity.itemID or "Unknown") .. "]" .. learned
+      local learned = entry.known and "" or " — " .. L["Not learned"]
+      values[id] = placement .. " — " .. Private.CDMCategoryName(entry.category) .. " — " .. identity.name .. " [" .. (identity.spellID or identity.itemID or "Unknown") .. "]" .. learned
     end
   end
   for _, id in ipairs(GetSelections(trigger)) do
