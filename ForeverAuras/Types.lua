@@ -3492,16 +3492,16 @@ Private.item_slot_types = {
 -- Ammo: what a blank Item IDs field counts.
 ---@type table<string, string>
 Private.ammo_mode_types = {
-  equipped = "Equipped ammo",
-  all = "All carried ammo",
+  equipped = L["Equipped ammo"],
+  all = L["All carried ammo"],
 }
 
 -- Spell in Range (Action Bar): range is against the current target only.
 ---@type table<string, string>
 Private.action_range_types = {
-  inRange = "In Range",
-  outOfRange = "Out of Range",
-  noTarget = "No Target",
+  inRange = L["In Range"],
+  outOfRange = L["Out of Range"],
+  noTarget = L["No Target"],
 }
 
 ---@type table<string, string>

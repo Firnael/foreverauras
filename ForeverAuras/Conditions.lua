@@ -1576,40 +1576,40 @@ function Private.CurveCombatReport(data, triggernum)
   end
   if #works > 0 then report.works[#report.works + 1] = table.concat(works, ", ") end
   report.filters = {}
-  local value = kind == "power" and "power" or "health"
   if #outOfCombat > 0 then
-    report.filters[#report.filters + 1] = "|cffff9933Out of combat only:|r " .. table.concat(outOfCombat, ", ")
-      .. ". In combat the aura hides while this filter is set. To fade or hide by " .. value
-      .. " in combat, remove the filter and add a Condition that changes Alpha."
+    report.filters[#report.filters + 1] = "|cffff9933" .. L["Out of combat only:"] .. "|r " .. table.concat(outOfCombat, ", ")
+      .. ". " .. (kind == "power"
+        and L["In combat the aura hides while this filter is set. To fade or hide by power in combat, remove the filter and add a Condition that changes Alpha."]
+        or L["In combat the aura hides while this filter is set. To fade or hide by health in combat, remove the filter and add a Condition that changes Alpha."])
   end
   if #secret > 0 then
-    report.filters[#report.filters + 1] = "|cffff9933Out of combat only:|r " .. table.concat(secret, ", ")
-      .. ". In combat the aura hides while this filter is set; this can't be checked in combat."
+    report.filters[#report.filters + 1] = "|cffff9933" .. L["Out of combat only:"] .. "|r " .. table.concat(secret, ", ")
+      .. ". " .. L["In combat the aura hides while this filter is set; this can't be checked in combat."]
   end
   if #enemies > 0 then
-    report.filters[#report.filters + 1] = "|cffff9933In combat, won't match enemies in instances:|r " .. table.concat(enemies, ", ") .. "."
+    report.filters[#report.filters + 1] = "|cffff9933" .. L["In combat, won't match enemies in instances:"] .. "|r " .. table.concat(enemies, ", ") .. "."
   end
   if #never > 0 then
-    report.filters[#report.filters + 1] = "|cffff2020Never works as a filter:|r " .. table.concat(never, ", ")
-      .. ". The game always hides this from addons. Remove the filter and add a Condition that changes Alpha; that works in and out of combat."
+    report.filters[#report.filters + 1] = "|cffff2020" .. L["Never works as a filter:"] .. "|r " .. table.concat(never, ", ")
+      .. ". " .. L["The game always hides this from addons. Remove the filter and add a Condition that changes Alpha; that works in and out of combat."]
   end
 
   for conditionNumber, condition in ipairs(data.conditions or {}) do
     if UsesCurveVariable(condition.check, triggernum, kind) then
-      local label = "Condition " .. conditionNumber
+      local label = L["Condition %d"]:format(conditionNumber)
       local linked = condition.linked
       local expression = not other and not linked
         and PowerCurveExpression(data, condition.check, templates, triggernum, kind)
-      local word = kind == "power" and "Power" or "Health"
       if (trigger.unit or "player") ~= "player" and UsesAbsoluteCurveValue(condition.check, triggernum, kind) then
-        report.fails[#report.fails + 1] = label .. " (exact " .. word .. " and " .. word .. " Deficit need Max " .. word
-          .. ", which the game only shows for you; use " .. word .. " (%) instead)"
+        report.fails[#report.fails + 1] = label .. " (" .. (kind == "power"
+          and L["exact Power and Power Deficit need Max Power, which the game only shows for you; use Power (%) instead"]
+          or L["exact Health and Health Deficit need Max Health, which the game only shows for you; use Health (%) instead"]) .. ")"
       elseif other then
-        report.fails[#report.fails + 1] = label .. " (only one Power or Health trigger per aura can be checked in combat)"
+        report.fails[#report.fails + 1] = label .. " (" .. L["only one Power or Health trigger per aura can be checked in combat"] .. ")"
       elseif linked then
-        report.fails[#report.fails + 1] = label .. " (Else If conditions can't be checked in combat)"
+        report.fails[#report.fails + 1] = label .. " (" .. L["Else If conditions can't be checked in combat"] .. ")"
       elseif not expression then
-        report.fails[#report.fails + 1] = label .. " (combined with a check that can't be read in combat)"
+        report.fails[#report.fails + 1] = label .. " (" .. L["combined with a check that can't be read in combat"] .. ")"
       else
         local good, bad = {}, {}
         for _, change in ipairs(condition.changes or {}) do
@@ -1621,8 +1621,8 @@ function Private.CurveCombatReport(data, triggernum)
               and ((propertyData.type == "number" and tonumber(value)) or (propertyData.type == "color" and type(value) == "table"))
             local list = ok and good or bad
             local name = PropertyName(propertyData, property)
-            if mixed[property] and supported[property] then name = name .. " (also set by a Boolean condition)" end
-            if value == nil and propertyData.type == "number" then name = name .. " (no value set)" end
+            if mixed[property] and supported[property] then name = name .. " (" .. L["also set by a Boolean condition"] .. ")" end
+            if value == nil and propertyData.type == "number" then name = name .. " (" .. L["no value set"] .. ")" end
             list[#list + 1] = name
           end
         end

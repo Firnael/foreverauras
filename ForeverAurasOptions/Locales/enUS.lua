@@ -1246,6 +1246,7 @@ L["On Stack Gain"] = "On Stack Gain"
 L["Play each time one of the trigger's exact spell IDs gains a stack on the selected unit. Blizzard plays it on every stack gained; it cannot wait for a Stack Count filter."] = "Play each time one of the trigger's exact spell IDs gains a stack on the selected unit. Blizzard plays it on every stack gained; it cannot wait for a Stack Count filter."
 L["Use the name Blizzard's Cooldown Manager shows for the buff: a proc is listed under its talent (Clearcasting is Arcane Concentration)."] = "Use the name Blizzard's Cooldown Manager shows for the buff: a proc is listed under its talent (Clearcasting is Arcane Concentration)."
 L["|cffffffffNote:|r in combat this trigger stays active and Blizzard shows or hides the display."] = "|cffffffffNote:|r in combat this trigger stays active and Blizzard shows or hides the display."
+L["Detached %s"] = "Detached %s"
 for key, value in pairs(WeakAuras.L) do
   if value == true then WeakAuras.L[key] = key end
 end

@@ -190,7 +190,7 @@ function OptionsPrivate.PrepareSecretDisplayOptions(data, groups)
     local index = tonumber(groupKey:match("^sub%.(%d+)%."))
     local detached = index and Display.IsDetachedElement(data, data.subRegions and data.subRegions[index])
     if detached then
-      group.__title = "Detached " .. group.__title
+      group.__title = L["Detached %s"]:format(group.__title)
       if group.text_text then group.text_text.desc = L["Hardcoded text. Use Conditions from other triggers to show, hide or change this message."] end
       if group.text_text_pChoose then group.text_text_pChoose.disabled = true end
     end
