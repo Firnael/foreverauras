@@ -323,10 +323,10 @@ function OptionsPrivate.PrepareSecretActionOptions(data, action)
     disabled = function() return not stackOn() end,
   }
   action.args.stack_sound_fojji = {
-    type = "input", name = "Recorded phrase", width = "full", order = 41.41,
+    type = "input", name = L["Recorded phrase"], width = "full", order = 41.41,
     hidden = function() return (data.actions.stack or {}).sound ~= " Fojji" end,
     disabled = function() return not stackOn() end,
-    desc = "Exact phrase in your selected FojjiCore recorded voice pack. Live TTS is not supported.",
+    desc = L["Exact phrase in your selected FojjiCore recorded voice pack. Live TTS is not supported."],
   }
   -- Reuse the native unit-glow settings, never the Lua On Show glow action.
   local settings = data.blizzardAuraDisplay
